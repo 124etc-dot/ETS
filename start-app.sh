@@ -2,7 +2,7 @@
 set -e
 
 echo "==================================================="
-echo "    ETS Invoice & Payment OCR - Launcher v.0.1.3"
+echo "    ETS Invoice & Payment OCR - Launcher v.0.1.5"
 echo "==================================================="
 
 # Check if Node.js is installed
