@@ -1,8 +1,514 @@
+import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument } from '../types';
+
+// WARNING: Client-side Gemini API key usage requested by user for fully autonomous Vercel SPA deployment.
+// Key is retrieved from import.meta.env.VITE_GEMINI_API_KEY or localStorage.
+
+function getClientGeminiApiKey(): string {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) {
+    const key = String(import.meta.env.VITE_GEMINI_API_KEY).trim();
+    if (key && key !== 'MY_GEMINI_API_KEY') return key;
+  }
+  if (typeof window !== 'undefined') {
+    const fromStorage = localStorage.getItem('VITE_GEMINI_API_KEY') || localStorage.getItem('GEMINI_API_KEY');
+    if (fromStorage && fromStorage.trim()) return fromStorage.trim();
+  }
+  return '';
+}
+
+function detectAndNormalizeMimeType(base64: string, fallbackMime: string, fileName?: string): string {
+  const cleanHead = base64.replace(/\s+/g, '').slice(0, 30);
+  if (cleanHead.startsWith('JVBERi')) return 'application/pdf';
+  if (cleanHead.startsWith('/9j/') || cleanHead.startsWith('/9J/')) return 'image/jpeg';
+  if (cleanHead.startsWith('iVBORw')) return 'image/png';
+  if (cleanHead.startsWith('UklGR')) return 'image/webp';
+  if (cleanHead.startsWith('R0lGO')) return 'image/gif';
+
+  if (fileName) {
+    const ext = fileName.toLowerCase().split('.').pop() || '';
+    if (ext === 'pdf') return 'application/pdf';
+    if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'webp') return 'image/webp';
+    if (ext === 'gif') return 'image/gif';
+  }
+
+  if (fallbackMime === 'image/jpg' || fallbackMime === 'image/pjpeg' || fallbackMime === 'image/heic' || fallbackMime === 'image/heif') {
+    return 'image/jpeg';
+  }
+  if (fallbackMime === 'image/x-png') {
+    return 'image/png';
+  }
+
+  return fallbackMime || 'application/pdf';
+}
+
+function parseAmountToNumber(val: any): number {
+  if (val === null || val === undefined) return 0;
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  const cleanStr = String(val)
+    .replace(/[^\d.,]/g, '')
+    .replace(/\s+/g, '')
+    .replace(',', '.');
+  const num = parseFloat(cleanStr);
+  return isNaN(num) ? 0 : num;
+}
+
+const ocrResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    documentType: {
+      type: Type.STRING,
+      enum: ['invoice', 'payment', 'other'],
+      description: 'Document type: invoice (Рахунок, Рахунок-фактура, Акт) or payment (Платіжна інструкція, Платіжне доручення, Квитанція)',
+    },
+    documentTypeUkrainian: {
+      type: Type.STRING,
+      description: 'Ukrainian title of the document, e.g. "Рахунок на оплату" or "Платіжна інструкція"',
+    },
+    handwrittenOrderNumber: {
+      type: Type.STRING,
+      description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26"). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
+    },
+    handwrittenRawText: {
+      type: Type.STRING,
+      description: 'The exact raw handwritten text as seen on the document before normalization (e.g. "№ 123-26", "123-26", "зам. 45-26")',
+    },
+    handwrittenLocation: {
+      type: Type.STRING,
+      description: 'Location on the page where handwritten order was spotted, e.g. "Верхній правий кут", "Біля суми", "На полях", "Внизу біля підпису"',
+    },
+    handwrittenConfidence: {
+      type: Type.STRING,
+      enum: ['high', 'medium', 'low', 'none'],
+      description: 'Confidence in reading the handwritten internal order number',
+    },
+    supplierName: {
+      type: Type.STRING,
+      description: 'Supplier company name in strict format: "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES). E.g. "ТОВ ЛЕГНОПРОМ", "ТОВ ЕПІЦЕНТР К", "ТОВ ШОП ІНТЕРІОР", "ФОП ШЕВЧЕНКО І.В.". MUST NOT be our company name.',
+    },
+    supplierTaxId: {
+      type: Type.STRING,
+      description: 'Supplier EDRPOU / IPN code (ЄДРПОУ / ІПН постачальника)',
+    },
+    supplierIban: {
+      type: Type.STRING,
+      description: 'Supplier IBAN account number if visible',
+    },
+    buyerName: {
+      type: Type.STRING,
+      description: 'Buyer / Our company name in strict format: "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES). Matches one of the companies in our companies list.',
+    },
+    buyerTaxId: {
+      type: Type.STRING,
+      description: 'Buyer EDRPOU / IPN code',
+    },
+    invoiceNumber: {
+      type: Type.STRING,
+      description: 'Invoice number (Номер рахунку, e.g. "СФ-000452", "125")',
+    },
+    invoiceDate: {
+      type: Type.STRING,
+      description: 'Invoice issue date in YYYY-MM-DD format (e.g. "2026-03-15")',
+    },
+    invoiceDateOriginal: {
+      type: Type.STRING,
+      description: 'Original date string as printed on document, e.g. "15 березня 2026 р."',
+    },
+    totalAmount: {
+      type: Type.NUMBER,
+      description: 'Total payable amount as a float number (e.g. 14500.50)',
+    },
+    currency: {
+      type: Type.STRING,
+      description: 'Currency code, e.g. "UAH", "USD", "EUR", "PLN"',
+    },
+    vatAmount: {
+      type: Type.NUMBER,
+      description: 'VAT amount (ПДВ) if specified',
+    },
+    paymentNumber: {
+      type: Type.STRING,
+      description: 'Payment document number if doc is payment order / квитанція',
+    },
+    paymentDate: {
+      type: Type.STRING,
+      description: 'Payment execution date in YYYY-MM-DD format',
+    },
+    payerName: {
+      type: Type.STRING,
+      description: 'Payer company name in payment order',
+    },
+    payeeName: {
+      type: Type.STRING,
+      description: 'Payee company name in payment order',
+    },
+    amountPaid: {
+      type: Type.NUMBER,
+      description: 'Amount paid in payment order',
+    },
+    paymentPurpose: {
+      type: Type.STRING,
+      description: 'Payment purpose (Призначення платежу) from bank receipt',
+    },
+    referencedInvoiceNumber: {
+      type: Type.STRING,
+      description: 'Invoice number referenced in payment purpose, e.g. "СФ-000452" (if multiple, the first or joined by comma)',
+    },
+    referencedInvoiceNumbers: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: 'List of ALL invoice numbers referenced in payment purpose (e.g. ["124", "125", "126"] when accountant combines multiple paid invoices of the same supplier in one payment)',
+    },
+    referencedOrderNumber: {
+      type: Type.STRING,
+      description: 'Internal order number referenced in payment purpose if any',
+    },
+    notes: {
+      type: Type.STRING,
+      description: 'Helpful OCR notes or observations regarding handwriting quality, stamps, etc.',
+    },
+    confidenceScore: {
+      type: Type.NUMBER,
+      description: 'Overall OCR confidence percentage from 0 to 100',
+    },
+  },
+  required: [
+    'documentType',
+    'documentTypeUkrainian',
+  ],
+};
+
+async function executeClientSideGeminiOcr(params: {
+  fileData: string;
+  mimeType: string;
+  fileName: string;
+  ourCompanies: string[];
+  suppliers: string[];
+  knownOrders?: any[];
+  apiKey: string;
+}): Promise<OCRResult> {
+  const {
+    fileData,
+    mimeType: rawMimeType,
+    fileName,
+    ourCompanies,
+    suppliers,
+    knownOrders,
+    apiKey,
+  } = params;
+
+  const cleanBase64 = fileData.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+  const finalMimeType = detectAndNormalizeMimeType(cleanBase64, rawMimeType, fileName);
+
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-client-spa',
+      },
+    },
+  });
+
+  const ourCompaniesPromptList = Array.isArray(ourCompanies) && ourCompanies.length > 0
+    ? `\nСПИСОК НАШИХ КОМПАНІЙ (Одержувачі рахунків / Покупці / Платники):\n${ourCompanies.map((c: string) => `- ${c}`).join('\n')}`
+    : '\nСписок наших компаній не заданий — визнач покупця/платника самостійно.';
+
+  const suppliersPromptList = Array.isArray(suppliers) && suppliers.length > 0
+    ? `\nСПИСОК ВІДОМИХ ПОСТАЧАЛЬНИКІВ:\n${suppliers.map((s: string) => `- ${s}`).join('\n')}`
+    : '';
+
+  const knownOrdersPromptList = Array.isArray(knownOrders) && knownOrders.length > 0
+    ? `\nДОВІДНИК АКТИВНИХ ВНУТРІШНІХ ЗАМОВЛЕНЬ (для точної перевірки рукописного номера):\n${knownOrders.map((o: any) => `- Код: ${typeof o === 'string' ? o : o.code + ' (' + o.title + ')'}`).join('\n')}`
+    : '';
+
+  const systemPrompt = `Ти високоточний експертний модуль автоматичного розпізнавання (OCR) первинних фінансових документів (Рахунків на оплату та Банківських платіжок/квитанцій) для українського та міжнародного бізнесу.
+
+Перед тобою документ (PDF або фото) з ім'ям "${fileName}".
+
+${ourCompaniesPromptList}
+${suppliersPromptList}
+${knownOrdersPromptList}
+
+КРИТИЧНІ ПРАВИЛА РОЗПІЗНАВАННЯ:
+1. ТИП ДОКУМЕНТА:
+   - "invoice": Рахунок на оплату, Рахунок-фактура, Акт виконаних робіт, Видаткова накладна.
+   - "payment": Платіжна інструкція, Платіжне доручення, Банківська виписка, Меморіальний ордер, Квитанція про оплату.
+   - "other": Інший тип документа.
+
+2. КРИТИЧНО — ВНУТРІШНІЙ НОМЕР ЗАМОВЛЕННЯ (НАПИСАНИЙ ТІЛЬКИ ВІД РУКИ!):
+   - Це найважливіше поле! У нашій компанії менеджер або бухгалтер пише номер внутрішнього замовлення ВІД РУКИ (ручкою, олівцем, маркером) будь-де на документі (у верхньому кутку, біля шапки, біля підпису, на полях або під назвою "Рахунок").
+   - Формат внутрішнього номера: "ххх-хх" БЕЗ СИМВОЛУ "№"! Де "ххх" — це номер замовлення (від 1 до 6 цифр, наприклад 142, 089, 228, 45, 123, 1890), а "хх" — це дві цифри року (наприклад "26" для 2026 року, "25" для 2025 тощо).
+   - Приклади того, що може бути написано від руки: "№142-26", "№ 45-26", "142-26", "089-26", "№ 7-26", "зам. 312-26", "228-26".
+   - У полі "handwrittenOrderNumber" обов'язково стандартизуй до формату "ххх-хх" (ТІЛЬКИ цифри та дефіс, БЕЗ знаку №, наприклад "142-26", "089-26", "45-26").
+   - У полі "handwrittenRawText" вкажи точний текст, як він написаний рукою.
+   - У полі "handwrittenLocation" вкажи точне місце, де знайдено рукописний напис.
+   - У полі "handwrittenConfidence" вкажи 'high' (якщо чітко видно), 'medium' (якщо є сумніви в окремих цифрах), 'low' (якщо ледь розбірливо), або 'none' (якщо жодного рукописного напису немає).
+
+3. НАЗВА КОМПАНІЇ ПОСТАЧАЛЬНИКА (supplierName) ТА ПОКУПЦЯ (buyerName):
+   - СТРОГИЙ СТАНДАРТИЗОВАНИЙ ФОРМАТ: "ТОВ НАЗВА КОМПАНІЇ", ВСІ БУКВИ ВЕЛИКІ, БЕЗ ЛАПОК!
+   - Приклади: "ТОВ ЛЕГНОПРОМ", "ТОВ ЕПІЦЕНТР К", "ТОВ ШОП ІНТЕРІОР", "ФОП ШЕВЧЕНКО І.В.".
+   - КАТЕГОРИЧНО ЗАБОРОНЕНО ставити будь-які лапки (", ', «, ») чи залишати маленькі букви!
+   - supplierName: Це компанія, яка виставила рахунок (продавець / постачальник / виконавець).
+     ВАЖЛИВО: Назва постачальника НЕ МОЖЕ співпадати з назвою наших компаній!
+   - buyerName: Це компанія-платник або одержувач товару/послуги. Знайди точний збіг зі СПИСКУ НАШИХ КОМПАНІЙ і приведи до формату "ТОВ НАЗВА" великими буквами без лапок.
+
+4. НОМЕР ТА ДАТА РАХУНКУ:
+   - invoiceNumber: Номер рахунку (наприклад "СФ-000124", "452-М").
+   - invoiceDate: Дата виставлення у форматі РРРР-ММ-ДД (YYYY-MM-DD).
+
+5. СУМА ТА ВАЛЮТА (АПРІОРНЕ ПРАВИЛО: СУМА ДОКУМЕНТА ЗАВЖДИ > 0):
+   - У НАШІЙ БАЗІ ТА РОБОЧІЙ ПАПЦІ НЕ МОЖЕ БУТИ РАХУНКІВ АБО ПЛАТІЖОК З НУЛЬОВОЮ СУМОЮ (0 грн)!
+   - Кожен фінансовий документ у цій системі має реальну грошову суму (наприклад, 96 932.88 грн, 15 400.00 грн тощо).
+   - Шукай у документах поля: "Сума", "Сума цифрами", "Сума платежу", "Всього до сплати", "Разом", "Разом з ПДВ", "Всього", "Списано", "Сума у валюті рахунку", "Сума документа", або "Сума словами" (прописом).
+   - УВАГА: В українських банківських платіжках та рахунках сума часто пишеться з пробілами, комами або дефісом (наприклад: "96 932,88", "96932,88 грн", "96 932.88", "96 932-88", "96 932 грн. 88 коп."). ТИ МУСИШ перетворити це на стандартне числове значення з крапкою 96932.88!
+   - КАТЕГОРИЧНО ЗАБОРОНЕНО повертати 0, якщо на документі присутні будь-які грошові цифри чи суми словами!
+   - ЗАПИШИ ЦЮ СУМУ В ОБИДВА ПОЛЯ: "totalAmount" ТА "amountPaid"!
+   - currency: Валюта ("UAH", "USD", "EUR", "PLN").
+
+6. ДЛЯ ПЛАТІЖОК (payment):
+   - paymentNumber: номер платіжки (платіжної інструкції / квитанції)
+   - paymentDate: дата проведення (РРРР-ММ-ДД)
+   - payerName: платник (наша компанія, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ БУДМОНТАЖ-2026")
+   - payeeName: одержувач (постачальник, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ МЕТІНВЕСТ-СМЦ")
+   - amountPaid: точна сума оплати (наприклад 96932.88)
+   - totalAmount: така сама точна сума оплати (наприклад 96932.88)
+   - paymentPurpose: повне "Призначення платежу" дослівно
+   - referencedInvoiceNumber: номер рахунку (або перелік через кому/дефіс, наприклад "142, 143", "СФ-000142, СФ-000143")
+   - referencedInvoiceNumbers: МАСИВ УСІХ виявлених номерів рахунків (наприклад ["142", "143"] або ["СФ-000142", "СФ-000143", "125"]).
+   - referencedOrderNumber: внутрішній номер замовлення (ххх-хх), якщо згаданий у призначенні платежу
+
+Виконай ретельний аналіз кожного пікселя документа та поверни валідний JSON згідно зі схемою.`;
+
+  const candidateModels = [
+    'gemini-3.1-flash-lite',
+    'gemini-flash-latest',
+    'gemini-3.7-flash',
+  ];
+
+  let lastError: any = null;
+  let parsedResult: any = null;
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  for (const modelName of candidateModels) {
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    while (attempts < maxAttempts) {
+      attempts++;
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              inlineData: {
+                mimeType: finalMimeType,
+                data: cleanBase64,
+              },
+            },
+            {
+              text: systemPrompt,
+            },
+          ],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: ocrResponseSchema,
+            temperature: 0.1,
+          },
+        });
+
+        let responseText = response.text || '';
+        responseText = responseText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+
+        if (responseText) {
+          parsedResult = JSON.parse(responseText);
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        const errMsg = err?.message || String(err);
+        const isRetryable =
+          errMsg.includes('503') ||
+          errMsg.includes('UNAVAILABLE') ||
+          errMsg.includes('high demand') ||
+          errMsg.includes('429') ||
+          errMsg.includes('RESOURCE_EXHAUSTED');
+
+        console.warn(`[Client-Side OCR] Model ${modelName} attempt ${attempts} failed:`, errMsg);
+
+        if (isRetryable && attempts < maxAttempts) {
+          await sleep(800 * attempts + Math.floor(Math.random() * 300));
+          continue;
+        }
+        break;
+      }
+    }
+
+    if (parsedResult) {
+      break;
+    }
+  }
+
+  if (!parsedResult) {
+    throw new Error(lastError?.message || 'Не вдалося розпізнати документ за допомогою Gemini AI. Перевірте якість файлу або формат.');
+  }
+
+  // 1. Strictly format handwritten order number as xxx-xx without №
+  if (parsedResult.handwrittenOrderNumber) {
+    parsedResult.handwrittenOrderNumber = OCRService.normalizeOrderNumber(parsedResult.handwrittenOrderNumber);
+  }
+
+  // 2. Strictly format all company names to "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES)
+  if (parsedResult.supplierName) {
+    parsedResult.supplierName = OCRService.normalizeCompanyName(parsedResult.supplierName);
+  }
+  if (parsedResult.buyerName) {
+    parsedResult.buyerName = OCRService.normalizeCompanyName(parsedResult.buyerName);
+  }
+  if (parsedResult.payerName) {
+    parsedResult.payerName = OCRService.normalizeCompanyName(parsedResult.payerName);
+  }
+  if (parsedResult.payeeName) {
+    parsedResult.payeeName = OCRService.normalizeCompanyName(parsedResult.payeeName);
+  }
+
+  // Ensure amounts are properly parsed to numeric floats
+  parsedResult.totalAmount = parseAmountToNumber(parsedResult.totalAmount);
+  parsedResult.amountPaid = parseAmountToNumber(parsedResult.amountPaid);
+
+  // Payment-specific normalization and cross-filling
+  if (parsedResult.documentType === 'payment') {
+    if (parsedResult.payerName && !parsedResult.buyerName) {
+      parsedResult.buyerName = parsedResult.payerName;
+    }
+    if (parsedResult.payeeName && !parsedResult.supplierName) {
+      parsedResult.supplierName = parsedResult.payeeName;
+    }
+
+    if (parsedResult.amountPaid > 0 && parsedResult.totalAmount <= 0) {
+      parsedResult.totalAmount = parsedResult.amountPaid;
+    } else if (parsedResult.totalAmount > 0 && parsedResult.amountPaid <= 0) {
+      parsedResult.amountPaid = parsedResult.totalAmount;
+    }
+
+    // Regex fallback for amount in paymentPurpose or notes if still 0
+    if (parsedResult.amountPaid <= 0 && (parsedResult.paymentPurpose || parsedResult.notes)) {
+      const textToScan = `${parsedResult.paymentPurpose || ''} ${parsedResult.notes || ''}`;
+      const amountRegex = /(?:сума|в сумі|на суму|у т\.ч\.|разом|списано|грн\.?|UAH)\s*[:=]?\s*([0-9\s]{1,12}[,\.][0-9]{2})/i;
+      const match = textToScan.match(amountRegex);
+      if (match && match[1]) {
+        const parsed = parseAmountToNumber(match[1]);
+        if (parsed > 0) {
+          parsedResult.amountPaid = parsed;
+          parsedResult.totalAmount = parsed;
+        }
+      }
+    }
+
+    const uniqueInvoices = OCRService.extractAllInvoiceNumbers(
+      parsedResult.referencedInvoiceNumber,
+      parsedResult.referencedInvoiceNumbers,
+      parsedResult.paymentPurpose
+    );
+    if (uniqueInvoices.length > 0) {
+      parsedResult.referencedInvoiceNumbers = uniqueInvoices;
+      if (!parsedResult.referencedInvoiceNumber) {
+        parsedResult.referencedInvoiceNumber = uniqueInvoices.join(', ');
+      }
+    }
+
+    if (!parsedResult.handwrittenOrderNumber && parsedResult.paymentPurpose) {
+      const orderMatch = parsedResult.paymentPurpose.match(/(?:зам(?:овлення|\.?)|код)\s*([0-9]{1,4}-[0-9]{2})/i);
+      if (orderMatch && orderMatch[1]) {
+        parsedResult.handwrittenOrderNumber = orderMatch[1].trim();
+        parsedResult.referencedOrderNumber = orderMatch[1].trim();
+      }
+    }
+
+    parsedResult.paymentStatus = 'Оплачено';
+  } else if (parsedResult.documentType === 'invoice') {
+    parsedResult.paymentStatus = 'Не оплачено';
+  }
+
+  // 3. Targeted Amount Rescue if 0
+  if ((parsedResult.totalAmount || 0) <= 0 && (parsedResult.amountPaid || 0) <= 0) {
+    try {
+      console.log(`[Client OCR Rescue] Document has 0 amount. Running targeted rescue with Gemini 3.7 Flash...`);
+      const rescuePrompt = `КРИТИЧНО: Первинний аналіз повернув суму 0 грн, але в нашій системі АПРІОРІ НЕ МОЖЕ БУТИ РАХУНКІВ АБО ПЛАТІЖОК З НУЛЬОВОЮ СУМОЮ (0 грн)!
+Уважно проскануй зображення цього документа і знайди ТОЧНУ ЧИСЛОВУ СУМУ ДО СПЛАТИ / СУМУ ПЛАТЕЖУ.
+Шукай у полях 'Сума', 'Разом', 'Всього до сплати', 'Сума платежу', 'Списано', 'Всього з ПДВ', або 'Сума словами' (прописом).
+Поверни JSON строго такого формату:
+{
+  "amount": 96932.88,
+  "currency": "UAH"
+}`;
+      const rescueResponse = await ai.models.generateContent({
+        model: 'gemini-3.7-flash',
+        contents: [
+          {
+            inlineData: {
+              mimeType: finalMimeType,
+              data: cleanBase64,
+            },
+          },
+          { text: rescuePrompt },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      let rText = rescueResponse.text || '';
+      rText = rText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+      if (rText) {
+        const parsedRescue = JSON.parse(rText);
+        const rescuedAmount = parseAmountToNumber(parsedRescue.amount);
+        if (rescuedAmount > 0) {
+          parsedResult.totalAmount = rescuedAmount;
+          parsedResult.amountPaid = rescuedAmount;
+          if (parsedRescue.currency) {
+            parsedResult.currency = parsedRescue.currency;
+          }
+        }
+      }
+    } catch (rescueErr) {
+      console.warn('[Client OCR] Targeted amount rescue warning:', rescueErr);
+    }
+  }
+
+  // Validation warnings
+  const warnings: string[] = [];
+  const effectiveAmount = parsedResult.documentType === 'payment'
+    ? (parsedResult.amountPaid || parsedResult.totalAmount || 0)
+    : (parsedResult.totalAmount || 0);
+
+  if (effectiveAmount <= 0) {
+    warnings.push('Увага: Суму документа не вдалося розпізнати (вказано 0 грн). Будь ласка, перевірте та введіть суму вручну перед збереженням.');
+  }
+
+  if (ourCompanies.length > 0) {
+    const lowerSupplier = (parsedResult.supplierName || '').toLowerCase();
+    const matchedOur = ourCompanies.some((c: string) =>
+      lowerSupplier.includes(c.toLowerCase()) || c.toLowerCase().includes(lowerSupplier)
+    );
+    if (matchedOur) {
+      warnings.push('Увага: Постачальник схожий на одну з "Наших компаній". Перевірте коректність визначення сторін!');
+    }
+  }
+
+  if (!parsedResult.handwrittenOrderNumber || parsedResult.handwrittenConfidence === 'none') {
+    warnings.push('Рукописний номер замовлення (ххх-хх) не знайдено на документі або він нерозбірливий. Будь ласка, перевірте документ вручну.');
+  }
+
+  parsedResult.validationWarnings = warnings;
+
+  return parsedResult as OCRResult;
+}
 
 export class OCRService {
   /**
-   * Send file data to backend OCR processing endpoint
+   * Analyze document using Client-Side Gemini API directly (or backend fallback if available)
    */
   public static async analyzeDocument(params: {
     fileData: string; // base64 string
@@ -13,7 +519,33 @@ export class OCRService {
     knownOrders?: any[];
     docTypeHint?: 'auto' | 'invoice' | 'payment';
   }): Promise<OCRResult> {
-    let res: Response;
+    const clientKey = getClientGeminiApiKey();
+
+    // 1. Pure Client-Side execution using VITE_GEMINI_API_KEY
+    if (clientKey) {
+      try {
+        return await executeClientSideGeminiOcr({
+          ...params,
+          apiKey: clientKey,
+        });
+      } catch (clientErr: any) {
+        console.error('Client-side Gemini OCR Error:', clientErr);
+        const msg = clientErr?.message || String(clientErr);
+        if (msg.includes('503') || msg.includes('high demand') || msg.includes('UNAVAILABLE')) {
+          throw new Error('Сервіс Google Gemini тимчасово перевантажений. Будь ласка, зачекайте кілька секунд і спробуйте знову.');
+        }
+        if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded')) {
+          throw new Error('Перевищено ліміт запитів до Gemini API (Rate limit / Quota). Зачекайте хвилину перед наступним розпізнаванням.');
+        }
+        if (msg.includes('API key not valid') || msg.includes('API_KEY_INVALID')) {
+          throw new Error('Вказаний ключ Gemini API недійсний. Будь ласка, перевірте правильність ключа VITE_GEMINI_API_KEY.');
+        }
+        throw new Error(`Помилка клієнтського розпізнавання: ${msg}`);
+      }
+    }
+
+    // 2. Fallback to /api/ocr/process (if running in full-stack dev server or Vercel serverless with GEMINI_API_KEY)
+    let res: Response | null = null;
     try {
       res = await fetch('/api/ocr/process', {
         method: 'POST',
@@ -22,53 +554,52 @@ export class OCRService {
         },
         body: JSON.stringify(params),
       });
-    } catch (networkErr: any) {
-      throw new Error(
-        `Неможливо зʼєднатися з сервером розпізнавання (/api/ocr/process): ${networkErr?.message || 'Помилка мережі'}. Перевірте, чи працює бекенд Node.js на порту 3000.`
-      );
+    } catch {
+      // Backend not accessible
     }
 
-    if (!res.ok) {
-      let errorMsg = `Помилка сервера ${res.status}${res.statusText ? `: ${res.statusText}` : ''}`;
-      try {
-        const json = await res.json();
-        if (json.error) {
-          errorMsg = json.error;
-        }
-      } catch {
-        if (res.status === 404) {
-          errorMsg = 'Бекенд-сервер розпізнавання (/api/ocr/process) не знайдено (404 Not Found). Якщо ви запускаєте застосунок локально або окремо, переконайтеся, що сервер запущено через Node.js (командою npm run dev або npm start), а не як суто статичний веб-сервер.';
-        } else if (res.status === 405) {
-          errorMsg = 'Запит до бекенду перехоплено шлюзом (405 Not Allowed). Якщо застосунок запущено як відокремлений PWA-додаток браузера, відкрийте його у звичайній вкладці браузера з авторизованою сесією.';
-        } else if (res.status === 502 || res.status === 503 || res.status === 504) {
-          errorMsg = 'Сервер тимчасово недоступний (503/504). Зачекайте кілька секунд і спробуйте знову.';
-        }
+    if (res && res.ok) {
+      const data = await res.json();
+      if (data.success && data.data) {
+        return data.data as OCRResult;
       }
-      throw new Error(errorMsg);
-    }
-
-    const data = await res.json();
-    if (!data.success || !data.data) {
       throw new Error(data.error || 'Failed to parse OCR response from server.');
     }
 
-    return data.data as OCRResult;
+    // 3. If neither client key nor backend is available, provide helpful guidance
+    throw new Error(
+      'Ключ Google Gemini API не налаштовано для клієнтського розпізнавання. Будь ласка, додайте змінну середовища VITE_GEMINI_API_KEY у налаштуваннях вашого Vercel-проєкту (Settings → Environment Variables → VITE_GEMINI_API_KEY) та виконайте Redeploy.'
+    );
   }
 
   /**
-   * Health check for backend server and Gemini API key
+   * Health check for client-side Gemini key and backend server
    */
   public static async checkServerHealth(): Promise<{ ok: boolean; hasGeminiKey: boolean; message?: string }> {
+    const clientKey = getClientGeminiApiKey();
+    if (clientKey) {
+      return { 
+        ok: true, 
+        hasGeminiKey: true, 
+        message: 'Клієнтський режим OCR (VITE_GEMINI_API_KEY) активний' 
+      };
+    }
+
     try {
       const res = await fetch('/api/health');
-      if (!res.ok) {
-        return { ok: false, hasGeminiKey: false, message: `HTTP ${res.status}: ${res.statusText || 'Endpoint unavailable'}` };
+      if (res.ok) {
+        const data = await res.json();
+        return { ok: true, hasGeminiKey: Boolean(data.hasGeminiKey) };
       }
-      const data = await res.json();
-      return { ok: true, hasGeminiKey: Boolean(data.hasGeminiKey) };
-    } catch (err: any) {
-      return { ok: false, hasGeminiKey: false, message: err?.message || 'Неможливо зʼєднатися з сервером' };
+    } catch {
+      // Static client without backend
     }
+
+    return { 
+      ok: false, 
+      hasGeminiKey: false, 
+      message: 'Вкажіть VITE_GEMINI_API_KEY у Vercel Environment Variables' 
+    };
   }
 
   /**
