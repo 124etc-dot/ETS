@@ -406,7 +406,20 @@ export default function App() {
         ocrResult.matchedInvoiceRowIndex = match.matchedRowIndex;
         ocrResult.paymentStatus = match.computedStatus;
       } else {
-        ocrResult.paymentStatus = ocrResult.paymentStatus || 'Не оплачено';
+        const match = OCRService.matchInvoiceWithPayments(
+          ocrResult,
+          existingPaymentsRef.current,
+          documentsRef.current
+        );
+        if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
+          ocrResult.paymentStatus = match.computedStatus;
+          ocrResult.paidAmount = match.totalPaidAmount;
+          ocrResult.matchedPaymentNumber = match.matchedPaymentNumbers.join(', ');
+          ocrResult.matchedPaymentAmount = match.totalPaidAmount;
+          ocrResult.matchedPaymentsSummary = match.matchReason;
+        } else {
+          ocrResult.paymentStatus = ocrResult.paymentStatus || 'Не оплачено';
+        }
       }
 
       // Check if this document already exists in Google Sheets
@@ -477,7 +490,8 @@ export default function App() {
     try {
       const files = await GoogleDriveService.listFilesInFolder(folderId, authState.accessToken);
       
-      const newDocs: ProcessedDocument[] = files.map((f) => ({
+      const now = Date.now();
+      const newDocs: ProcessedDocument[] = files.map((f, idx) => ({
         id: `drive_${f.id}`,
         source: 'drive',
         driveFileId: f.id,
@@ -487,6 +501,7 @@ export default function App() {
         driveLink: f.webViewLink,
         thumbnailUrl: f.thumbnailLink,
         status: 'pending',
+        createdAt: f.createdTime ? new Date(f.createdTime).getTime() : (now + idx),
       }));
 
       // Filter to really new items not yet in documents
@@ -494,7 +509,7 @@ export default function App() {
       const newlyAddedDocs = newDocs.filter((nd) => !existingDriveIds.has(nd.driveFileId));
 
       if (newlyAddedDocs.length > 0) {
-        setDocuments((prev) => [...prev, ...newlyAddedDocs]);
+        setDocuments((prev) => [...newlyAddedDocs, ...prev]);
 
         // Auto-trigger OCR if autoOcrEnabled is true
         if (autoOcrEnabled) {
@@ -685,7 +700,7 @@ export default function App() {
       } else {
         // For Invoices: check if a matching payment was already uploaded to "Платіжки"
         let initialStatus: InvoicePaymentStatus = dataToSync.paymentStatus || 'Не оплачено';
-        let initialPaidAmount = 0;
+        let initialPaidAmount = dataToSync.paidAmount || 0;
 
         try {
           const { payments: freshPayments } = await GoogleSheetsService.loadExistingPayments(
@@ -695,44 +710,16 @@ export default function App() {
             sheetConfig.availableSheets
           );
 
-          for (const pay of freshPayments) {
-            const payOcr: Partial<OCRResult> = {
-              documentType: 'payment',
-              documentTypeUkrainian: 'Платіжна інструкція',
-              referencedInvoiceNumber: pay.referencedInvoiceNumber,
-              referencedOrderNumber: pay.orderNumber,
-              paymentPurpose: pay.paymentPurpose,
-              amountPaid: pay.amountPaid,
-              totalAmount: pay.amountPaid,
-              payeeName: pay.payee,
-              payerName: pay.payer,
-              currency: pay.currency,
-              supplierName: pay.payee,
-              buyerName: pay.payer,
-            };
+          const invoiceMatch = OCRService.matchInvoiceWithPayments(
+            dataToSync,
+            freshPayments,
+            documentsRef.current
+          );
 
-            const singleMatch = OCRService.matchPaymentWithInvoices(payOcr as OCRResult, [
-              {
-                rowIndex: 2,
-                orderNumber: dataToSync.handwrittenOrderNumber || '',
-                supplier: dataToSync.supplierName || '',
-                buyer: dataToSync.buyerName || '',
-                invoiceNumber: dataToSync.invoiceNumber || '',
-                invoiceDate: dataToSync.invoiceDate || '',
-                amount: dataToSync.totalAmount || 0,
-                currency: dataToSync.currency || 'UAH',
-                paymentStatus: 'Не оплачено',
-                uploadedAt: '',
-                paidAmount: 0,
-              },
-            ]);
-
-            if (singleMatch.matchedInvoiceNumber || singleMatch.matchedOrderNumber || singleMatch.matchReason) {
-              initialStatus = singleMatch.computedStatus;
-              initialPaidAmount = pay.amountPaid || 0;
-              matchInfoMsg = ` Знайдено існуючу платіжку "${pay.paymentNumber || ''}" на суму ${OCRService.formatCurrency(initialPaidAmount)}. Статус встановлено: "${initialStatus}".`;
-              break;
-            }
+          if (invoiceMatch.computedStatus && invoiceMatch.computedStatus !== 'Не оплачено') {
+            initialStatus = invoiceMatch.computedStatus;
+            initialPaidAmount = invoiceMatch.totalPaidAmount;
+            matchInfoMsg = ` ${invoiceMatch.matchReason || ''}. Статус встановлено: "${initialStatus}".`;
           }
         } catch {
           // ignore lookup failure and proceed with normal append
@@ -917,8 +904,10 @@ export default function App() {
   };
 
   const handleAddLocalDocuments = (newDocs: ProcessedDocument[]) => {
-    const docsWithStatus = newDocs.map((d) => ({
+    const now = Date.now();
+    const docsWithStatus = newDocs.map((d, idx) => ({
       ...d,
+      createdAt: d.createdAt || (now + idx),
       driveUploadStatus: authState.accessToken ? ('uploading' as const) : ('idle' as const),
     }));
 
@@ -1144,6 +1133,7 @@ export default function App() {
         isDriveConnected={Boolean(authState.accessToken)}
         companyLists={companyLists}
         existingInvoices={existingInvoices}
+        existingPayments={existingPayments}
         allDocuments={documents}
         onPrevDoc={handlePrevReviewDoc}
         onNextDoc={handleNextReviewDoc}

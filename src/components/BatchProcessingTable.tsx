@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileText, 
   Sparkles, 
@@ -15,7 +15,13 @@ import {
   PenTool, 
   ArrowUpDown,
   CheckSquare,
-  Square
+  Square,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  X,
+  RotateCcw
 } from 'lucide-react';
 import { ProcessedDocument } from '../types';
 import { OCRService } from '../services/ocrService';
@@ -50,32 +56,144 @@ export const BatchProcessingTable: React.FC<Props> = ({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'ready_for_review' | 'synced' | 'error'>('all');
+  
+  // Pagination & Sorting state (50 items per page default, newest first)
+  const [pageSize, setPageSize] = useState<number | 'all'>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'orderNumber' | 'amountDesc' | 'amountAsc'>('newest');
 
+  // Reset to page 1 when filtering, searching, sorting, or changing page size
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, sortBy, pageSize]);
+
+  // Count documents by status
+  const countAll = documents.length;
+  const countPending = documents.filter((d) => d.status === 'pending' || d.status === 'processing').length;
+  const countReady = documents.filter((d) => d.status === 'ready_for_review').length;
+  const countSynced = documents.filter((d) => d.status === 'synced').length;
+  const countError = documents.filter((d) => d.status === 'error').length;
+
+  // 1. Filter documents
   const filteredDocs = documents.filter((doc) => {
-    // Status filter
-    if (statusFilter !== 'all' && doc.status !== statusFilter) return false;
+    // Status filter (всі, очікують, готові, синхронізовані)
+    if (statusFilter === 'pending') {
+      if (doc.status !== 'pending' && doc.status !== 'processing') return false;
+    } else if (statusFilter !== 'all') {
+      if (doc.status !== statusFilter) return false;
+    }
 
     // Search query
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
+      const q = searchQuery.trim().toLowerCase();
       const ocr = doc.editedData || doc.ocrResult;
       const matchName = doc.fileName.toLowerCase().includes(q);
       const matchOrder = ocr?.handwrittenOrderNumber?.toLowerCase().includes(q);
       const matchSupplier = ocr?.supplierName?.toLowerCase().includes(q);
+      const matchSupplierEdrpou = ocr?.supplierEdrpou?.toLowerCase().includes(q);
       const matchInvoice = ocr?.invoiceNumber?.toLowerCase().includes(q);
       const matchBuyer = ocr?.buyerName?.toLowerCase().includes(q);
-      return matchName || matchOrder || matchSupplier || matchInvoice || matchBuyer;
+      const matchBuyerEdrpou = ocr?.buyerEdrpou?.toLowerCase().includes(q);
+      const matchPaymentNum = ocr?.paymentNumber?.toLowerCase().includes(q);
+      const matchPurpose = ocr?.paymentPurpose?.toLowerCase().includes(q);
+      const matchDate = (ocr?.invoiceDate?.toLowerCase().includes(q)) || (ocr?.paymentDate?.toLowerCase().includes(q));
+      const amountVal = (ocr?.totalAmount ?? ocr?.amountPaid)?.toString() || '';
+      const matchAmount = amountVal.includes(q);
+
+      return (
+        matchName ||
+        matchOrder ||
+        matchSupplier ||
+        matchSupplierEdrpou ||
+        matchInvoice ||
+        matchBuyer ||
+        matchBuyerEdrpou ||
+        matchPaymentNum ||
+        matchPurpose ||
+        matchDate ||
+        matchAmount
+      );
     }
 
     return true;
   });
 
-  const toggleSelectAll = () => {
-    if (selectedIds.size === filteredDocs.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredDocs.map((d) => d.id)));
+  // 2. Sort documents (default: newest first by createdAt / date)
+  const sortedDocs = [...filteredDocs].sort((a, b) => {
+    if (sortBy === 'newest') {
+      const timeA = a.createdAt || 0;
+      const timeB = b.createdAt || 0;
+      if (timeA !== timeB) return timeB - timeA;
+      const dateA = a.editedData?.invoiceDate || a.ocrResult?.invoiceDate || a.editedData?.paymentDate || a.ocrResult?.paymentDate || '';
+      const dateB = b.editedData?.invoiceDate || b.ocrResult?.invoiceDate || b.editedData?.paymentDate || b.ocrResult?.paymentDate || '';
+      if (dateA && dateB && dateA !== dateB) return dateB.localeCompare(dateA);
+      return 0;
     }
+    if (sortBy === 'oldest') {
+      const timeA = a.createdAt || 0;
+      const timeB = b.createdAt || 0;
+      if (timeA !== timeB) return timeA - timeB;
+      const dateA = a.editedData?.invoiceDate || a.ocrResult?.invoiceDate || a.editedData?.paymentDate || a.ocrResult?.paymentDate || '';
+      const dateB = b.editedData?.invoiceDate || b.ocrResult?.invoiceDate || b.editedData?.paymentDate || b.ocrResult?.paymentDate || '';
+      if (dateA && dateB && dateA !== dateB) return dateA.localeCompare(dateB);
+      return 0;
+    }
+    if (sortBy === 'orderNumber') {
+      const ordA = a.editedData?.handwrittenOrderNumber || a.ocrResult?.handwrittenOrderNumber || '';
+      const ordB = b.editedData?.handwrittenOrderNumber || b.ocrResult?.handwrittenOrderNumber || '';
+      if (ordA && !ordB) return -1;
+      if (!ordA && ordB) return 1;
+      return ordA.localeCompare(ordB);
+    }
+    if (sortBy === 'amountDesc') {
+      const amtA = a.editedData?.totalAmount || a.ocrResult?.totalAmount || a.editedData?.amountPaid || a.ocrResult?.amountPaid || 0;
+      const amtB = b.editedData?.totalAmount || b.ocrResult?.totalAmount || b.editedData?.amountPaid || b.ocrResult?.amountPaid || 0;
+      return amtB - amtA;
+    }
+    if (sortBy === 'amountAsc') {
+      const amtA = a.editedData?.totalAmount || a.ocrResult?.totalAmount || a.editedData?.amountPaid || a.ocrResult?.amountPaid || 0;
+      const amtB = b.editedData?.totalAmount || b.ocrResult?.totalAmount || b.editedData?.amountPaid || b.ocrResult?.amountPaid || 0;
+      return amtA - amtB;
+    }
+    return 0;
+  });
+
+  // 3. Paginate
+  const totalItems = sortedDocs.length;
+  const effectivePageSize = pageSize === 'all' ? (totalItems || 1) : pageSize;
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = pageSize === 'all' ? 0 : (safeCurrentPage - 1) * effectivePageSize;
+  const endIndex = pageSize === 'all' ? totalItems : Math.min(startIndex + effectivePageSize, totalItems);
+  const paginatedDocs = sortedDocs.slice(startIndex, endIndex);
+
+  // Selection handlers
+  const isPageFullySelected = paginatedDocs.length > 0 && paginatedDocs.every((d) => selectedIds.has(d.id));
+  const areAllFilteredSelected = totalItems > 0 && selectedIds.size >= totalItems;
+
+  const toggleSelectPage = () => {
+    if (isPageFullySelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        paginatedDocs.forEach((d) => next.delete(d.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        paginatedDocs.forEach((d) => next.add(d.id));
+        return next;
+      });
+    }
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedIds(new Set(filteredDocs.map((d) => d.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedIds(new Set());
   };
 
   const toggleSelectDoc = (id: string) => {
@@ -90,84 +208,262 @@ export const BatchProcessingTable: React.FC<Props> = ({
   const readyToSyncCount = filteredDocs.filter((d) => d.status === 'ready_for_review').length;
   const pendingProcessCount = filteredDocs.filter((d) => d.status === 'pending').length;
 
+  // Smart page numbers array for pagination bar
+  const getPageNumbers = (): (number | string)[] => {
+    const delta = 2;
+    const range: number[] = [];
+    const rangeWithDots: (number | string)[] = [];
+    let l: number | undefined;
+
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= safeCurrentPage - delta && i <= safeCurrentPage + delta)) {
+        range.push(i);
+      }
+    }
+
+    for (const i of range) {
+      if (l !== undefined) {
+        if (i - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if (i - l !== 1) {
+          rangeWithDots.push('...');
+        }
+      }
+      rangeWithDots.push(i);
+      l = i;
+    }
+
+    return rangeWithDots;
+  };
+
   return (
     <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
       {/* Table Toolbar */}
       <div className="p-4 border-b border-slate-200 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          {/* Search bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          {/* Search bar with clear button & real-time indicator */}
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Пошук за номером замовлення (№ххх-26), постачальником, файлом..."
-              className="w-full text-xs pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800"
+              placeholder="Пошук: № замовлення (ххх-26), постачальник, рахунок, сума..."
+              className="w-full text-xs pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 text-slate-800 transition-colors"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors"
+                title="Очистити пошук"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          {/* Status filter buttons */}
-          <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                statusFilter === 'all'
-                  ? 'bg-slate-900 text-white font-bold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              Всі ({documents.length})
-            </button>
-            <button
-              onClick={() => setStatusFilter('pending')}
-              className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                statusFilter === 'pending'
-                  ? 'bg-amber-600 text-white font-bold'
-                  : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-              }`}
-            >
-              Не оброблені ({documents.filter((d) => d.status === 'pending').length})
-            </button>
-            <button
-              onClick={() => setStatusFilter('ready_for_review')}
-              className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                statusFilter === 'ready_for_review'
-                  ? 'bg-indigo-600 text-white font-bold'
-                  : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
-              }`}
-            >
-              Готові ({documents.filter((d) => d.status === 'ready_for_review').length})
-            </button>
-            <button
-              onClick={() => setStatusFilter('synced')}
-              className={`px-2.5 py-1.5 rounded-lg font-medium transition-colors ${
-                statusFilter === 'synced'
-                  ? 'bg-emerald-700 text-white font-bold'
-                  : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-              }`}
-            >
-              Занесені ({documents.filter((d) => d.status === 'synced').length})
-            </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Status filter buttons: (всі, очікують, готові, синхронізовані) */}
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center space-x-1.5 ${
+                  statusFilter === 'all'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>Всі</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  statusFilter === 'all' ? 'bg-slate-700 text-slate-100' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {countAll}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('pending')}
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center space-x-1.5 ${
+                  statusFilter === 'pending'
+                    ? 'bg-amber-600 text-white shadow-xs'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                }`}
+                title="Документи, що очікують розпізнавання OCR або обробки"
+              >
+                <Clock className="w-3.5 h-3.5" />
+                <span>Очікують</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  statusFilter === 'pending' ? 'bg-amber-700 text-amber-100' : 'bg-amber-200 text-amber-900'
+                }`}>
+                  {countPending}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('ready_for_review')}
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center space-x-1.5 ${
+                  statusFilter === 'ready_for_review'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-indigo-50 text-indigo-800 hover:bg-indigo-100'
+                }`}
+                title="Розпізнані документи, готові до перевірки та внесення в таблицю"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Готові</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  statusFilter === 'ready_for_review' ? 'bg-indigo-700 text-indigo-100' : 'bg-indigo-200 text-indigo-900'
+                }`}>
+                  {countReady}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('synced')}
+                className={`px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center space-x-1.5 ${
+                  statusFilter === 'synced'
+                    ? 'bg-emerald-700 text-white shadow-xs'
+                    : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                }`}
+                title="Документи, успішно записані в Google Таблицю"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>Синхронізовані</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                  statusFilter === 'synced' ? 'bg-emerald-800 text-emerald-100' : 'bg-emerald-200 text-emerald-900'
+                }`}>
+                  {countSynced}
+                </span>
+              </button>
+
+              {countError > 0 && (
+                <button
+                  onClick={() => setStatusFilter('error')}
+                  className={`px-2.5 py-1.5 rounded-lg font-semibold transition-all flex items-center space-x-1.5 ${
+                    statusFilter === 'error'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'bg-rose-50 text-rose-800 hover:bg-rose-100'
+                  }`}
+                  title="Документи з помилками"
+                >
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>Помилки</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${
+                    statusFilter === 'error' ? 'bg-rose-700 text-rose-100' : 'bg-rose-200 text-rose-900'
+                  }`}>
+                    {countError}
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {/* Sort Dropdown */}
+            <div className="flex items-center space-x-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5">
+              <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-transparent text-slate-700 font-semibold focus:outline-none cursor-pointer text-xs"
+                title="Сортування списку"
+              >
+                <option value="newest">Найновіші спочатку (за часом ↓)</option>
+                <option value="oldest">Найстаріші спочатку (за часом ↑)</option>
+                <option value="orderNumber">За номером замовлення (ххх-хх)</option>
+                <option value="amountDesc">Сума (за спаданням ↓)</option>
+                <option value="amountAsc">Сума (за зростанням ↑)</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        {/* Batch Operations Bar */}
+        {/* Active Filters Bar if any filter or search query is applied */}
+        {(statusFilter !== 'all' || searchQuery.trim() !== '') && (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-indigo-50/50 border border-indigo-100 rounded-lg text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-slate-500 font-medium flex items-center gap-1 text-[11px]">
+                <Filter className="w-3.5 h-3.5 text-indigo-600" />
+                Активні критерії:
+              </span>
+
+              {statusFilter !== 'all' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-indigo-200 text-indigo-700 rounded-md font-medium text-[11px] shadow-2xs">
+                  Статус: {
+                    statusFilter === 'pending'
+                      ? 'Очікують'
+                      : statusFilter === 'ready_for_review'
+                      ? 'Готові'
+                      : statusFilter === 'synced'
+                      ? 'Синхронізовані'
+                      : 'Помилки'
+                  }
+                  <button
+                    onClick={() => setStatusFilter('all')}
+                    className="hover:text-indigo-900 ml-0.5 text-slate-400 hover:text-slate-700"
+                    title="Скинути фільтр за статусом"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              {searchQuery.trim() !== '' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-300 text-slate-700 rounded-md font-medium text-[11px] shadow-2xs">
+                  Пошук: "{searchQuery.trim()}"
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="hover:text-slate-900 ml-0.5 text-slate-400 hover:text-slate-700"
+                    title="Очистити пошук"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+
+              <span className="text-slate-500 text-[11px]">
+                (Знайдено: <strong className="text-slate-800">{filteredDocs.length}</strong> з {documents.length})
+              </span>
+            </div>
+
+            <button
+              onClick={() => {
+                setStatusFilter('all');
+                setSearchQuery('');
+              }}
+              className="text-[11px] text-indigo-700 hover:text-indigo-900 font-semibold flex items-center gap-1 underline transition-colors"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Скинути всі фільтри
+            </button>
+          </div>
+        )}
+
+        {/* Batch Operations Bar & Page Header */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
           <div className="flex items-center space-x-2">
             <button
-              onClick={toggleSelectAll}
+              onClick={toggleSelectPage}
               className="p-1 text-slate-500 hover:text-slate-800 transition-colors flex items-center space-x-1"
             >
-              {selectedIds.size > 0 && selectedIds.size === filteredDocs.length ? (
+              {isPageFullySelected ? (
                 <CheckSquare className="w-4 h-4 text-indigo-600" />
               ) : (
                 <Square className="w-4 h-4 text-slate-400" />
               )}
               <span className="font-semibold text-slate-700">
-                Вибрано {selectedIds.size} з {filteredDocs.length}
+                {selectedIds.size > 0 
+                  ? `Вибрано ${selectedIds.size} з ${totalItems}`
+                  : `Вибрати сторінку (${paginatedDocs.length})`}
               </span>
             </button>
+
+            {selectedIds.size > 0 && (
+              <button
+                onClick={clearSelection}
+                className="text-[11px] text-slate-400 hover:text-slate-600 underline ml-1"
+              >
+                Зняти виділення
+              </button>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -221,18 +517,94 @@ export const BatchProcessingTable: React.FC<Props> = ({
                 <span className="hidden sm:inline">Очистити</span>
               </button>
             )}
+
+            {/* Quick Mini Pagination at top if > 1 page */}
+            {totalPages > 1 && (
+              <div className="flex items-center space-x-1 pl-2 border-l border-slate-200">
+                <span className="text-[11px] text-slate-500 font-medium mr-1">
+                  Стор. <strong className="text-slate-800">{safeCurrentPage}</strong> з <strong className="text-slate-800">{totalPages}</strong>
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={safeCurrentPage <= 1}
+                  className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded disabled:opacity-30 disabled:hover:bg-transparent"
+                  title="Попередня сторінка"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safeCurrentPage >= totalPages}
+                  className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded disabled:opacity-30 disabled:hover:bg-transparent"
+                  title="Наступна сторінка"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Banner: Select all across all pages */}
+        {isPageFullySelected && totalItems > paginatedDocs.length && !areAllFilteredSelected && (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-2 text-xs text-indigo-900 flex items-center justify-between">
+            <span>
+              Вибрано всі <strong>{paginatedDocs.length}</strong> документів на цій сторінці.
+            </span>
+            <button
+              onClick={selectAllFiltered}
+              className="text-indigo-700 hover:text-indigo-950 font-bold underline"
+            >
+              Вибрати всі {totalItems} документів у списку
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Table Content */}
       {filteredDocs.length === 0 ? (
         <div className="p-12 text-center text-slate-500 space-y-3">
-          <FileText className="w-10 h-10 mx-auto text-slate-300" />
-          <h4 className="text-sm font-bold text-slate-700">Немає документів у списку</h4>
-          <p className="text-xs max-w-sm mx-auto text-slate-400">
-            Зчитайте файли з папки Google Drive або перетягніть PDF / фото з пристрою.
-          </p>
+          {documents.length > 0 ? (
+            <>
+              <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                <Search className="w-6 h-6" />
+              </div>
+              <h4 className="text-sm font-bold text-slate-800">За вашим запитом документів не знайдено</h4>
+              <p className="text-xs max-w-md mx-auto text-slate-500">
+                Не знайдено документів, які відповідають вибраному статусу «
+                {statusFilter === 'pending'
+                  ? 'Очікують'
+                  : statusFilter === 'ready_for_review'
+                  ? 'Готові'
+                  : statusFilter === 'synced'
+                  ? 'Синхронізовані'
+                  : statusFilter === 'error'
+                  ? 'Помилки'
+                  : 'Всі'}
+                »{searchQuery.trim() ? ` або пошуковому запиту "${searchQuery.trim()}"` : ''}.
+              </p>
+              <div className="pt-2">
+                <button
+                  onClick={() => {
+                    setStatusFilter('all');
+                    setSearchQuery('');
+                  }}
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Скинути фільтр та пошук</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <FileText className="w-10 h-10 mx-auto text-slate-300" />
+              <h4 className="text-sm font-bold text-slate-700">Немає документів у списку</h4>
+              <p className="text-xs max-w-sm mx-auto text-slate-400">
+                Зчитайте файли з папки Google Drive або перетягніть PDF / фото з пристрою.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -256,9 +628,10 @@ export const BatchProcessingTable: React.FC<Props> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredDocs.map((doc) => {
+              {paginatedDocs.map((doc, index) => {
                 const isSelected = selectedIds.has(doc.id);
                 const data = doc.editedData || doc.ocrResult;
+                const rowSequence = startIndex + index + 1;
 
                 return (
                   <tr
@@ -267,14 +640,19 @@ export const BatchProcessingTable: React.FC<Props> = ({
                       isSelected ? 'bg-indigo-50/30' : ''
                     }`}
                   >
-                    {/* Checkbox */}
+                    {/* Checkbox & Sequence */}
                     <td className="p-3 text-center">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelectDoc(doc.id)}
-                        className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                      />
+                      <div className="flex items-center justify-center space-x-1.5">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelectDoc(doc.id)}
+                          className="rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <span className="text-[10px] text-slate-400 font-mono select-none w-5 text-left">
+                          {rowSequence}
+                        </span>
+                      </div>
                     </td>
 
                     {/* File Name & Preview */}
@@ -531,6 +909,121 @@ export const BatchProcessingTable: React.FC<Props> = ({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modern E-Commerce Style Pagination Footer */}
+      {filteredDocs.length > 0 && (
+        <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          {/* Left: Summary and Page Size selector */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-slate-600 font-medium">
+              Показано <strong className="text-slate-900 font-mono">{startIndex + 1}–{endIndex}</strong> з <strong className="text-slate-900 font-mono">{totalItems}</strong> документів
+            </span>
+
+            <div className="flex items-center space-x-1.5 pl-3 border-l border-slate-200">
+              <span className="text-slate-500 text-[11px]">Показувати по:</span>
+              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
+                {[25, 50, 100].map((size) => (
+                  <button
+                    key={size}
+                    onClick={() => setPageSize(size)}
+                    className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${
+                      pageSize === size
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setPageSize('all')}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors ${
+                    pageSize === 'all'
+                      ? 'bg-indigo-600 text-white shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                  title="Показати всі документи без розбивки"
+                >
+                  Всі
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Page Buttons */}
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-1">
+              {/* First page button */}
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage <= 1}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors"
+                title="Перша сторінка"
+              >
+                <ChevronsLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Prev page button */}
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors"
+                title="Попередня сторінка"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Page numbers with active styling */}
+              <div className="flex items-center space-x-1 px-1">
+                {getPageNumbers().map((item, idx) => {
+                  if (item === '...') {
+                    return (
+                      <span key={`dots-${idx}`} className="px-1.5 py-1 text-slate-400 font-bold select-none">
+                        …
+                      </span>
+                    );
+                  }
+                  const pageNum = item as number;
+                  const isActive = pageNum === safeCurrentPage;
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`min-w-7 h-7 px-2 text-xs font-bold rounded-lg transition-colors shadow-2xs ${
+                        isActive
+                          ? 'bg-indigo-600 text-white border border-indigo-600'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Next page button */}
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors"
+                title="Наступна сторінка"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Last page button */}
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage >= totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors"
+                title="Остання сторінка"
+              >
+                <ChevronsRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

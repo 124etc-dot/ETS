@@ -581,16 +581,30 @@ export class GoogleSheetsService {
           row.forEach((cellRaw, cIdx) => {
             const cell = String(cellRaw || '').trim().toLowerCase();
             if (!cell) return;
-            if (cell.includes('замовлен')) colOrder = cIdx;
-            else if (cell.includes('постачальн') || cell.includes('продавець')) colSupplier = cIdx;
-            else if (cell.includes('платник') || cell.includes('покупець') || cell.includes('наша компанія')) colBuyer = cIdx;
-            else if (cell.includes('рахун') || cell.includes('інвойс')) colInvoiceNum = cIdx;
-            else if (cell.includes('дата') && !cell.includes('внесен')) colDate = cIdx;
-            else if (cell.includes('сума оплат') || cell.includes('оплачено')) colPaidAmount = cIdx;
-            else if (cell.includes('сума')) colAmount = cIdx;
-            else if (cell.includes('валюта')) colCurrency = cIdx;
-            else if (cell.includes('статус')) colStatus = cIdx;
-            else if (cell.includes('час') || cell.includes('внесен') || cell.includes('додан')) colUploadedAt = cIdx;
+            if (cell.includes('замовлен')) {
+              colOrder = cIdx;
+            } else if (cell.includes('постачальн') || cell.includes('продавець')) {
+              colSupplier = cIdx;
+            } else if (cell.includes('платник') || cell.includes('покупець') || cell.includes('наша компанія')) {
+              colBuyer = cIdx;
+            } else if (cell.includes('сума оплат') || cell.includes('оплачено')) {
+              colPaidAmount = cIdx;
+            } else if (cell.includes('сума')) {
+              colAmount = cIdx;
+            } else if (cell.includes('дата') && !cell.includes('внесен') && !cell.includes('додан') && !cell.includes('час')) {
+              colDate = cIdx;
+            } else if (
+              (cell.includes('номер') && (cell.includes('рахун') || cell.includes('інвойс'))) ||
+              ((cell.includes('рахун') || cell.includes('інвойс')) && !cell.includes('дата') && !cell.includes('сума') && !cell.includes('статус'))
+            ) {
+              colInvoiceNum = cIdx;
+            } else if (cell.includes('валюта')) {
+              colCurrency = cIdx;
+            } else if (cell.includes('статус')) {
+              colStatus = cIdx;
+            } else if (cell.includes('час') || cell.includes('внесен') || cell.includes('додан')) {
+              colUploadedAt = cIdx;
+            }
           });
           break;
         }
@@ -613,13 +627,25 @@ export class GoogleSheetsService {
         const amount = parseFloat(String(row[colAmount] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
         const paidAmount = parseFloat(String(row[colPaidAmount] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
 
+        let rawInvNumber = String(row[colInvoiceNum] || '').trim();
+        let rawInvDate = String(row[colDate] || '').trim();
+
+        // Safety check: if rawInvNumber is formatted as a date (e.g. 2026-08-25 or 25.08.2026) and rawInvDate is not,
+        // or if the two columns are swapped in the sheet row:
+        const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s);
+        if (isDatePattern(rawInvNumber) && rawInvDate && !isDatePattern(rawInvDate)) {
+          const tmp = rawInvNumber;
+          rawInvNumber = rawInvDate;
+          rawInvDate = tmp;
+        }
+
         return {
           rowIndex: startRowIdx + idx,
           orderNumber: OCRService.normalizeOrderNumber(String(row[colOrder] || '')),
           supplier: OCRService.normalizeCompanyName(String(row[colSupplier] || '')),
           buyer: OCRService.normalizeCompanyName(String(row[colBuyer] || '')),
-          invoiceNumber: String(row[colInvoiceNum] || '').trim(),
-          invoiceDate: String(row[colDate] || '').trim(),
+          invoiceNumber: rawInvNumber,
+          invoiceDate: rawInvDate,
           amount,
           currency: String(row[colCurrency] || 'UAH').trim() || 'UAH',
           paymentStatus,

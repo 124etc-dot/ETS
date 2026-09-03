@@ -61,6 +61,11 @@ export interface OCRResult {
     matchedDocId?: string;
     matchReason?: string;
   }>;
+  matchedPaymentNumber?: string;
+  matchedPaymentAmount?: number;
+  matchedPaymentRowIndex?: number;
+  matchedPaymentsSummary?: string;
+  paidAmount?: number; // Paid amount for invoices (Column J)
 
   // Additional
   lineItems?: ExtractedLineItem[];
@@ -90,6 +95,7 @@ export interface ProcessedDocument {
   editedData?: OCRResult;
   syncedRowIndex?: number;
   syncedAt?: string;
+  createdAt?: number; // Timestamp in ms for sorting newest first
   alreadyInSheet?: boolean;
   alreadyInSheetReason?: string;
   alreadyInSheetTab?: string;

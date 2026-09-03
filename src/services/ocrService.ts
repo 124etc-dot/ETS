@@ -1,4 +1,4 @@
-import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ProcessedDocument } from '../types';
+import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument } from '../types';
 
 export class OCRService {
   /**
@@ -260,14 +260,18 @@ export class OCRService {
       const invSupplier = this.normalizeCompanyName(inv.supplier || '');
       const invAmount = inv.amount || 0;
 
-      // Criterion A: Match against any extracted invoice number from the payment
+      const isDateString = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
+      const isInvNumActuallyDate = isDateString(rawInvNum);
+
+      // Criterion A: Match against any extracted invoice number from the payment (ignore if invoiceNumber is just a date)
       const matchByInvoiceNum =
-        cleanInvNum &&
-        cleanRefNumbers.some(
-          (crn) => crn === cleanInvNum || cleanInvNum.includes(crn) || crn.includes(cleanInvNum)
-        ) ||
-        (cleanInvNum && purpose.includes(cleanInvNum)) ||
-        (rawInvNum && purpose.includes(rawInvNum.toLowerCase()));
+        !isInvNumActuallyDate &&
+        ((cleanInvNum &&
+          cleanRefNumbers.some(
+            (crn) => crn === cleanInvNum || cleanInvNum.includes(crn) || crn.includes(cleanInvNum)
+          )) ||
+          (cleanInvNum && purpose.includes(cleanInvNum)) ||
+          (rawInvNum && purpose.includes(rawInvNum.toLowerCase())));
 
       // Criterion B: Match by Order Number
       const matchByOrderNum = cleanOrderNum && (
@@ -322,8 +326,47 @@ export class OCRService {
       const invSupplier = this.normalizeCompanyName(ocr.supplierName || '');
       const invAmount = ocr.totalAmount || 0;
 
-      // Skip if already matched via sheet row
-      if (matches.some((m) => cleanInvNum && this.normalizeInvoiceNumber(m.invoiceNumber) === cleanInvNum)) {
+      // Check if this local document corresponds to an already matched sheet row (prevent duplicate counting)
+      const existingSheetMatch = matches.find((m) => {
+        const mInv = this.normalizeInvoiceNumber(m.invoiceNumber);
+        const mOrd = this.normalizeOrderNumber(m.orderNumber || '').toLowerCase();
+
+        // 1. Same or substring invoice number
+        if (cleanInvNum && mInv && (mInv === cleanInvNum || mInv.includes(cleanInvNum) || cleanInvNum.includes(mInv))) {
+          return true;
+        }
+
+        // 2. Same order number AND same amount (within 0.50 грн)
+        if (cleanOrderNum && mOrd && cleanOrderNum === mOrd && Math.abs(invAmount - m.invoiceAmount) <= 0.50) {
+          return true;
+        }
+
+        // 3. Same supplier and same amount when payment covers just this one
+        if (
+          Math.abs(invAmount - m.invoiceAmount) <= 0.50 &&
+          Math.abs(paymentAmount - invAmount) <= 0.50 &&
+          invSupplier &&
+          m.matchReason?.toLowerCase().includes(invSupplier.toLowerCase())
+        ) {
+          return true;
+        }
+
+        return false;
+      });
+
+      if (existingSheetMatch) {
+        // Link docId so this document is known to be matched
+        matchedDocIds.add(doc.id);
+        existingSheetMatch.matchedDocId = doc.id;
+
+        // If the sheet row's invoice number is missing, empty, or formatted as a date, upgrade it with the document's real invoice number
+        const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
+        if ((!existingSheetMatch.invoiceNumber || isDatePattern(existingSheetMatch.invoiceNumber)) && ocr.invoiceNumber) {
+          existingSheetMatch.invoiceNumber = ocr.invoiceNumber;
+        }
+        if (!existingSheetMatch.orderNumber && ocr.handwrittenOrderNumber) {
+          existingSheetMatch.orderNumber = ocr.handwrittenOrderNumber;
+        }
         continue;
       }
 
@@ -475,6 +518,170 @@ export class OCRService {
         ? `Знайдено ${allMatches.length} рахунків у таблиці (${invoiceNumbersList})` 
         : first.matchReason,
       matchedInvoices: allMatches,
+    };
+  }
+
+  /**
+   * Determine matching payment(s) for an invoice document and calculate status.
+   * Handles the workflow where a payment was uploaded or synced FIRST to "Платіжки",
+   * and later the invoice is uploaded. The system automatically links them and sets
+   * the invoice status to "Оплачено" or "Оплачено частково".
+   */
+  public static matchInvoiceWithPayments(
+    invoiceOcr: OCRResult,
+    existingPayments: ExistingPaymentRow[] = [],
+    localDocuments: ProcessedDocument[] = []
+  ): {
+    matchedPaymentNumbers: string[];
+    totalPaidAmount: number;
+    computedStatus: InvoicePaymentStatus;
+    matchedPaymentRows: ExistingPaymentRow[];
+    matchReason?: string;
+  } {
+    const rawInvNum = (invoiceOcr.invoiceNumber || '').trim();
+    const cleanInvNum = this.normalizeInvoiceNumber(rawInvNum);
+    const rawOrderNum = (invoiceOcr.handwrittenOrderNumber || '').trim();
+    const cleanOrderNum = this.normalizeOrderNumber(rawOrderNum).toLowerCase();
+    const supplier = this.normalizeCompanyName(invoiceOcr.supplierName || '');
+    const invAmount = invoiceOcr.totalAmount || 0;
+
+    const isDateString = (s: string) =>
+      /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
+    const isInvNumActuallyDate = isDateString(rawInvNum);
+
+    const matchedPayments: ExistingPaymentRow[] = [];
+    const seenPaymentKeys = new Set<string>();
+
+    // 1. Search in Google Sheets "Платіжки" tab
+    for (const p of existingPayments) {
+      const pNum = (p.paymentNumber || '').trim();
+      const pKey = `sheet_${p.rowIndex}_${pNum}`;
+      if (seenPaymentKeys.has(pKey)) continue;
+
+      const refInv = this.normalizeInvoiceNumber(p.referencedInvoiceNumber || '');
+      const refOrd = this.normalizeOrderNumber(p.orderNumber || '').toLowerCase();
+      const purpose = (p.paymentPurpose || '').toLowerCase();
+      const cleanPurpose = this.normalizeInvoiceNumber(purpose);
+      const payee = this.normalizeCompanyName(p.payee || '');
+      const pAmount = p.amountPaid || 0;
+
+      // Condition A: Referenced invoice number or payment purpose matches invoice number
+      const matchByInvoiceNum =
+        !isInvNumActuallyDate &&
+        cleanInvNum &&
+        ((refInv && (refInv === cleanInvNum || refInv.includes(cleanInvNum) || cleanInvNum.includes(refInv))) ||
+          (rawInvNum.length >= 3 && purpose.includes(rawInvNum.toLowerCase())) ||
+          (cleanInvNum.length >= 3 && cleanPurpose.includes(cleanInvNum)));
+
+      // Condition B: Order number matches
+      const matchByOrderNum =
+        cleanOrderNum &&
+        ((refOrd && (refOrd === cleanOrderNum || refOrd.includes(cleanOrderNum) || cleanOrderNum.includes(refOrd))) ||
+          purpose.includes(cleanOrderNum));
+
+      // Condition C: Same Payee and same Amount
+      const matchByPayeeAndAmount =
+        supplier &&
+        payee &&
+        (supplier.includes(payee) || payee.includes(supplier)) &&
+        invAmount > 0 &&
+        Math.abs(invAmount - pAmount) <= 0.50;
+
+      if (matchByInvoiceNum || matchByOrderNum || matchByPayeeAndAmount) {
+        seenPaymentKeys.add(pKey);
+        matchedPayments.push(p);
+      }
+    }
+
+    // 2. Search in local documents (in case payment is in the uploaded batch)
+    for (const doc of localDocuments) {
+      if (doc.id === invoiceOcr.invoiceNumber) continue;
+      const ocr = doc.editedData || doc.ocrResult;
+      if (!ocr || ocr.documentType !== 'payment') continue;
+
+      const pNum = (ocr.paymentNumber || ocr.invoiceNumber || '').trim();
+      const pKey = `local_${doc.id}_${pNum}`;
+      if (seenPaymentKeys.has(pKey)) continue;
+
+      const refInv = this.normalizeInvoiceNumber(ocr.referencedInvoiceNumber || '');
+      const refOrd = this.normalizeOrderNumber(ocr.referencedOrderNumber || '').toLowerCase();
+      const purpose = (ocr.paymentPurpose || '').toLowerCase();
+      const cleanPurpose = this.normalizeInvoiceNumber(purpose);
+      const payee = this.normalizeCompanyName(ocr.payeeName || ocr.supplierName || '');
+      const pAmount = ocr.amountPaid || ocr.totalAmount || 0;
+
+      const matchByInvoiceNum =
+        !isInvNumActuallyDate &&
+        cleanInvNum &&
+        ((refInv && (refInv === cleanInvNum || refInv.includes(cleanInvNum) || cleanInvNum.includes(refInv))) ||
+          (rawInvNum.length >= 3 && purpose.includes(rawInvNum.toLowerCase())) ||
+          (cleanInvNum.length >= 3 && cleanPurpose.includes(cleanInvNum)));
+
+      const matchByOrderNum =
+        cleanOrderNum &&
+        ((refOrd && (refOrd === cleanOrderNum || refOrd.includes(cleanOrderNum) || cleanOrderNum.includes(refOrd))) ||
+          purpose.includes(cleanOrderNum));
+
+      const matchByPayeeAndAmount =
+        supplier &&
+        payee &&
+        (supplier.includes(payee) || payee.includes(supplier)) &&
+        invAmount > 0 &&
+        Math.abs(invAmount - pAmount) <= 0.50;
+
+      if (matchByInvoiceNum || matchByOrderNum || matchByPayeeAndAmount) {
+        seenPaymentKeys.add(pKey);
+        matchedPayments.push({
+          rowIndex: doc.syncedRowIndex || 0,
+          paymentNumber: pNum || doc.fileName,
+          paymentDate: ocr.paymentDate || ocr.invoiceDate || '',
+          payer: ocr.payerName || ocr.buyerName || '',
+          payee: payee,
+          amountPaid: pAmount,
+          currency: ocr.currency || 'UAH',
+          paymentPurpose: ocr.paymentPurpose || '',
+          referencedInvoiceNumber: ocr.referencedInvoiceNumber || '',
+          orderNumber: ocr.referencedOrderNumber || '',
+          fileName: doc.fileName,
+          driveLink: doc.driveLink || '',
+          uploadedAt: '',
+        });
+      }
+    }
+
+    if (matchedPayments.length === 0) {
+      return {
+        matchedPaymentNumbers: [],
+        totalPaidAmount: 0,
+        computedStatus: 'Не оплачено',
+        matchedPaymentRows: [],
+      };
+    }
+
+    const totalPaid = matchedPayments.reduce((acc, p) => acc + (p.amountPaid || 0), 0);
+    const payNumbers = Array.from(new Set(matchedPayments.map((p) => p.paymentNumber).filter(Boolean)));
+
+    let computedStatus: InvoicePaymentStatus = 'Не оплачено';
+    if (invAmount > 0) {
+      if (totalPaid >= invAmount - 0.50) {
+        computedStatus = 'Оплачено';
+      } else if (totalPaid > 0) {
+        computedStatus = 'Оплачено частково';
+      }
+    } else if (totalPaid > 0) {
+      computedStatus = 'Оплачено';
+    }
+
+    const first = matchedPayments[0];
+    const locationStr = first.rowIndex ? `рядок ${first.rowIndex} у вкладці "Платіжки"` : `файл ${first.fileName}`;
+    const reason = `Знайдено платіжку №${first.paymentNumber || ''} на суму ${this.formatCurrency(totalPaid)} (${locationStr})`;
+
+    return {
+      matchedPaymentNumbers: payNumbers,
+      totalPaidAmount: totalPaid,
+      computedStatus,
+      matchedPaymentRows: matchedPayments,
+      matchReason: reason,
     };
   }
 

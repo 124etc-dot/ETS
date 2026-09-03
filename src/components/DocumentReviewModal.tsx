@@ -21,7 +21,7 @@ import {
   RefreshCw,
   AlertCircle
 } from 'lucide-react';
-import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow } from '../types';
+import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
 import { KNOWN_PROJECT_ORDERS } from '../data/sampleDocuments';
 import { CreditCard, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
@@ -37,6 +37,7 @@ interface Props {
   isDriveConnected?: boolean;
   companyLists: SheetCompanyLists;
   existingInvoices?: ExistingSheetRow[];
+  existingPayments?: ExistingPaymentRow[];
   allDocuments?: ProcessedDocument[];
   onPrevDoc?: () => void;
   onNextDoc?: () => void;
@@ -55,6 +56,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
   isDriveConnected,
   companyLists,
   existingInvoices = [],
+  existingPayments = [],
   allDocuments = [],
   onPrevDoc,
   onNextDoc,
@@ -133,6 +135,18 @@ export const DocumentReviewModal: React.FC<Props> = ({
         }
       }
 
+      // If updating invoice details, re-evaluate matching payments
+      if (updated.documentType !== 'payment' && (field === 'totalAmount' || field === 'invoiceNumber' || field === 'handwrittenOrderNumber' || field === 'supplierName')) {
+        const invoiceMatch = OCRService.matchInvoiceWithPayments(updated, existingPayments, allDocuments);
+        if (invoiceMatch.computedStatus && invoiceMatch.computedStatus !== 'Не оплачено') {
+          updated.paymentStatus = invoiceMatch.computedStatus;
+          updated.paidAmount = invoiceMatch.totalPaidAmount;
+          updated.matchedPaymentNumber = invoiceMatch.matchedPaymentNumbers.join(', ');
+          updated.matchedPaymentAmount = invoiceMatch.totalPaidAmount;
+          updated.matchedPaymentsSummary = invoiceMatch.matchReason;
+        }
+      }
+
       return updated;
     });
   };
@@ -188,6 +202,15 @@ export const DocumentReviewModal: React.FC<Props> = ({
       clean.matchedInvoiceNumber = match.matchedInvoiceNumber;
       clean.matchedInvoiceAmount = match.invoiceAmount;
       clean.matchedInvoiceRowIndex = match.matchedRowIndex;
+    } else {
+      const match = OCRService.matchInvoiceWithPayments(clean, existingPayments, allDocuments);
+      if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
+        clean.paymentStatus = match.computedStatus;
+        clean.paidAmount = match.totalPaidAmount;
+        clean.matchedPaymentNumber = match.matchedPaymentNumbers.join(', ');
+        clean.matchedPaymentAmount = match.totalPaidAmount;
+        clean.matchedPaymentsSummary = match.matchReason;
+      }
     }
 
     return clean;
@@ -237,6 +260,11 @@ export const DocumentReviewModal: React.FC<Props> = ({
     : [];
   const paymentMatchInfo = isPaymentDoc
     ? OCRService.matchPaymentWithInvoices(formData, existingInvoices, allDocuments)
+    : null;
+
+  // Find matched payments for invoice (when payment was uploaded first or is already in "Платіжки")
+  const invoicePaymentMatch = !isPaymentDoc
+    ? OCRService.matchInvoiceWithPayments(formData, existingPayments, allDocuments)
     : null;
 
   const allExtractedInvoiceNumbers = isPaymentDoc
@@ -791,6 +819,38 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </select>
               </div>
             </div>
+
+            {/* Matched Payment Notice for Invoices */}
+            {!isPaymentDoc && invoicePaymentMatch && invoicePaymentMatch.computedStatus !== 'Не оплачено' && (
+              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-300 text-xs space-y-2 shadow-2xs">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-1.5 text-emerald-950 font-bold">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Знайдено оплату за цим рахунком у вкладці «Платіжки»!</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    {invoicePaymentMatch.computedStatus}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700 bg-white p-2 rounded border border-emerald-100">
+                  <div>
+                    <span className="text-slate-500">Сума рахунку: </span>
+                    <span className="font-mono font-bold text-slate-900 block">
+                      {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(formData.totalAmount || 0)} грн
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500">Сплачено за платіжкою: </span>
+                    <span className="font-mono font-bold text-emerald-800 block">
+                      {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(invoicePaymentMatch.totalPaidAmount)} грн
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-emerald-900 leading-relaxed">
+                  ℹ️ {invoicePaymentMatch.matchReason}. Рахунок буде внесено в Google Таблицю одразу зі статусом <strong>«{invoicePaymentMatch.computedStatus}»</strong> та сумою оплати <span className="font-mono font-bold">{new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(invoicePaymentMatch.totalPaidAmount)} грн</span> (стовпчик J).
+                </p>
+              </div>
+            )}
 
             {/* Payer (Our Company) & Payee (Supplier) */}
             <div className="space-y-3">
