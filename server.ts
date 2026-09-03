@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type, Schema } from '@google/genai';
@@ -8,6 +9,17 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Enable CORS for local app wrappers, PWAs, or alternate dev ports
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // Set high limits for base64 file payloads (PDFs and high-res phone camera photos)
 app.use(express.json({ limit: '50mb' }));
@@ -243,8 +255,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Primary OCR Endpoint
-app.post('/api/ocr/process', async (req, res) => {
+// Primary OCR Endpoint (supports both with and without trailing slash)
+app.post(['/api/ocr/process', '/api/ocr/process/'], async (req, res) => {
   try {
     const {
       fileData, // base64 string
@@ -664,14 +676,17 @@ ${knownOrdersPromptList}
 
 // Start Express and Vite middleware
 async function startServer() {
-  if (process.env.NODE_ENV !== 'production') {
+  const distPath = path.join(process.cwd(), 'dist');
+  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || (hasDist && process.env.NODE_ENV !== 'development');
+
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -679,7 +694,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Invoice OCR Processor running on http://0.0.0.0:${PORT}`);
+    console.log(`Invoice OCR Processor running on http://0.0.0.0:${PORT} (${isProduction ? 'Production static' : 'Development Vite'})`);
   });
 }
 

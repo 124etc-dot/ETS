@@ -13,23 +13,36 @@ export class OCRService {
     knownOrders?: any[];
     docTypeHint?: 'auto' | 'invoice' | 'payment';
   }): Promise<OCRResult> {
-    const res = await fetch('/api/ocr/process', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/ocr/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params),
+      });
+    } catch (networkErr: any) {
+      throw new Error(
+        `Неможливо зʼєднатися з сервером розпізнавання (/api/ocr/process): ${networkErr?.message || 'Помилка мережі'}. Перевірте, чи працює бекенд Node.js на порту 3000.`
+      );
+    }
 
     if (!res.ok) {
-      let errorMsg = `Server error ${res.status}: ${res.statusText}`;
+      let errorMsg = `Помилка сервера ${res.status}${res.statusText ? `: ${res.statusText}` : ''}`;
       try {
         const json = await res.json();
         if (json.error) {
           errorMsg = json.error;
         }
       } catch {
-        // use fallback
+        if (res.status === 404) {
+          errorMsg = 'Бекенд-сервер розпізнавання (/api/ocr/process) не знайдено (404 Not Found). Якщо ви запускаєте застосунок локально або окремо, переконайтеся, що сервер запущено через Node.js (командою npm run dev або npm start), а не як суто статичний веб-сервер.';
+        } else if (res.status === 405) {
+          errorMsg = 'Запит до бекенду перехоплено шлюзом (405 Not Allowed). Якщо застосунок запущено як відокремлений PWA-додаток браузера, відкрийте його у звичайній вкладці браузера з авторизованою сесією.';
+        } else if (res.status === 502 || res.status === 503 || res.status === 504) {
+          errorMsg = 'Сервер тимчасово недоступний (503/504). Зачекайте кілька секунд і спробуйте знову.';
+        }
       }
       throw new Error(errorMsg);
     }
@@ -40,6 +53,22 @@ export class OCRService {
     }
 
     return data.data as OCRResult;
+  }
+
+  /**
+   * Health check for backend server and Gemini API key
+   */
+  public static async checkServerHealth(): Promise<{ ok: boolean; hasGeminiKey: boolean; message?: string }> {
+    try {
+      const res = await fetch('/api/health');
+      if (!res.ok) {
+        return { ok: false, hasGeminiKey: false, message: `HTTP ${res.status}: ${res.statusText || 'Endpoint unavailable'}` };
+      }
+      const data = await res.json();
+      return { ok: true, hasGeminiKey: Boolean(data.hasGeminiKey) };
+    } catch (err: any) {
+      return { ok: false, hasGeminiKey: false, message: err?.message || 'Неможливо зʼєднатися з сервером' };
+    }
   }
 
   /**
