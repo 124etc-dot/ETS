@@ -37,7 +37,6 @@ import { SheetLivePreview } from './components/SheetLivePreview';
 import { CompaniesTab } from './components/CompaniesTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
 import { 
-  INITIAL_SAMPLE_DOCUMENTS, 
   DEFAULT_OUR_COMPANIES, 
   DEFAULT_SUPPLIERS, 
   DEFAULT_DRIVE_FOLDER_ID,
@@ -160,18 +159,26 @@ export default function App() {
   const [documents, setDocuments] = useState<ProcessedDocument[]>(() => {
     if (typeof window !== 'undefined') {
       try {
+        // Also remove older cache key if present
+        localStorage.removeItem('invoice_ocr_documents_cache');
+        
         const stored = localStorage.getItem(DOCUMENTS_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed;
+            // Permanently filter out any sample/demo invoices
+            const realDocs = parsed.filter(
+              (d: ProcessedDocument) => !d.id?.startsWith('sample_')
+            );
+            localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(realDocs));
+            return realDocs;
           }
         }
       } catch {
         // ignore
       }
     }
-    return INITIAL_SAMPLE_DOCUMENTS;
+    return [];
   });
 
   // Keep a ref to documents for background async loops
