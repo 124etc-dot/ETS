@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
-import { processOcrDocument } from './api/_lib/ocrEngine';
+import { processOcrDocument } from './api/ocr/process';
 
 dotenv.config();
 
