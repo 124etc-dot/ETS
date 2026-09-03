@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   FileSpreadsheet, 
   Sparkles, 
@@ -9,11 +9,14 @@ import {
   FileText,
   CheckCircle2,
   ExternalLink,
-  FolderSync
+  FolderSync,
+  Server
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
 import { SheetConfig } from '../types';
 import { APP_VERSION } from '../version';
+import { OCRService } from '../services/ocrService';
+import { ServerStatusModal } from './ServerStatusModal';
 
 interface Props {
   authState: AuthState;
@@ -36,28 +39,69 @@ export const Header: React.FC<Props> = ({
   totalPendingCount,
   totalReadyCount,
 }) => {
+  const [isServerModalOpen, setIsServerModalOpen] = useState(false);
+  const [serverStatus, setServerStatus] = useState<{
+    ok: boolean;
+    hasGeminiKey: boolean;
+    message?: string;
+  }>({ ok: true, hasGeminiKey: true });
+
+  useEffect(() => {
+    let isMounted = true;
+    const check = async () => {
+      const res = await OCRService.checkServerHealth();
+      if (isMounted) {
+        setServerStatus(res);
+      }
+    };
+    check();
+    const interval = setInterval(check, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   return (
-    <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo & ETS Branding with Release Version */}
-          <div className="flex items-center space-x-2.5">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 shadow-xs">
-              <span className="text-white font-extrabold text-[11px] tracking-tight">ETS</span>
+    <>
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo & ETS Branding with Release Version */}
+            <div className="flex items-center space-x-2.5">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 shadow-xs">
+                <span className="text-white font-extrabold text-[11px] tracking-tight">ETS</span>
+              </div>
+              <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
+                <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap">
+                  ETS <span className="text-indigo-600">Invoice &amp; Payment</span>
+                </span>
+                
+                {/* Version Pill */}
+                <span 
+                  className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs select-all"
+                  title={`Поточна версія релізу (з package.json): ${APP_VERSION}`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5"></span>
+                  {APP_VERSION}
+                </span>
+
+                {/* Server Status Pill (Clickable for quick guide) */}
+                <button
+                  type="button"
+                  onClick={() => setIsServerModalOpen(true)}
+                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border transition-colors cursor-pointer ${
+                    serverStatus.ok
+                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-200'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300 animate-pulse'
+                  }`}
+                  title="Натисніть для перегляду інструкції із запуску сервера"
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${serverStatus.ok ? 'bg-emerald-500' : 'bg-amber-600'}`}></span>
+                  <span>{serverStatus.ok ? 'Бекенд OCR OK' : 'Сервер OCR: як запустити?'}</span>
+                </button>
+              </div>
             </div>
-            <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
-              <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap">
-                ETS <span className="text-indigo-600">Invoice &amp; Payment</span>
-              </span>
-              <span 
-                className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-mono font-bold bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 shadow-2xs transition-colors cursor-default select-all"
-                title={`Поточна версія релізу (з package.json): ${APP_VERSION}`}
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
-                {APP_VERSION}
-              </span>
-            </div>
-          </div>
 
           {/* Center Navigation Tabs */}
           <nav className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
@@ -156,5 +200,13 @@ export const Header: React.FC<Props> = ({
         </div>
       </div>
     </header>
+
+    {/* Server Help Modal */}
+    <ServerStatusModal
+      isOpen={isServerModalOpen}
+      onClose={() => setIsServerModalOpen(false)}
+      serverStatus={serverStatus}
+    />
+  </>
   );
 };

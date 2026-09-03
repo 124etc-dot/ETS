@@ -81,6 +81,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [showServerHelp, setShowServerHelp] = useState(false);
 
   useEffect(() => {
     if (doc) {
@@ -488,32 +489,57 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
             {/* Error Notification banner if OCR had an issue */}
             {doc.errorMessage && (
-              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl flex items-start justify-between text-xs text-rose-900 shadow-xs">
-                <div className="flex items-start space-x-2">
-                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="block font-bold text-rose-950">Помилка під час зчитування:</strong>
-                    <p className="text-rose-800 mt-0.5">{doc.errorMessage}</p>
-                    <p className="text-[11px] text-rose-600 mt-1">Ви можете відредагувати поля вручну або повторити авторозпізнавання.</p>
+              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-2 text-xs text-rose-900 shadow-xs">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start space-x-2">
+                    <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="block font-bold text-rose-950">Помилка під час зчитування:</strong>
+                      <p className="text-rose-800 mt-0.5">{doc.errorMessage}</p>
+                      <p className="text-[11px] text-rose-600 mt-1">Ви можете відредагувати поля вручну або повторити авторозпізнавання.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-2 ml-3 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowServerHelp(!showServerHelp)}
+                      className="px-2 py-1 bg-white hover:bg-rose-100 text-rose-800 border border-rose-300 rounded-lg font-medium text-[11px] transition-colors"
+                    >
+                      {showServerHelp ? 'Сховати інструкцію' : 'Як виправити?'}
+                    </button>
+                    {onReprocess && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setIsReprocessing(true);
+                          try {
+                            await onReprocess(doc.id);
+                          } finally {
+                            setIsReprocessing(false);
+                          }
+                        }}
+                        disabled={isReprocessing}
+                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold text-xs transition-colors flex items-center space-x-1 disabled:opacity-50"
+                      >
+                        <Sparkles className={`w-3.5 h-3.5 ${isReprocessing ? 'animate-spin' : ''}`} />
+                        <span>{isReprocessing ? 'Обробка...' : 'Спробувати знову'}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
-                {onReprocess && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setIsReprocessing(true);
-                      try {
-                        await onReprocess(doc.id);
-                      } finally {
-                        setIsReprocessing(false);
-                      }
-                    }}
-                    disabled={isReprocessing}
-                    className="ml-3 px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold text-xs transition-colors shrink-0 flex items-center space-x-1 disabled:opacity-50"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${isReprocessing ? 'animate-spin' : ''}`} />
-                    <span>{isReprocessing ? 'Обробка...' : 'Спробувати знову'}</span>
-                  </button>
+
+                {showServerHelp && (
+                  <div className="mt-2 pt-2.5 border-t border-rose-200 text-[11px] text-slate-700 space-y-2 bg-white/70 p-3 rounded-lg">
+                    <p className="font-bold text-slate-900">Чому це виникає і як правильно запустити програму:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-slate-600 pl-1">
+                      <li>
+                        <strong>Якщо ви відкрили посилання в браузері:</strong> відкривайте його у <u>звичайній вкладці</u> браузера (не через «Встановити як додаток / PWA»), оскільки окреме вікно додатка браузера інколи блокує службові cookie авторизації Google (і шлюз повертає 404/405).
+                      </li>
+                      <li>
+                        <strong>Якщо ви запускаєте на компʼютері (локально):</strong> двічі клікніть <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-800 font-bold">start-app.bat</code> у папці проєкту (або запустіть у терміналі <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-800 font-bold">npm run dev</code>) і відкрийте <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-800 font-bold">http://localhost:3000</code>.
+                      </li>
+                    </ol>
+                  </div>
                 )}
               </div>
             )}
