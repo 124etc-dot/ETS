@@ -36,6 +36,7 @@ import { DocumentReviewModal } from './components/DocumentReviewModal';
 import { SheetLivePreview } from './components/SheetLivePreview';
 import { CompaniesTab } from './components/CompaniesTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
+import { APP_VERSION } from './version';
 import { 
   DEFAULT_OUR_COMPANIES, 
   DEFAULT_SUPPLIERS, 
@@ -1127,6 +1128,25 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* App Footer */}
+      <footer className="mt-auto border-t border-slate-200 bg-white py-3.5 px-4 sm:px-6 lg:px-8 text-xs text-slate-500 shadow-2xs">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="flex items-center space-x-2">
+            <span className="font-bold text-slate-800 tracking-tight">ETS Invoice &amp; Payment</span>
+            <span className="text-slate-300">•</span>
+            <span 
+              className="font-mono font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/80 px-2 py-0.5 rounded text-[11px]"
+              title="Поточний реліз застосунку з package.json"
+            >
+              {APP_VERSION}
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Автоматизоване OCR-розпізнавання рахунків, рукописних замовлень №ххх-26 та синхронізація з Google Таблицями
+          </p>
+        </div>
+      </footer>
 
       {/* Modal: Document Review & Verification */}
       <DocumentReviewModal
