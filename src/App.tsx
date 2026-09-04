@@ -384,10 +384,27 @@ export default function App() {
     setDocuments((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, status: 'processing', errorMessage: undefined } : d))
     );
+    setSelectedReviewDoc((prev) =>
+      prev?.id === docId ? { ...prev, status: 'processing', errorMessage: undefined } : prev
+    );
 
     try {
       let base64Payload = doc.previewDataUrl || '';
       let mimeType = doc.mimeType;
+
+      // If previewDataUrl is missing but blob exists, convert blob to base64
+      if (!base64Payload && doc.blob) {
+        try {
+          base64Payload = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(doc.blob!);
+          });
+        } catch {
+          // Ignore fallback error
+        }
+      }
 
       // If document is on Drive and doesn't have base64 yet, download it
       if (!base64Payload && doc.driveFileId && authState.accessToken) {
@@ -400,7 +417,7 @@ export default function App() {
       }
 
       if (!base64Payload) {
-        throw new Error('Вміст файлу не знайдено. Перевірте доступ до файлу.');
+        throw new Error('Вміст файлу не знайдено. Будь ласка, завантажте файл знову.');
       }
 
       const ocrResult = await OCRService.analyzeDocument({
@@ -446,35 +463,33 @@ export default function App() {
         existingPaymentsRef.current
       );
 
+      const updatedDoc: ProcessedDocument = {
+        ...doc,
+        status: 'ready_for_review',
+        syncedRowIndex: sheetCheck.rowIndex,
+        alreadyInSheet: sheetCheck.alreadyInSheet,
+        alreadyInSheetReason: sheetCheck.reason,
+        alreadyInSheetTab: sheetCheck.tabName,
+        ocrResult,
+        editedData: ocrResult,
+        previewDataUrl: base64Payload,
+        errorMessage: undefined,
+      };
+
       setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === docId
-            ? {
-                ...d,
-                status: 'ready_for_review',
-                syncedRowIndex: sheetCheck.rowIndex,
-                alreadyInSheet: sheetCheck.alreadyInSheet,
-                alreadyInSheetReason: sheetCheck.reason,
-                alreadyInSheetTab: sheetCheck.tabName,
-                ocrResult,
-                editedData: ocrResult,
-                previewDataUrl: base64Payload,
-              }
-            : d
-        )
+        prev.map((d) => (d.id === docId ? updatedDoc : d))
       );
+      setSelectedReviewDoc((prev) => (prev?.id === docId ? updatedDoc : prev));
     } catch (err: any) {
+      const errDoc: ProcessedDocument = {
+        ...doc,
+        status: 'error',
+        errorMessage: err.message || 'Помилка OCR розпізнавання.',
+      };
       setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === docId
-            ? {
-                ...d,
-                status: 'error',
-                errorMessage: err.message || 'Помилка OCR розпізнавання.',
-              }
-            : d
-        )
+        prev.map((d) => (d.id === docId ? errDoc : d))
       );
+      setSelectedReviewDoc((prev) => (prev?.id === docId ? errDoc : prev));
     }
   };
 
@@ -952,8 +967,12 @@ export default function App() {
   };
 
   // Navigation inside review modal
-  const reviewDocIndex = selectedReviewDoc
-    ? documents.findIndex((d) => d.id === selectedReviewDoc.id)
+  const activeReviewDoc = selectedReviewDoc
+    ? documents.find((d) => d.id === selectedReviewDoc.id) || selectedReviewDoc
+    : null;
+
+  const reviewDocIndex = activeReviewDoc
+    ? documents.findIndex((d) => d.id === activeReviewDoc.id)
     : -1;
 
   const handleNextReviewDoc = () => {
@@ -1143,8 +1162,8 @@ export default function App() {
 
       {/* Modal: Document Review & Verification */}
       <DocumentReviewModal
-        document={selectedReviewDoc}
-        isOpen={Boolean(selectedReviewDoc)}
+        document={activeReviewDoc}
+        isOpen={Boolean(activeReviewDoc)}
         onClose={() => setSelectedReviewDoc(null)}
         onSave={handleSaveLocalData}
         onSyncToSheet={handleSyncDocument}

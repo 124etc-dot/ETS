@@ -348,8 +348,9 @@ ${knownOrdersPromptList}
 Виконай ретельний аналіз кожного пікселя документа та поверни валідний JSON згідно зі схемою.`;
 
   const candidateModels = [
-    'gemini-3.1-flash-lite',
     'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.8-flash',
     'gemini-3.7-flash',
   ];
   let lastError: any = null;
@@ -558,7 +559,7 @@ ${knownOrdersPromptList}
   // 3. Targeted Amount Rescue if 0
   if ((parsedResult.totalAmount || 0) <= 0 && (parsedResult.amountPaid || 0) <= 0) {
     try {
-      console.log(`[OCR Rescue] Document has 0 amount. Running targeted amount extraction with Gemini 3.7 Flash...`);
+      console.log(`[OCR Rescue] Document has 0 amount. Running targeted amount extraction with Gemini Flash...`);
       const rescuePrompt = `КРИТИЧНО: Первинний аналіз повернув суму 0 грн, але в нашій системі АПРІОРІ НЕ МОЖЕ БУТИ РАХУНКІВ АБО ПЛАТІЖОК З НУЛЬОВОЮ СУМОЮ (0 грн)!
 Уважно проскануй зображення цього документа і знайди ТОЧНУ ЧИСЛОВУ СУМУ ДО СПЛАТИ / СУМУ ПЛАТЕЖУ.
 Шукай у полях 'Сума', 'Разом', 'Всього до сплати', 'Сума платежу', 'Списано', 'Всього з ПДВ', або 'Сума словами' (прописом).
@@ -568,7 +569,7 @@ ${knownOrdersPromptList}
   "currency": "UAH"
 }`;
       const rescueResponse = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-flash-latest',
         contents: [
           {
             inlineData: {

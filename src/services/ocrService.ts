@@ -281,8 +281,9 @@ ${knownOrdersPromptList}
 Виконай ретельний аналіз кожного пікселя документа та поверни валідний JSON згідно зі схемою.`;
 
   const candidateModels = [
-    'gemini-3.1-flash-lite',
     'gemini-flash-latest',
+    'gemini-3.1-flash-lite',
+    'gemini-3.8-flash',
     'gemini-3.7-flash',
   ];
 
@@ -443,7 +444,7 @@ ${knownOrdersPromptList}
   "currency": "UAH"
 }`;
       const rescueResponse = await ai.models.generateContent({
-        model: 'gemini-3.7-flash',
+        model: 'gemini-flash-latest',
         contents: [
           {
             inlineData: {
@@ -546,29 +547,75 @@ export class OCRService {
 
     // 2. Fallback to /api/ocr/process (if running in full-stack dev server or Vercel serverless with GEMINI_API_KEY)
     let res: Response | null = null;
-    try {
-      res = await fetch('/api/ocr/process', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-    } catch {
-      // Backend not accessible
+    let networkErrorMessage = '';
+
+    const endpoints = ['/api/ocr/process', '/api/ocr'];
+    for (const endpoint of endpoints) {
+      try {
+        res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(params),
+        });
+
+        if (res.status !== 404) {
+          // If we reached an endpoint that isn't 404, stick with this response
+          break;
+        }
+      } catch (err: any) {
+        networkErrorMessage = err?.message || 'Помилка підключення до сервера';
+      }
     }
 
-    if (res && res.ok) {
-      const data = await res.json();
-      if (data.success && data.data) {
-        return data.data as OCRResult;
+    if (res) {
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.success && data.data) {
+          return data.data as OCRResult;
+        }
+        throw new Error(data?.error || 'Не вдалося розібрати відповідь від OCR сервера.');
       }
-      throw new Error(data.error || 'Failed to parse OCR response from server.');
+
+      // Handle non-200 responses with clean error diagnostics
+      let serverError = '';
+      try {
+        const errData = await res.json();
+        serverError = errData.error || errData.details || '';
+      } catch {
+        try {
+          const text = await res.text();
+          if (text && !text.includes('<!DOCTYPE') && !text.includes('<html')) {
+            serverError = text;
+          }
+        } catch {}
+      }
+
+      if (serverError) {
+        throw new Error(serverError);
+      }
+
+      if (res.status === 404) {
+        throw new Error('Маршрут OCR (/api/ocr/process) повернув 404. Перевірте конфігурацію сервера або оновіть сторінку.');
+      }
+      if (res.status === 503) {
+        throw new Error('Сервер або Gemini AI тимчасово перевантажені (503). Зачекайте кілька секунд і спробуйте знову.');
+      }
+      if (res.status === 413) {
+        throw new Error('Файл занадто великий для обробки (413 Payload Too Large).');
+      }
+
+      throw new Error(`Помилка сервера OCR: ${res.status} ${res.statusText || ''}`);
+    }
+
+    if (networkErrorMessage) {
+      throw new Error(`Не вдалося зʼєднатися із сервером: ${networkErrorMessage}`);
     }
 
     // 3. If neither client key nor backend is available, provide helpful guidance
     throw new Error(
-      'Ключ Google Gemini API не налаштовано для клієнтського розпізнавання. Будь ласка, додайте змінну середовища VITE_GEMINI_API_KEY у налаштуваннях вашого Vercel-проєкту (Settings → Environment Variables → VITE_GEMINI_API_KEY) та виконайте Redeploy.'
+      'Ключ Google Gemini API не налаштовано або сервер недоступний. Перевірте підключення або налаштування API key.'
     );
   }
 

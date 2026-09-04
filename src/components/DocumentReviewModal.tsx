@@ -103,7 +103,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
       setRotation(0);
       setSavedSuccess(false);
     }
-  }, [doc?.id, doc?.editedData, doc?.ocrResult]);
+  }, [doc?.id, doc?.editedData, doc?.ocrResult, doc?.status]);
 
   if (!isOpen || !doc) return null;
 
@@ -507,8 +507,19 @@ export const DocumentReviewModal: React.FC<Props> = ({
               </div>
             ) : null}
 
+            {/* In-progress processing banner */}
+            {doc.status === 'processing' && (
+              <div className="p-3.5 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center space-x-3 text-xs text-indigo-900 shadow-xs animate-pulse">
+                <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 animate-spin" />
+                <div>
+                  <strong className="block font-bold text-indigo-950">Триває OCR-розпізнавання документа...</strong>
+                  <p className="text-indigo-700 mt-0.5">Gemini AI витягує дані рахунку або платіжки. Зачекайте декілька секунд.</p>
+                </div>
+              </div>
+            )}
+
             {/* Error Notification banner if OCR had an issue */}
-            {doc.errorMessage && (
+            {doc.errorMessage && doc.status !== 'processing' && (
               <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-2 text-xs text-rose-900 shadow-xs">
                 <div className="flex items-start justify-between">
                   <div className="flex items-start space-x-2">
@@ -538,11 +549,11 @@ export const DocumentReviewModal: React.FC<Props> = ({
                             setIsReprocessing(false);
                           }
                         }}
-                        disabled={isReprocessing}
+                        disabled={isReprocessing || doc.status === 'processing'}
                         className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold text-xs transition-colors flex items-center space-x-1 disabled:opacity-50"
                       >
-                        <Sparkles className={`w-3.5 h-3.5 ${isReprocessing ? 'animate-spin' : ''}`} />
-                        <span>{isReprocessing ? 'Обробка...' : 'Спробувати знову'}</span>
+                        <Sparkles className={`w-3.5 h-3.5 ${isReprocessing || doc.status === 'processing' ? 'animate-spin' : ''}`} />
+                        <span>{isReprocessing || doc.status === 'processing' ? 'Обробка...' : 'Спробувати знову'}</span>
                       </button>
                     )}
                   </div>

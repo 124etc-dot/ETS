@@ -26,7 +26,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Health endpoint
-app.get('/api/health', (req, res) => {
+app.get(['/api/health', '/api/health/'], (req, res) => {
   res.json({
     status: 'ok',
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
@@ -34,8 +34,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Primary OCR Endpoint (supports both with and without trailing slash)
-app.post(['/api/ocr/process', '/api/ocr/process/'], async (req, res) => {
+// OCR Status Check / GET info
+app.get(['/api/ocr', '/api/ocr/process', '/api/ocr/process/'], (req, res) => {
+  res.json({
+    status: 'ok',
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+    endpoint: '/api/ocr/process',
+    method: 'POST',
+  });
+});
+
+// Primary OCR Endpoint (supports all common route aliases)
+app.post(['/api/ocr/process', '/api/ocr/process/', '/api/ocr', '/api/ocr/', '/api/process'], async (req, res) => {
   try {
     const {
       fileData,
@@ -67,11 +77,13 @@ app.post(['/api/ocr/process', '/api/ocr/process/'], async (req, res) => {
     let userFriendlyMessage = 'Помилка обробки документа через Gemini OCR.';
     const rawMsg = error?.message || String(error);
     if (rawMsg.includes('503') || rawMsg.includes('high demand') || rawMsg.includes('UNAVAILABLE')) {
-      userFriendlyMessage = 'Сервіс Gemini тимчасово перевантажений. Будь ласка, натисніть "Повторити" через кілька секунд.';
+      userFriendlyMessage = 'Сервіс Gemini тимчасово перевантажений. Будь ласка, натисніть "Спробувати знову" через кілька секунд.';
     } else if (rawMsg.includes('429') || rawMsg.includes('RESOURCE_EXHAUSTED')) {
       userFriendlyMessage = 'Перевищено ліміт запитів до AI. Зачекайте кілька секунд та спробуйте знову.';
     } else if (rawMsg.includes('API key') || rawMsg.includes('GEMINI_API_KEY')) {
       userFriendlyMessage = 'Ключ Gemini API не знайдено або він недійсний.';
+    } else if (rawMsg.includes('404') || rawMsg.includes('NOT_FOUND')) {
+      userFriendlyMessage = 'Модель Gemini або ресурс не знайдено. Спробуйте повторити запит.';
     } else if (rawMsg && !rawMsg.startsWith('{')) {
       userFriendlyMessage = rawMsg;
     }
@@ -87,8 +99,7 @@ app.post(['/api/ocr/process', '/api/ocr/process/'], async (req, res) => {
 // Start Express and Vite middleware
 async function startServer() {
   const distPath = path.join(process.cwd(), 'dist');
-  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
-  const isProduction = process.env.NODE_ENV === 'production' || (hasDist && process.env.NODE_ENV !== 'development');
+  const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
     const vite = await createViteServer({
