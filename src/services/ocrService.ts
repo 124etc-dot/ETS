@@ -1403,11 +1403,26 @@ export class OCRService {
     tabName?: string;
     reason?: string;
   } {
+    const isPlaceholderNumber = (num: string): boolean => {
+      if (!num) return true;
+      const s = num.trim().toLowerCase();
+      if (s.length < 2) return true;
+      // Date strings like 2026-08-25 or 25.08.2026
+      if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
+      const placeholders = new Set([
+        'б/н', 'бн', 'б.н.', 'б/н.', 'безномера', 'без_номера', 'без-номера',
+        'n/a', 'na', 'none', 'null', '-', '--', '—', '0', '00', '000',
+        'рахунок', 'інвойс', 'счет'
+      ]);
+      return placeholders.has(s);
+    };
+
     const isPayment = docOcr.documentType === 'payment';
 
     if (isPayment) {
       const payNum = (docOcr.paymentNumber || docOcr.invoiceNumber || '').trim().toLowerCase();
       const cleanPayNum = this.normalizeInvoiceNumber(payNum);
+      const isCleanPayPlaceholder = isPlaceholderNumber(cleanPayNum);
       const payDate = docOcr.paymentDate || docOcr.invoiceDate || '';
       const payee = this.normalizeCompanyName(docOcr.payeeName || docOcr.supplierName || '');
       const amount = docOcr.amountPaid || docOcr.totalAmount || 0;
@@ -1415,27 +1430,34 @@ export class OCRService {
       for (const p of existingPayments) {
         const existPayNum = (p.paymentNumber || '').trim().toLowerCase();
         const cleanExistPayNum = this.normalizeInvoiceNumber(existPayNum);
+        const isExistPayPlaceholder = isPlaceholderNumber(cleanExistPayNum);
         const existDate = p.paymentDate || '';
         const existPayee = this.normalizeCompanyName(p.payee || '');
         const existAmount = p.amountPaid || 0;
 
-        const numMatch = cleanPayNum && cleanExistPayNum && cleanPayNum === cleanExistPayNum;
-        const amountMatch = amount > 0 && Math.abs(amount - existAmount) <= 0.05;
         const payeeMatch = payee && existPayee && (this.isCompanyNameMatch(payee, existPayee) || (payee.length >= 6 && existPayee.length >= 6 && (payee.includes(existPayee) || existPayee.includes(payee))));
+        if (!payeeMatch) continue;
+
+        const amountMatch = amount > 0 && existAmount > 0 && Math.abs(amount - existAmount) <= 0.50;
         const dateMatch = payDate && existDate && payDate === existDate;
 
-        // Condition 1: Exact payment number match + supplier/amount
-        if (numMatch && (payeeMatch || amountMatch)) {
+        const validPayNumMatch =
+          !isCleanPayPlaceholder &&
+          !isExistPayPlaceholder &&
+          cleanPayNum === cleanExistPayNum;
+
+        // Condition 1: Exact payment number + payee + amount match
+        if (validPayNumMatch && amountMatch) {
           return {
             alreadyInSheet: true,
             rowIndex: p.rowIndex,
             tabName: 'Платіжки',
-            reason: `Платіжка №${p.paymentNumber} вже є у вкладці "Платіжки" (рядок ${p.rowIndex})`,
+            reason: `Платіжка №${p.paymentNumber} від ${existPayee} на суму ${existAmount || amount} грн вже є у вкладці "Платіжки" (рядок ${p.rowIndex})`,
           };
         }
 
         // Condition 2: Date + exact amount + payee
-        if (dateMatch && amountMatch && payeeMatch) {
+        if (dateMatch && amountMatch) {
           return {
             alreadyInSheet: true,
             rowIndex: p.rowIndex,
@@ -1448,28 +1470,39 @@ export class OCRService {
       // Invoices
       const rawInvNum = (docOcr.invoiceNumber || '').trim();
       const cleanInvNum = this.normalizeInvoiceNumber(rawInvNum);
+      const isCleanInvPlaceholder = isPlaceholderNumber(cleanInvNum);
       const rawOrderNum = (docOcr.handwrittenOrderNumber || '').trim();
       const cleanOrderNum = this.normalizeOrderNumber(rawOrderNum).toLowerCase();
       const supplier = this.normalizeCompanyName(docOcr.supplierName || '');
       const amount = docOcr.totalAmount || 0;
+      const invDate = (docOcr.invoiceDate || '').trim();
 
       for (const inv of existingInvoices) {
         const existInvNum = (inv.invoiceNumber || '').trim();
         const cleanExistInvNum = this.normalizeInvoiceNumber(existInvNum);
+        const isExistInvPlaceholder = isPlaceholderNumber(cleanExistInvNum);
         const existOrderNum = this.normalizeOrderNumber(inv.orderNumber || '').toLowerCase();
         const existSupplier = this.normalizeCompanyName(inv.supplier || '');
         const existAmount = inv.amount || 0;
+        const existDate = (inv.invoiceDate || '').trim();
 
         // Skip blank or invalid rows in sheet
         if (!cleanExistInvNum && !existAmount && !existOrderNum) continue;
 
-        const invNumMatch = cleanInvNum && cleanExistInvNum && cleanInvNum === cleanExistInvNum && cleanInvNum.length >= 2;
         const supplierMatch = supplier && existSupplier && this.isCompanyNameMatch(supplier, existSupplier);
-        const amountMatch = amount > 0 && existAmount > 0 && Math.abs(amount - existAmount) <= 0.05;
-        const orderNumMatch = cleanOrderNum && existOrderNum && cleanOrderNum === existOrderNum;
+        if (!supplierMatch) continue;
 
-        // Condition 1: Exact invoice number + exact supplier + (amount match OR order match)
-        if (invNumMatch && supplierMatch && (amountMatch || orderNumMatch)) {
+        const amountMatch = amount > 0 && existAmount > 0 && Math.abs(amount - existAmount) <= 0.50;
+        const orderNumMatch = Boolean(cleanOrderNum && existOrderNum && cleanOrderNum === existOrderNum);
+        const dateMatch = Boolean(invDate && existDate && invDate === existDate);
+
+        // Condition 1: Valid invoice numbers match (not placeholders/dates) + supplier match + amount match
+        const validInvNumbersMatch =
+          !isCleanInvPlaceholder &&
+          !isExistInvPlaceholder &&
+          cleanInvNum === cleanExistInvNum;
+
+        if (validInvNumbersMatch && amountMatch) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
@@ -1478,23 +1511,18 @@ export class OCRService {
           };
         }
 
-        // Condition 2: Exact invoice number + exact supplier (when amount or order is not yet filled)
-        if (invNumMatch && supplierMatch && (amount === 0 || existAmount === 0)) {
-          return {
-            alreadyInSheet: true,
-            rowIndex: inv.rowIndex,
-            tabName: 'Рахунки',
-            reason: `Рахунок №${inv.invoiceNumber} від ${existSupplier} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
-          };
+        // If both have valid invoice numbers, but they are DIFFERENT, they are NOT duplicates
+        if (!isCleanInvPlaceholder && !isExistInvPlaceholder && cleanInvNum !== cleanExistInvNum) {
+          continue;
         }
 
-        // Condition 3: Exact supplier + exact amount + exact order number (for duplicate prevention)
-        if (supplierMatch && amountMatch && orderNumMatch && cleanOrderNum) {
+        // Condition 2: Unnumbered / placeholder ("б/н"), but exact amount + order number + date match
+        if (amountMatch && orderNumMatch && dateMatch) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
-            reason: `Рахунок від ${existSupplier} за замовленням ${inv.orderNumber} на суму ${amount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            reason: `Рахунок від ${existSupplier} за замовленням ${inv.orderNumber} на суму ${amount} грн від ${existDate} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
           };
         }
       }

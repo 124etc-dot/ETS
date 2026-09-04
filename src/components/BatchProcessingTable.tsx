@@ -817,10 +817,20 @@ export const BatchProcessingTable: React.FC<Props> = ({
                         </span>
                       )}
                       {doc.status === 'ready_for_review' && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-900 border border-amber-200">
-                          <CheckCircle2 className="w-3 h-3 mr-1 text-amber-600" />
-                          Готово
-                        </span>
+                        <div className="flex flex-col items-center">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-900 border border-amber-200">
+                            <CheckCircle2 className="w-3 h-3 mr-1 text-amber-600" />
+                            Готово
+                          </span>
+                          {doc.alreadyInSheet && (
+                            <span
+                              className="text-[9px] text-amber-700 font-medium mt-0.5 max-w-[110px] truncate cursor-help"
+                              title={doc.alreadyInSheetReason}
+                            >
+                              схожий у рядку {doc.syncedRowIndex}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {doc.status === 'synced' && (
                         <div className="flex flex-col items-center">

@@ -468,12 +468,12 @@ export const DocumentReviewModal: React.FC<Props> = ({
           {/* Right: Data Form */}
           <div className="w-full md:w-1/2 bg-white flex flex-col h-[60vh] md:h-full overflow-y-auto p-6 space-y-4">
             {/* Already in Sheet Warning Banner */}
-            {(doc.status === 'synced' || doc.alreadyInSheet) && (
+            {doc.status === 'synced' ? (
               <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-start space-x-2 text-xs text-emerald-950 shadow-xs">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <div className="flex items-center space-x-2">
-                    <strong className="font-bold text-emerald-900">Вже внесено в Google Таблицю</strong>
+                    <strong className="font-bold text-emerald-900">Внесено в Google Таблицю</strong>
                     {doc.syncedRowIndex && (
                       <span className="text-[10px] bg-emerald-200 text-emerald-900 font-mono font-bold px-2 py-0.5 rounded">
                         рядок {doc.syncedRowIndex}
@@ -481,11 +481,31 @@ export const DocumentReviewModal: React.FC<Props> = ({
                     )}
                   </div>
                   <p className="text-emerald-800 mt-1">
-                    {doc.alreadyInSheetReason || `Документ вже існує у вкладці "${doc.alreadyInSheetTab || (isPaymentDoc ? 'Платіжки' : 'Рахунки')}". Повторне внесення заблоковано для уникнення дублікатів.`}
+                    {doc.alreadyInSheetReason || `Документ записано у вкладку "${doc.alreadyInSheetTab || (isPaymentDoc ? 'Платіжки' : 'Рахунки')}".`}
                   </p>
                 </div>
               </div>
-            )}
+            ) : doc.alreadyInSheet ? (
+              <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-xl flex items-start space-x-2 text-xs text-amber-950 shadow-xs">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="flex items-center space-x-2">
+                    <strong className="font-bold text-amber-900">Схожий запис знайдено в Google Таблиці</strong>
+                    {doc.syncedRowIndex && (
+                      <span className="text-[10px] bg-amber-200 text-amber-900 font-mono font-bold px-2 py-0.5 rounded">
+                        рядок {doc.syncedRowIndex}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-amber-800 mt-1">
+                    {doc.alreadyInSheetReason || `У таблиці знайдено схожий запис.`}
+                  </p>
+                  <p className="text-[11px] text-amber-700 mt-1 font-medium">
+                    Якщо це новий рахунок або додаткове замовлення, перевірте дані та натисніть кнопку "Занести в Google Таблицю".
+                  </p>
+                </div>
+              </div>
+            ) : null}
 
             {/* Error Notification banner if OCR had an issue */}
             {doc.errorMessage && (
@@ -1075,7 +1095,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 )}
               </button>
 
-              {doc.status === 'synced' || doc.alreadyInSheet ? (
+              {doc.status === 'synced' ? (
                 <div className="flex items-center space-x-2">
                   <span className="text-xs text-emerald-700 font-semibold flex items-center">
                     <CheckCircle2 className="w-4 h-4 mr-1 text-emerald-600" />
@@ -1100,7 +1120,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>
-                    {isSyncing ? 'Запис у таблицю...' : 'Занести в Google Таблицю'}
+                    {isSyncing ? 'Запис у таблицю...' : doc.alreadyInSheet ? 'Занести в Google Таблицю (все одно)' : 'Занести в Google Таблицю'}
                   </span>
                 </button>
               )}

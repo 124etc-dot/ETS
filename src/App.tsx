@@ -342,24 +342,23 @@ export default function App() {
           if (check.alreadyInSheet) {
             return {
               ...d,
-              status: 'synced',
               syncedRowIndex: check.rowIndex,
               alreadyInSheet: true,
               alreadyInSheetReason: check.reason,
               alreadyInSheetTab: check.tabName,
+              // Only mark 'synced' if actually synced by the user in this session
+              status: d.syncedAt ? 'synced' : d.status === 'synced' && !d.syncedAt ? 'ready_for_review' : d.status,
             };
-          } else if (d.alreadyInSheet && !d.syncedAt) {
-            // Correct any false positive: document is not in the sheet and was not synced in this session
+          } else {
             return {
               ...d,
-              status: 'ready_for_review',
-              syncedRowIndex: undefined,
+              syncedRowIndex: d.syncedAt ? d.syncedRowIndex : undefined,
               alreadyInSheet: false,
               alreadyInSheetReason: undefined,
               alreadyInSheetTab: undefined,
+              status: d.syncedAt ? 'synced' : d.status === 'synced' ? 'ready_for_review' : d.status,
             };
           }
-          return d;
         })
       );
     } catch (err: any) {
@@ -452,7 +451,7 @@ export default function App() {
           d.id === docId
             ? {
                 ...d,
-                status: sheetCheck.alreadyInSheet ? 'synced' : 'ready_for_review',
+                status: 'ready_for_review',
                 syncedRowIndex: sheetCheck.rowIndex,
                 alreadyInSheet: sheetCheck.alreadyInSheet,
                 alreadyInSheetReason: sheetCheck.reason,
@@ -604,33 +603,15 @@ export default function App() {
       return;
     }
 
-    // Safety Duplicate Check: ensure doc hasn't already been written to the sheet
+    // Safety Duplicate Check: log duplicate detection for diagnostics
     const doubleCheck = OCRService.checkExistingDocumentInSheet(
       dataToSync,
       existingInvoicesRef.current,
       existingPaymentsRef.current
     );
 
-    if (doubleCheck.alreadyInSheet && !doc.alreadyInSheet) {
-      setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === docId
-            ? {
-                ...d,
-                status: 'synced',
-                syncedRowIndex: doubleCheck.rowIndex,
-                alreadyInSheet: true,
-                alreadyInSheetReason: doubleCheck.reason,
-                alreadyInSheetTab: doubleCheck.tabName,
-              }
-            : d
-        )
-      );
-      notify(
-        `Документ "${doc.fileName}" вже внесено у таблицю (${doubleCheck.reason}). Повторне внесення скасовано.`,
-        'info'
-      );
-      return;
+    if (doubleCheck.alreadyInSheet) {
+      console.info(`[Sync] Document "${doc.fileName}" has match in sheet: ${doubleCheck.reason}. Proceeding with user-requested sync.`);
     }
 
     try {
