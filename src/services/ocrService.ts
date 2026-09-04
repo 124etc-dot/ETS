@@ -670,6 +670,79 @@ export class OCRService {
   }
 
   /**
+   * Check if two company names refer to the same company.
+   * Strips legal form prefixes (ТОВ, ФОП, ПП, etc.) and compares core names.
+   * Prevents matching on generic terms like 'КИЇВ', 'УКРАЇНА', etc.
+   */
+  public static isCompanyNameMatch(name1: string, name2: string): boolean {
+    const n1 = this.normalizeCompanyName(name1 || '');
+    const n2 = this.normalizeCompanyName(name2 || '');
+    if (!n1 || !n2) return false;
+    if (n1 === n2) return true;
+
+    // Strip legal prefixes (ТОВ, ФОП, ПП, ТДВ, ПРАТ, ПАТ, АТ, ДП)
+    const core1 = n1.replace(/^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)\s+/i, '').trim();
+    const core2 = n2.replace(/^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)\s+/i, '').trim();
+
+    if (!core1 || !core2) return false;
+    if (core1 === core2) return true;
+
+    // Generic words that must not match just because both companies contain them
+    const genericWords = new Set([
+      'КИЇВ', 'УКРАЇНА', 'ЦЕНТР', 'ГРУП', 'ТРЕЙД', 'СЕРВІС',
+      'ПЛЮС', 'ЛТД', 'ТОРГ', 'БУД', 'МАРКЕТ', 'СВІТ', 'СИСТЕМИ', 'ТЕХНОЛОГІЇ'
+    ]);
+    if (genericWords.has(core1) || genericWords.has(core2)) {
+      return core1 === core2;
+    }
+
+    // High confidence substring match for long specific company names
+    if (core1.length >= 6 && core2.length >= 6) {
+      if (core1.includes(core2) || core2.includes(core1)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Safely checks if an invoice number is mentioned in a payment purpose string.
+   * Avoids matching random substrings (e.g. "26" in year 2026 or account number).
+   */
+  public static isInvoiceNumberMentionedInPurpose(cleanInvNum: string, purpose: string): boolean {
+    if (!cleanInvNum || !purpose || cleanInvNum.length < 2) return false;
+    const lowerPurpose = purpose.toLowerCase();
+
+    // Check extracted invoice tokens from purpose
+    const extracted = this.extractAllInvoiceNumbers(undefined, undefined, purpose);
+    const cleanExtracted = extracted.map((e) => this.normalizeInvoiceNumber(e)).filter(Boolean);
+    if (cleanExtracted.includes(cleanInvNum)) return true;
+
+    // Check keyword-based pattern: e.g. "рах 3540", "№ 3540", "рахунку 3540", "сф 3540"
+    const escaped = cleanInvNum.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    const regex = new RegExp(
+      `(?:рахун(?:ок|ку|ком|ки|ків)?|рах(?:унок|\\.?)|сф[-_]?|інвойс(?:и|ів)?|№|no\\.?|n\\.?)\\s*[:#№]?\\s*(?:[A-Za-zА-Яа-я0-9\\-_]*\\/)*${escaped}(?!\\d)`,
+      'i'
+    );
+    if (regex.test(lowerPurpose)) return true;
+
+    // Standalone number surrounded by word boundaries or non-digits (for 4+ digit numbers)
+    if (cleanInvNum.length >= 4 && /^\d+$/.test(cleanInvNum)) {
+      const standaloneRegex = new RegExp(`(?:^|[^\\d])${escaped}(?:[^\\d]|$)`);
+      if (standaloneRegex.test(lowerPurpose)) {
+        // Exclude dates (e.g. dd.mm.yyyy or yyyy-mm-dd)
+        const dateContextRegex = new RegExp(`(?:\\d{2}\\.\\d{2}\\.|\\d{4}[-./])${escaped}|${escaped}[-./]\\d{2}[-./]`);
+        if (!dateContextRegex.test(lowerPurpose)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
    * Clean and normalize handwritten order number strictly to format xxx-xx WITHOUT symbol №
    * E.g. "№142-26" -> "142-26", "зам. 89-26" -> "89-26", "12326" -> "123-26"
    */
@@ -824,37 +897,51 @@ export class OCRService {
       const isInvNumActuallyDate = isDateString(rawInvNum);
 
       // Criterion A: Match against any extracted invoice number from the payment (ignore if invoiceNumber is just a date)
-      const matchByInvoiceNum =
+      const hasInvNumMatch =
         !isInvNumActuallyDate &&
-        ((cleanInvNum &&
+        cleanInvNum.length >= 2 &&
+        (cleanRefNumbers.includes(cleanInvNum) ||
+          this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
           cleanRefNumbers.some(
-            (crn) => crn === cleanInvNum || cleanInvNum.includes(crn) || crn.includes(cleanInvNum)
-          )) ||
-          (cleanInvNum && purpose.includes(cleanInvNum)) ||
-          (rawInvNum && purpose.includes(rawInvNum.toLowerCase())));
+            (crn) => crn === cleanInvNum || (crn.length >= 4 && cleanInvNum.length >= 4 && (crn.includes(cleanInvNum) || cleanInvNum.includes(crn)))
+          ));
 
-      // Criterion B: Match by Order Number
-      const matchByOrderNum = cleanOrderNum && (
-        cleanOrderNum === refOrder ||
-        purpose.includes(cleanOrderNum) ||
-        (refOrder && cleanOrderNum.includes(refOrder))
-      );
-
-      // Criterion C: Match by Supplier / Payee + exact Amount (if only 1 invoice or exact match)
-      const matchBySupplierAndAmount =
-        paymentAmount > 0 &&
-        invAmount > 0 &&
-        Math.abs(paymentAmount - invAmount) <= 0.50 &&
+      // Criterion B: Match by Supplier / Payee
+      const isSupplierMatch = Boolean(
         payeeName &&
         invSupplier &&
-        (payeeName.includes(invSupplier) || invSupplier.includes(payeeName) || purpose.includes(invSupplier.toLowerCase()));
+        (this.isCompanyNameMatch(invSupplier, payeeName) ||
+          (invSupplier.length >= 5 && purpose.includes(invSupplier.toLowerCase())))
+      );
 
-      if (matchByInvoiceNum || matchByOrderNum || matchBySupplierAndAmount) {
+      // Criterion C: Match by Amount
+      const isAmountMatch = paymentAmount > 0 && invAmount > 0 && Math.abs(paymentAmount - invAmount) <= 0.50;
+
+      // Criterion D: Match by Order Number
+      const isOrderMatch = Boolean(
+        cleanOrderNum &&
+        (cleanOrderNum === refOrder ||
+          purpose.includes(cleanOrderNum) ||
+          (refOrder && cleanOrderNum.includes(refOrder)))
+      );
+
+      // Check if payment purpose specifies a different invoice number
+      const hasContradictingInvoice =
+        cleanRefNumbers.length > 0 &&
+        !cleanRefNumbers.includes(cleanInvNum) &&
+        !hasInvNumMatch;
+
+      // Valid conditions:
+      const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch);
+      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+
+      if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount) {
         let reason = '';
         if (matchByInvoiceNum) {
           reason = `Співпадіння за номером рахунку "${inv.invoiceNumber}"`;
-        } else if (matchByOrderNum) {
-          reason = `Співпадіння за номером замовлення "${inv.orderNumber}"`;
+        } else if (matchByOrderSupplierAndAmount) {
+          reason = `Співпадіння за замовленням "${inv.orderNumber}", постачальником "${inv.supplier}" та сумою (${inv.amount} грн)`;
         } else {
           reason = `Співпадіння за постачальником "${inv.supplier}" та сумою (${inv.amount} грн)`;
         }
@@ -885,6 +972,7 @@ export class OCRService {
       const cleanOrderNum = this.normalizeOrderNumber(ocr.handwrittenOrderNumber || '').toLowerCase();
       const invSupplier = this.normalizeCompanyName(ocr.supplierName || '');
       const invAmount = ocr.totalAmount || 0;
+      const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
 
       // Check if this local document corresponds to an already matched sheet row (prevent duplicate counting)
       const existingSheetMatch = matches.find((m) => {
@@ -920,7 +1008,6 @@ export class OCRService {
         existingSheetMatch.matchedDocId = doc.id;
 
         // If the sheet row's invoice number is missing, empty, or formatted as a date, upgrade it with the document's real invoice number
-        const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
         if ((!existingSheetMatch.invoiceNumber || isDatePattern(existingSheetMatch.invoiceNumber)) && ocr.invoiceNumber) {
           existingSheetMatch.invoiceNumber = ocr.invoiceNumber;
         }
@@ -930,34 +1017,46 @@ export class OCRService {
         continue;
       }
 
-      const matchByInvoiceNum =
-        cleanInvNum &&
-        cleanRefNumbers.some(
-          (crn) => crn === cleanInvNum || cleanInvNum.includes(crn) || crn.includes(cleanInvNum)
-        ) ||
-        (cleanInvNum && purpose.includes(cleanInvNum)) ||
-        (rawInvNum && purpose.includes(rawInvNum.toLowerCase()));
+      const hasInvNumMatch =
+        !isDatePattern(rawInvNum) &&
+        cleanInvNum.length >= 2 &&
+        (cleanRefNumbers.includes(cleanInvNum) ||
+          this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
+          cleanRefNumbers.some(
+            (crn) => crn === cleanInvNum || (crn.length >= 4 && cleanInvNum.length >= 4 && (crn.includes(cleanInvNum) || cleanInvNum.includes(crn)))
+          ));
 
-      const matchByOrderNum = cleanOrderNum && (
-        cleanOrderNum === refOrder ||
-        purpose.includes(cleanOrderNum) ||
-        (refOrder && cleanOrderNum.includes(refOrder))
-      );
-
-      const matchBySupplierAndAmount =
-        paymentAmount > 0 &&
-        invAmount > 0 &&
-        Math.abs(paymentAmount - invAmount) <= 0.50 &&
+      const isSupplierMatch = Boolean(
         payeeName &&
         invSupplier &&
-        (payeeName.includes(invSupplier) || invSupplier.includes(payeeName) || purpose.includes(invSupplier.toLowerCase()));
+        (this.isCompanyNameMatch(invSupplier, payeeName) ||
+          (invSupplier.length >= 5 && purpose.includes(invSupplier.toLowerCase())))
+      );
 
-      if (matchByInvoiceNum || matchByOrderNum || matchBySupplierAndAmount) {
+      const isAmountMatch = paymentAmount > 0 && invAmount > 0 && Math.abs(paymentAmount - invAmount) <= 0.50;
+
+      const isOrderMatch = Boolean(
+        cleanOrderNum &&
+        (cleanOrderNum === refOrder ||
+          purpose.includes(cleanOrderNum) ||
+          (refOrder && cleanOrderNum.includes(refOrder)))
+      );
+
+      const hasContradictingInvoice =
+        cleanRefNumbers.length > 0 &&
+        !cleanRefNumbers.includes(cleanInvNum) &&
+        !hasInvNumMatch;
+
+      const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch);
+      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+
+      if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount) {
         let reason = '';
         if (matchByInvoiceNum) {
           reason = `Співпадіння за локальним рахунком "${ocr.invoiceNumber}"`;
-        } else if (matchByOrderNum) {
-          reason = `Співпадіння за номером замовлення "${ocr.handwrittenOrderNumber}"`;
+        } else if (matchByOrderSupplierAndAmount) {
+          reason = `Співпадіння за замовленням "${ocr.handwrittenOrderNumber}", постачальником "${ocr.supplierName}" та сумою (${ocr.totalAmount} грн)`;
         } else {
           reason = `Співпадіння за постачальником "${ocr.supplierName}" та сумою (${ocr.totalAmount} грн)`;
         }
@@ -1121,33 +1220,58 @@ export class OCRService {
       const refInv = this.normalizeInvoiceNumber(p.referencedInvoiceNumber || '');
       const refOrd = this.normalizeOrderNumber(p.orderNumber || '').toLowerCase();
       const purpose = (p.paymentPurpose || '').toLowerCase();
-      const cleanPurpose = this.normalizeInvoiceNumber(purpose);
       const payee = this.normalizeCompanyName(p.payee || '');
       const pAmount = p.amountPaid || 0;
 
-      // Condition A: Referenced invoice number or payment purpose matches invoice number
-      const matchByInvoiceNum =
+      const pRefNumbers = this.extractAllInvoiceNumbers(
+        p.referencedInvoiceNumber,
+        undefined,
+        p.paymentPurpose
+      );
+      const cleanPRefNumbers = pRefNumbers.map((n) => this.normalizeInvoiceNumber(n)).filter(Boolean);
+
+      // Check if this payment specifically references our invoice number
+      const hasDirectInvNumMatch =
         !isInvNumActuallyDate &&
-        cleanInvNum &&
-        ((refInv && (refInv === cleanInvNum || refInv.includes(cleanInvNum) || cleanInvNum.includes(refInv))) ||
-          (rawInvNum.length >= 3 && purpose.includes(rawInvNum.toLowerCase())) ||
-          (cleanInvNum.length >= 3 && cleanPurpose.includes(cleanInvNum)));
+        cleanInvNum.length >= 2 &&
+        (cleanPRefNumbers.includes(cleanInvNum) ||
+          (refInv && (refInv === cleanInvNum || (cleanInvNum.length >= 3 && refInv === cleanInvNum))) ||
+          this.isInvoiceNumberMentionedInPurpose(cleanInvNum, p.paymentPurpose || ''));
 
-      // Condition B: Order number matches
-      const matchByOrderNum =
-        cleanOrderNum &&
-        ((refOrd && (refOrd === cleanOrderNum || refOrd.includes(cleanOrderNum) || cleanOrderNum.includes(refOrd))) ||
-          purpose.includes(cleanOrderNum));
-
-      // Condition C: Same Payee and same Amount
-      const matchByPayeeAndAmount =
+      // Check payee against supplier
+      const isSupplierMatch = Boolean(
         supplier &&
         payee &&
-        (supplier.includes(payee) || payee.includes(supplier)) &&
-        invAmount > 0 &&
-        Math.abs(invAmount - pAmount) <= 0.50;
+        (this.isCompanyNameMatch(supplier, payee) ||
+          (supplier.length >= 5 && purpose.includes(supplier.toLowerCase())))
+      );
 
-      if (matchByInvoiceNum || matchByOrderNum || matchByPayeeAndAmount) {
+      // Check amount match
+      const isAmountMatch = invAmount > 0 && pAmount > 0 && Math.abs(invAmount - pAmount) <= 0.50;
+
+      // Check order match
+      const isOrderMatch = Boolean(
+        cleanOrderNum &&
+        ((refOrd && (refOrd === cleanOrderNum || cleanOrderNum === refOrd)) ||
+          purpose.includes(cleanOrderNum))
+      );
+
+      // If payment has other referenced invoice numbers that don't match this one, avoid matching
+      const hasContradictingInvoice =
+        cleanPRefNumbers.length > 0 &&
+        !cleanPRefNumbers.includes(cleanInvNum) &&
+        !hasDirectInvNumMatch;
+
+      // Condition 1: Direct match by invoice number (payee must not contradict supplier)
+      const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch);
+
+      // Condition 2: Exact Payee + Exact Amount match (no conflicting invoice number)
+      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+
+      // Condition 3: Exact Order + Exact Payee + Exact Amount match (no conflicting invoice number)
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+
+      if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount) {
         seenPaymentKeys.add(pKey);
         matchedPayments.push(p);
       }
@@ -1166,30 +1290,48 @@ export class OCRService {
       const refInv = this.normalizeInvoiceNumber(ocr.referencedInvoiceNumber || '');
       const refOrd = this.normalizeOrderNumber(ocr.referencedOrderNumber || '').toLowerCase();
       const purpose = (ocr.paymentPurpose || '').toLowerCase();
-      const cleanPurpose = this.normalizeInvoiceNumber(purpose);
       const payee = this.normalizeCompanyName(ocr.payeeName || ocr.supplierName || '');
       const pAmount = ocr.amountPaid || ocr.totalAmount || 0;
 
-      const matchByInvoiceNum =
+      const pRefNumbers = this.extractAllInvoiceNumbers(
+        ocr.referencedInvoiceNumber,
+        ocr.referencedInvoiceNumbers,
+        ocr.paymentPurpose
+      );
+      const cleanPRefNumbers = pRefNumbers.map((n) => this.normalizeInvoiceNumber(n)).filter(Boolean);
+
+      const hasDirectInvNumMatch =
         !isInvNumActuallyDate &&
-        cleanInvNum &&
-        ((refInv && (refInv === cleanInvNum || refInv.includes(cleanInvNum) || cleanInvNum.includes(refInv))) ||
-          (rawInvNum.length >= 3 && purpose.includes(rawInvNum.toLowerCase())) ||
-          (cleanInvNum.length >= 3 && cleanPurpose.includes(cleanInvNum)));
+        cleanInvNum.length >= 2 &&
+        (cleanPRefNumbers.includes(cleanInvNum) ||
+          (refInv && (refInv === cleanInvNum || (cleanInvNum.length >= 3 && refInv === cleanInvNum))) ||
+          this.isInvoiceNumberMentionedInPurpose(cleanInvNum, ocr.paymentPurpose || ''));
 
-      const matchByOrderNum =
-        cleanOrderNum &&
-        ((refOrd && (refOrd === cleanOrderNum || refOrd.includes(cleanOrderNum) || cleanOrderNum.includes(refOrd))) ||
-          purpose.includes(cleanOrderNum));
-
-      const matchByPayeeAndAmount =
+      const isSupplierMatch = Boolean(
         supplier &&
         payee &&
-        (supplier.includes(payee) || payee.includes(supplier)) &&
-        invAmount > 0 &&
-        Math.abs(invAmount - pAmount) <= 0.50;
+        (this.isCompanyNameMatch(supplier, payee) ||
+          (supplier.length >= 5 && purpose.includes(supplier.toLowerCase())))
+      );
 
-      if (matchByInvoiceNum || matchByOrderNum || matchByPayeeAndAmount) {
+      const isAmountMatch = invAmount > 0 && pAmount > 0 && Math.abs(invAmount - pAmount) <= 0.50;
+
+      const isOrderMatch = Boolean(
+        cleanOrderNum &&
+        ((refOrd && (refOrd === cleanOrderNum || cleanOrderNum === refOrd)) ||
+          purpose.includes(cleanOrderNum))
+      );
+
+      const hasContradictingInvoice =
+        cleanPRefNumbers.length > 0 &&
+        !cleanPRefNumbers.includes(cleanInvNum) &&
+        !hasDirectInvNumMatch;
+
+      const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch);
+      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+
+      if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount) {
         seenPaymentKeys.add(pKey);
         matchedPayments.push({
           rowIndex: doc.syncedRowIndex || 0,
@@ -1220,6 +1362,7 @@ export class OCRService {
 
     const totalPaid = matchedPayments.reduce((acc, p) => acc + (p.amountPaid || 0), 0);
     const payNumbers = Array.from(new Set(matchedPayments.map((p) => p.paymentNumber).filter(Boolean)));
+    const effectivePaidAmount = invAmount > 0 ? Math.min(totalPaid, invAmount) : totalPaid;
 
     let computedStatus: InvoicePaymentStatus = 'Не оплачено';
     if (invAmount > 0) {
@@ -1234,11 +1377,11 @@ export class OCRService {
 
     const first = matchedPayments[0];
     const locationStr = first.rowIndex ? `рядок ${first.rowIndex} у вкладці "Платіжки"` : `файл ${first.fileName}`;
-    const reason = `Знайдено платіжку №${first.paymentNumber || ''} на суму ${this.formatCurrency(totalPaid)} (${locationStr})`;
+    const reason = `Знайдено платіжку №${first.paymentNumber || ''} на суму ${this.formatCurrency(first.amountPaid || totalPaid)} (${locationStr})`;
 
     return {
       matchedPaymentNumbers: payNumbers,
-      totalPaidAmount: totalPaid,
+      totalPaidAmount: effectivePaidAmount,
       computedStatus,
       matchedPaymentRows: matchedPayments,
       matchReason: reason,
@@ -1278,7 +1421,7 @@ export class OCRService {
 
         const numMatch = cleanPayNum && cleanExistPayNum && cleanPayNum === cleanExistPayNum;
         const amountMatch = amount > 0 && Math.abs(amount - existAmount) <= 0.05;
-        const payeeMatch = payee && existPayee && (payee.includes(existPayee) || existPayee.includes(payee));
+        const payeeMatch = payee && existPayee && (this.isCompanyNameMatch(payee, existPayee) || (payee.length >= 6 && existPayee.length >= 6 && (payee.includes(existPayee) || existPayee.includes(payee))));
         const dateMatch = payDate && existDate && payDate === existDate;
 
         // Condition 1: Exact payment number match + supplier/amount
@@ -1317,38 +1460,41 @@ export class OCRService {
         const existSupplier = this.normalizeCompanyName(inv.supplier || '');
         const existAmount = inv.amount || 0;
 
-        const invNumMatch = cleanInvNum && cleanExistInvNum && cleanInvNum === cleanExistInvNum;
+        // Skip blank or invalid rows in sheet
+        if (!cleanExistInvNum && !existAmount && !existOrderNum) continue;
+
+        const invNumMatch = cleanInvNum && cleanExistInvNum && cleanInvNum === cleanExistInvNum && cleanInvNum.length >= 2;
+        const supplierMatch = supplier && existSupplier && this.isCompanyNameMatch(supplier, existSupplier);
+        const amountMatch = amount > 0 && existAmount > 0 && Math.abs(amount - existAmount) <= 0.05;
         const orderNumMatch = cleanOrderNum && existOrderNum && cleanOrderNum === existOrderNum;
-        const supplierMatch = supplier && existSupplier && (supplier.includes(existSupplier) || existSupplier.includes(supplier));
-        const amountMatch = amount > 0 && Math.abs(amount - existAmount) <= 0.05;
 
-        // Condition 1: Exact invoice number + supplier match
-        if (invNumMatch && supplierMatch) {
+        // Condition 1: Exact invoice number + exact supplier + (amount match OR order match)
+        if (invNumMatch && supplierMatch && (amountMatch || orderNumMatch)) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
-            reason: `Рахунок №${inv.invoiceNumber} від ${existSupplier} вже внесено у вкладку "Рахунки" (рядок ${inv.rowIndex})`,
+            reason: `Рахунок №${inv.invoiceNumber} від ${existSupplier} на суму ${existAmount || amount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
           };
         }
 
-        // Condition 2: Order number + invoice number match
-        if (orderNumMatch && invNumMatch) {
+        // Condition 2: Exact invoice number + exact supplier (when amount or order is not yet filled)
+        if (invNumMatch && supplierMatch && (amount === 0 || existAmount === 0)) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
-            reason: `Рахунок №${inv.invoiceNumber} за замовленням ${inv.orderNumber} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            reason: `Рахунок №${inv.invoiceNumber} від ${existSupplier} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
           };
         }
 
-        // Condition 3: Exact invoice number + exact amount
-        if (invNumMatch && amountMatch) {
+        // Condition 3: Exact supplier + exact amount + exact order number (for duplicate prevention)
+        if (supplierMatch && amountMatch && orderNumMatch && cleanOrderNum) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
-            reason: `Рахунок №${inv.invoiceNumber} на суму ${amount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            reason: `Рахунок від ${existSupplier} за замовленням ${inv.orderNumber} на суму ${amount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
           };
         }
       }

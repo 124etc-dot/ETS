@@ -348,6 +348,16 @@ export default function App() {
               alreadyInSheetReason: check.reason,
               alreadyInSheetTab: check.tabName,
             };
+          } else if (d.alreadyInSheet && !d.syncedAt) {
+            // Correct any false positive: document is not in the sheet and was not synced in this session
+            return {
+              ...d,
+              status: 'ready_for_review',
+              syncedRowIndex: undefined,
+              alreadyInSheet: false,
+              alreadyInSheetReason: undefined,
+              alreadyInSheetTab: undefined,
+            };
           }
           return d;
         })
@@ -738,6 +748,8 @@ export default function App() {
             ...dataToSync,
             paymentStatus: initialStatus,
           },
+          status: initialStatus,
+          paidAmount: initialPaidAmount,
           fileName: doc.fileName,
           driveLink: doc.driveLink,
         });
