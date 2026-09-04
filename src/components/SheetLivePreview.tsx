@@ -10,7 +10,9 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
-  CreditCard
+  CreditCard,
+  Calculator,
+  X
 } from 'lucide-react';
 import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -65,12 +67,14 @@ export const SheetLivePreview: React.FC<Props> = ({
   const paidCount = existingInvoices.filter((i) => i.paymentStatus === 'Оплачено').length;
   const partialCount = existingInvoices.filter((i) => i.paymentStatus === 'Оплачено частково').length;
 
+  const trimmedFilter = filterText.trim();
+  const q = trimmedFilter.toLowerCase();
+
   const filteredInvoices = existingInvoices.filter((inv) => {
     if (statusFilter !== 'all' && inv.paymentStatus !== statusFilter) {
       return false;
     }
-    if (!filterText.trim()) return true;
-    const q = filterText.toLowerCase();
+    if (!trimmedFilter) return true;
     return (
       inv.orderNumber?.toLowerCase().includes(q) ||
       inv.supplier?.toLowerCase().includes(q) ||
@@ -79,9 +83,61 @@ export const SheetLivePreview: React.FC<Props> = ({
     );
   });
 
+  // All invoices matching the search query/order number across ALL statuses
+  const orderMatchedInvoicesAllStatuses = trimmedFilter
+    ? existingInvoices.filter((inv) => {
+        return (
+          inv.orderNumber?.toLowerCase().includes(q) ||
+          inv.supplier?.toLowerCase().includes(q) ||
+          inv.buyer?.toLowerCase().includes(q) ||
+          inv.invoiceNumber?.toLowerCase().includes(q)
+        );
+      })
+    : [];
+
+  // Check if search query matched order number(s) specifically
+  const matchedOrderNumbers = Array.from(
+    new Set(
+      orderMatchedInvoicesAllStatuses
+        .map((inv) => inv.orderNumber?.trim())
+        .filter((num): num is string => Boolean(num && num.toLowerCase().includes(q)))
+    )
+  );
+  const isOrderFilter = matchedOrderNumbers.length > 0;
+
+  // Sum of all materials/invoices for this order regardless of payment status
+  const totalOrderAmount = orderMatchedInvoicesAllStatuses.reduce(
+    (acc, inv) => acc + (inv.amount || 0),
+    0
+  );
+
+  const totalOrderPaid = orderMatchedInvoicesAllStatuses.reduce((acc, inv) => {
+    const amt = inv.amount || 0;
+    const paid =
+      inv.paidAmount !== undefined
+        ? inv.paidAmount
+        : inv.paymentStatus === 'Оплачено'
+        ? amt
+        : 0;
+    return acc + paid;
+  }, 0);
+
+  const totalOrderRemaining = Math.max(0, totalOrderAmount - totalOrderPaid);
+
+  const displayedInvoicesAmount = filteredInvoices.reduce((acc, inv) => acc + (inv.amount || 0), 0);
+  const displayedInvoicesPaid = filteredInvoices.reduce((acc, inv) => {
+    const amt = inv.amount || 0;
+    const paid =
+      inv.paidAmount !== undefined
+        ? inv.paidAmount
+        : inv.paymentStatus === 'Оплачено'
+        ? amt
+        : 0;
+    return acc + paid;
+  }, 0);
+
   const filteredPayments = existingPayments.filter((pay) => {
-    if (!filterText.trim()) return true;
-    const q = filterText.toLowerCase();
+    if (!trimmedFilter) return true;
     return (
       pay.paymentNumber?.toLowerCase().includes(q) ||
       pay.payer?.toLowerCase().includes(q) ||
@@ -203,22 +259,32 @@ export const SheetLivePreview: React.FC<Props> = ({
         <div>
           {/* Sub-bar: Search & Status Filters */}
           <div className="p-3 border-b border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative w-full sm:w-72">
+            <div className="relative w-full sm:w-80">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Фільтр за номером замовлення (ххх-хх), постачальником..."
-                className="w-full text-xs pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full text-xs pl-8 pr-8 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
+              {filterText && (
+                <button
+                  type="button"
+                  onClick={() => setFilterText('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  title="Очистити фільтр"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Status counts & filter buttons */}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <button
                 onClick={() => setStatusFilter('all')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors cursor-pointer ${
                   statusFilter === 'all'
                     ? 'bg-slate-900 text-white font-bold'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -228,7 +294,7 @@ export const SheetLivePreview: React.FC<Props> = ({
               </button>
               <button
                 onClick={() => setStatusFilter('Не оплачено')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1 ${
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1 cursor-pointer ${
                   statusFilter === 'Не оплачено'
                     ? 'bg-rose-600 text-white font-bold'
                     : 'bg-rose-50 text-rose-800 hover:bg-rose-100'
@@ -239,7 +305,7 @@ export const SheetLivePreview: React.FC<Props> = ({
               </button>
               <button
                 onClick={() => setStatusFilter('Оплачено частково')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1 ${
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1 cursor-pointer ${
                   statusFilter === 'Оплачено частково'
                     ? 'bg-amber-600 text-white font-bold'
                     : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
@@ -250,7 +316,7 @@ export const SheetLivePreview: React.FC<Props> = ({
               </button>
               <button
                 onClick={() => setStatusFilter('Оплачено')}
-                className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1 ${
+                className={`px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1 cursor-pointer ${
                   statusFilter === 'Оплачено'
                     ? 'bg-emerald-700 text-white font-bold'
                     : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
@@ -262,6 +328,84 @@ export const SheetLivePreview: React.FC<Props> = ({
             </div>
           </div>
 
+          {/* Indicator: Total Materials / Invoices for the filtered order(s) regardless of status */}
+          {trimmedFilter && orderMatchedInvoicesAllStatuses.length > 0 && (
+            <div className="p-3.5 bg-gradient-to-r from-amber-50 via-amber-50/80 to-orange-50 border-b border-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-200 border border-amber-300 text-amber-950 flex items-center justify-center shrink-0 shadow-2xs">
+                  <Calculator className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-bold uppercase tracking-wide text-amber-950">
+                      {isOrderFilter
+                        ? `Замовлення ${matchedOrderNumbers.map((n) => `«${n}»`).join(', ')}`
+                        : `Фільтр «${trimmedFilter}»`}
+                    </span>
+                    <span className="text-[11px] bg-amber-200/90 text-amber-950 font-bold px-2 py-0.5 rounded-full border border-amber-300">
+                      {orderMatchedInvoicesAllStatuses.length}{' '}
+                      {orderMatchedInvoicesAllStatuses.length === 1
+                        ? 'рахунок'
+                        : orderMatchedInvoicesAllStatuses.length < 5
+                        ? 'рахунки'
+                        : 'рахунків'}{' '}
+                      (всі статуси)
+                    </span>
+                    {statusFilter !== 'all' && (
+                      <span className="text-[10px] bg-white text-slate-700 font-semibold px-2 py-0.5 rounded-full border border-slate-200">
+                        у таблиці зі статусом «{statusFilter}»: {filteredInvoices.length}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-amber-800 mt-0.5 font-medium">
+                    Загальна вартість усіх матеріалів за цим замовленням незалежно від статусу оплати
+                  </p>
+                </div>
+              </div>
+
+              {/* Metric Values */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="bg-white border border-amber-300 px-3.5 py-1.5 rounded-xl shadow-2xs">
+                  <span className="text-[10px] text-slate-500 block font-semibold">Сума матеріалів (всі рахунки)</span>
+                  <span className="text-sm sm:text-base font-bold font-mono text-slate-950">
+                    {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalOrderAmount)}{' '}
+                    <span className="text-xs font-semibold text-slate-600">грн</span>
+                  </span>
+                </div>
+
+                <div className="bg-emerald-50/90 border border-emerald-300 px-3.5 py-1.5 rounded-xl shadow-2xs">
+                  <span className="text-[10px] text-emerald-800 block font-semibold">Сплачено</span>
+                  <span className="text-sm sm:text-base font-bold font-mono text-emerald-950">
+                    {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalOrderPaid)}{' '}
+                    <span className="text-xs font-semibold text-emerald-700">грн</span>
+                  </span>
+                </div>
+
+                {totalOrderRemaining > 0 && (
+                  <div className="bg-rose-50/90 border border-rose-300 px-3.5 py-1.5 rounded-xl shadow-2xs">
+                    <span className="text-[10px] text-rose-800 block font-semibold">Залишок до сплати</span>
+                    <span className="text-sm sm:text-base font-bold font-mono text-rose-950">
+                      {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalOrderRemaining)}{' '}
+                      <span className="text-xs font-semibold text-rose-700">грн</span>
+                    </span>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilterText('');
+                    setStatusFilter('all');
+                  }}
+                  className="p-2 text-amber-800 hover:text-amber-950 hover:bg-amber-200/70 rounded-lg transition-colors cursor-pointer ml-1"
+                  title="Скинути фільтр"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {filteredInvoices.length === 0 ? (
             <div className="p-8 text-center text-slate-400 text-xs">
               {existingInvoices.length === 0
@@ -271,7 +415,7 @@ export const SheetLivePreview: React.FC<Props> = ({
           ) : (
             <div className="overflow-x-auto max-h-96">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
+                <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px] z-10">
                   <tr>
                     <th className="p-2.5 w-12 text-slate-400 font-mono">№</th>
                     <th className="p-2.5 bg-amber-50/80 text-amber-950 border-x border-amber-200">A: Номер замовлення</th>
@@ -299,9 +443,14 @@ export const SheetLivePreview: React.FC<Props> = ({
                         <td className="p-2.5 text-slate-400 font-mono">{inv.rowIndex}</td>
                         <td className="p-2.5 bg-amber-50/40 border-x border-amber-100/80 font-mono font-bold text-amber-950">
                           {inv.orderNumber ? (
-                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300">
-                              {inv.orderNumber}
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setFilterText(inv.orderNumber || '')}
+                              title="Натисніть для фільтрації за цим замовленням"
+                              className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 hover:bg-amber-200 hover:border-amber-400 transition-colors text-left font-mono font-bold cursor-pointer inline-flex items-center space-x-1"
+                            >
+                              <span>{inv.orderNumber}</span>
+                            </button>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
@@ -373,6 +522,28 @@ export const SheetLivePreview: React.FC<Props> = ({
                     );
                   })}
                 </tbody>
+                <tfoot className="sticky bottom-0 bg-slate-100 border-t-2 border-slate-300 font-bold text-slate-900 text-xs shadow-xs z-10">
+                  <tr>
+                    <td colSpan={6} className="p-2.5 text-right font-semibold text-slate-700">
+                      {trimmedFilter ? (
+                        <span>Разом за показаними рядками ({filteredInvoices.length}):</span>
+                      ) : (
+                        <span>Разом за всіма рахунками ({existingInvoices.length}):</span>
+                      )}
+                    </td>
+                    <td className="p-2.5 text-right font-mono font-bold text-slate-950 bg-slate-200/80">
+                      {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+                        displayedInvoicesAmount
+                      )}
+                    </td>
+                    <td colSpan={3}></td>
+                    <td className="p-2.5 text-right font-mono font-bold text-emerald-950 bg-emerald-100/80 border-l border-emerald-200">
+                      {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+                        displayedInvoicesPaid
+                      )}
+                    </td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           )}
