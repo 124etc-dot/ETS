@@ -167,10 +167,15 @@ export default function App() {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            // Permanently filter out any sample/demo invoices
-            const realDocs = parsed.filter(
-              (d: ProcessedDocument) => !d.id?.startsWith('sample_')
-            );
+            // Permanently filter out any sample/demo invoices and reset any stuck 'processing' status to 'pending'
+            const realDocs = parsed
+              .filter((d: ProcessedDocument) => !d.id?.startsWith('sample_'))
+              .map((d: ProcessedDocument) => {
+                if (d.status === 'processing') {
+                  return { ...d, status: 'pending' as const, errorMessage: undefined };
+                }
+                return d;
+              });
             localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(realDocs));
             return realDocs;
           }
@@ -194,6 +199,8 @@ export default function App() {
       try {
         const lightweightDocs = documents.map((d) => ({
           ...d,
+          // Never persist transient 'processing' status to avoid hangs across sessions
+          status: d.status === 'processing' ? ('pending' as const) : d.status,
           previewDataUrl: d.previewDataUrl && d.previewDataUrl.length > 200000 ? undefined : d.previewDataUrl,
         }));
         localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(lightweightDocs));
@@ -389,45 +396,67 @@ export default function App() {
     );
 
     try {
-      let base64Payload = doc.previewDataUrl || '';
-      let mimeType = doc.mimeType;
+      const executeOcrWorkflow = async () => {
+        let base64Payload = doc.previewDataUrl || '';
+        let mimeType = doc.mimeType;
 
-      // If previewDataUrl is missing but blob exists, convert blob to base64
-      if (!base64Payload && doc.blob) {
-        try {
-          base64Payload = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(doc.blob!);
-          });
-        } catch {
-          // Ignore fallback error
+        // If previewDataUrl is missing but blob exists, convert blob to base64
+        if (!base64Payload && doc.blob) {
+          try {
+            base64Payload = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(doc.blob!);
+            });
+          } catch {
+            // Ignore fallback error
+          }
         }
-      }
 
-      // If document is on Drive and doesn't have base64 yet, download it
-      if (!base64Payload && doc.driveFileId && authState.accessToken) {
-        const downloaded = await GoogleDriveService.downloadFileBase64(
-          doc.driveFileId,
-          authState.accessToken
-        );
-        base64Payload = downloaded.base64;
-        mimeType = downloaded.mimeType;
-      }
+        // If document is on Drive and doesn't have base64 yet, download it
+        if (!base64Payload && doc.driveFileId) {
+          if (!authState.accessToken) {
+            throw new Error('Для завантаження файлу з Google Drive необхідна авторизація. Натисніть "Авторизуватись".');
+          }
+          const downloaded = await GoogleDriveService.downloadFileBase64(
+            doc.driveFileId,
+            authState.accessToken
+          );
+          base64Payload = downloaded.base64;
+          mimeType = downloaded.mimeType;
+        }
 
-      if (!base64Payload) {
-        throw new Error('Вміст файлу не знайдено. Будь ласка, завантажте файл знову.');
-      }
+        if (!base64Payload) {
+          throw new Error('Вміст файлу не знайдено. Будь ласка, завантажте файл знову або виберіть з Диска.');
+        }
 
-      const ocrResult = await OCRService.analyzeDocument({
-        fileData: base64Payload,
-        mimeType,
-        fileName: doc.fileName,
-        ourCompanies: companyLists.ourCompanies,
-        suppliers: companyLists.suppliers,
-        knownOrders: KNOWN_PROJECT_ORDERS,
-      });
+        const ocrResult = await OCRService.analyzeDocument({
+          fileData: base64Payload,
+          mimeType,
+          fileName: doc.fileName,
+          ourCompanies: companyLists.ourCompanies,
+          suppliers: companyLists.suppliers,
+          knownOrders: KNOWN_PROJECT_ORDERS,
+        });
+
+        return { ocrResult, base64Payload };
+      };
+
+      // 45-second timeout safeguard so it NEVER hangs indefinitely
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Час очікування розпізнавання вичерпано (таймаут 45 с). Перевірте інтернет-з’єднання або натисніть "Перезапустити".'
+              )
+            ),
+          45000
+        )
+      );
+
+      const { ocrResult, base64Payload } = await Promise.race([executeOcrWorkflow(), timeoutPromise]);
 
       if (ocrResult.documentType === 'payment') {
         const match = OCRService.matchPaymentWithInvoices(

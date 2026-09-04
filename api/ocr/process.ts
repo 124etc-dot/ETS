@@ -349,9 +349,9 @@ ${knownOrdersPromptList}
 
   const candidateModels = [
     'gemini-flash-latest',
-    'gemini-3.1-flash-lite',
     'gemini-3.8-flash',
     'gemini-3.7-flash',
+    'gemini-3.1-flash-lite',
   ];
   let lastError: any = null;
   let parsedResult: any = null;
@@ -360,12 +360,12 @@ ${knownOrdersPromptList}
 
   for (const modelName of candidateModels) {
     let attempts = 0;
-    const maxAttempts = 3;
+    const maxAttempts = 2;
 
     while (attempts < maxAttempts) {
       attempts++;
       try {
-        const response = await ai.models.generateContent({
+        const generatePromise = ai.models.generateContent({
           model: modelName,
           contents: [
             {
@@ -385,6 +385,12 @@ ${knownOrdersPromptList}
           },
         });
 
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Таймаут відповіді Gemini AI (${modelName})`)), 25000)
+        );
+
+        const response = await Promise.race([generatePromise, timeoutPromise]);
+
         let responseText = response.text || '';
         responseText = responseText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
 
@@ -400,6 +406,7 @@ ${knownOrdersPromptList}
           errMsg.includes('UNAVAILABLE') ||
           errMsg.includes('high demand') ||
           errMsg.includes('429') ||
+          errMsg.includes('Таймаут') ||
           errMsg.includes('RESOURCE_EXHAUSTED');
 
         console.warn(
@@ -408,7 +415,7 @@ ${knownOrdersPromptList}
         );
 
         if (isRetryable && attempts < maxAttempts) {
-          await sleep(800 * attempts + Math.floor(Math.random() * 300));
+          await sleep(600 * attempts + Math.floor(Math.random() * 200));
           continue;
         }
         break;

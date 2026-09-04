@@ -206,7 +206,9 @@ export const BatchProcessingTable: React.FC<Props> = ({
   };
 
   const readyToSyncCount = filteredDocs.filter((d) => d.status === 'ready_for_review').length;
-  const pendingProcessCount = filteredDocs.filter((d) => d.status === 'pending').length;
+  const pendingProcessCount = filteredDocs.filter(
+    (d) => d.status === 'pending' || d.status === 'error' || d.status === 'processing'
+  ).length;
 
   // Smart page numbers array for pagination bar
   const getPageNumbers = (): (number | string)[] => {
@@ -471,7 +473,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
               onClick={() => {
                 const targetIds = selectedIds.size > 0
                   ? Array.from(selectedIds)
-                  : filteredDocs.filter((d) => d.status === 'pending').map((d) => d.id);
+                  : filteredDocs.filter((d) => d.status === 'pending' || d.status === 'error' || d.status === 'processing').map((d) => d.id);
                 onBatchProcess(targetIds);
               }}
               disabled={isProcessingAny || (selectedIds.size === 0 && pendingProcessCount === 0)}
@@ -877,11 +879,22 @@ export const BatchProcessingTable: React.FC<Props> = ({
                           <button
                             onClick={() => onProcessDoc(doc.id)}
                             disabled={isProcessingAny}
-                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1"
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1 cursor-pointer"
                             title="Обробити через AI"
                           >
                             <Sparkles className="w-3.5 h-3.5" />
                             <span>{doc.status === 'error' ? 'Повторити' : 'Розпізнати'}</span>
+                          </button>
+                        )}
+
+                        {doc.status === 'processing' && (
+                          <button
+                            onClick={() => onProcessDoc(doc.id)}
+                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1 cursor-pointer shadow-2xs"
+                            title="Розпізнавання зависло? Натисніть для негайного перезапуску"
+                          >
+                            <RotateCcw className="w-3 h-3 text-amber-600 animate-spin" />
+                            <span>Перезапустити</span>
                           </button>
                         )}
 

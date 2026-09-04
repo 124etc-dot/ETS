@@ -2,6 +2,24 @@ import { GoogleDriveFile, GoogleDriveFolder } from '../types';
 import { googleAuth } from './googleAuth';
 
 export class GoogleDriveService {
+  private static async fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 30000): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw new Error(`Час очікування Google Drive вичерпано (${Math.round(timeoutMs / 1000)} с). Спробуйте ще раз.`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   /**
    * Helper to make authenticated Google Drive API calls
    */
@@ -10,13 +28,13 @@ export class GoogleDriveService {
     accessToken: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const res = await fetch(`https://www.googleapis.com/drive/v3/${endpoint}`, {
+    const res = await this.fetchWithTimeout(`https://www.googleapis.com/drive/v3/${endpoint}`, {
       ...options,
       headers: {
         Authorization: `Bearer ${accessToken}`,
         ...(options.headers || {}),
       },
-    });
+    }, 25000);
 
     if (!res.ok) {
       const errorBody = await res.text();
@@ -121,12 +139,12 @@ export class GoogleDriveService {
     const meta = await this.request<any>(`files/${fileId}?fields=id,name,mimeType`, accessToken);
     const mimeType = meta.mimeType || 'application/pdf';
 
-    // 2. Download binary media content
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    // 2. Download binary media content (with 35s timeout)
+    const res = await this.fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-    });
+    }, 35000);
 
     if (!res.ok) {
       throw new Error(`Failed to download file from Drive: ${res.statusText}`);
