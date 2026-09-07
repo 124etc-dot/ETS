@@ -173,3 +173,15 @@ export interface ExistingPaymentRow {
   driveLink: string;
   uploadedAt: string;
 }
+
+export interface DuplicateRowMatch {
+  rowIndex: number; // Row index of the duplicate row to be deleted
+  originalRowIndex: number; // Row index of the original kept row
+  tabName: string; // 'Рахунки' or 'Платіжки'
+  type: 'invoice' | 'payment';
+  identifier: string; // Description e.g. "Рахунок №105 від ТОВ ЛІНА ТД"
+  amount: number;
+  reason: string;
+  date?: string;
+  orderNumber?: string;
+}

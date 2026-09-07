@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
-import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument } from '../types';
+import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument, DuplicateRowMatch } from '../types';
 
 // WARNING: Client-side Gemini API key usage requested by user for fully autonomous Vercel SPA deployment.
 // Key is retrieved from import.meta.env.VITE_GEMINI_API_KEY or localStorage.
@@ -686,6 +686,29 @@ export class OCRService {
     return `${formattedNum} ${symbol}`.trim();
   }
 
+  private static readonly HOMOGLYPHS: Record<string, string> = {
+    'A': 'А', 'a': 'а',
+    'B': 'В',
+    'C': 'С', 'c': 'с',
+    'E': 'Е', 'e': 'е',
+    'H': 'Н',
+    'I': 'І', 'i': 'і',
+    'K': 'К', 'k': 'к',
+    'M': 'М', 'm': 'м',
+    'O': 'О', 'o': 'о',
+    'P': 'Р', 'p': 'р',
+    'T': 'Т', 't': 'т',
+    'X': 'Х', 'x': 'х',
+  };
+
+  /**
+   * Replaces common Latin homoglyphs (like Latin I in Ukrainian "ЛIНА") with Cyrillic equivalents
+   */
+  public static normalizeHomoglyphs(str: string): string {
+    if (!str) return '';
+    return str.replace(/[AaBCcEeHhIiKkMmOoPpTtXx]/g, (m) => this.HOMOGLYPHS[m] || m);
+  }
+
   /**
    * Clean and normalize company name strictly to format: "ТОВ НАЗВА КОМПАНІЇ"
    * - ALL UPPERCASE letters
@@ -696,8 +719,11 @@ export class OCRService {
     if (!input) return '';
     let val = String(input).trim();
 
-    // 1. Remove all types of quotes
-    val = val.replace(/["'«»“”„‟`]/g, ' ');
+    // 0. Normalize Latin homoglyphs to Cyrillic
+    val = this.normalizeHomoglyphs(val);
+
+    // 1. Remove all types of quotes and brackets
+    val = val.replace(/["'«»“”„‟`\(\)\[\]]/g, ' ');
 
     // 2. Expand/normalize full legal forms in Ukrainian
     val = val.replace(/Товариство\s+з\s+обмеженою\s+відповідальністю/gi, 'ТОВ');
@@ -708,15 +734,22 @@ export class OCRService {
     val = val.replace(/Публічне\s+акціонерне\s+товариство/gi, 'ПАТ');
     val = val.replace(/Акціонерне\s+товариство/gi, 'АТ');
     val = val.replace(/Державне\s+підприємство/gi, 'ДП');
+    val = val.replace(/Торгов(?:ий|ого)\s+д(?:ім|ому|ом)/gi, 'ТД');
+
+    // 2b. Remove dots from abbreviations (e.g. Т.Д. -> ТД, Т.О.В. -> ТОВ, Ф.О.П. -> ФОП)
+    val = val.replace(/\b([А-Яа-яЇїІіЄєҐґA-Za-z])\.(?=[А-Яа-яЇїІіЄєҐґA-Za-z]\.?)/g, '$1');
 
     // 3. Remove punctuation like trailing/leading commas or dots around legal forms
     val = val.replace(/^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)[.,\s]+/i, '$1 ');
     val = val.replace(/,\s*(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)$/i, ' $1');
 
-    // 4. If legal form is at the end (e.g. "ЛЕГНОПРОМ ТОВ" or "ЕПІЦЕНТР К ТОВ"), move it to front
-    const trailingFormMatch = val.match(/^(.+?)\s+(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)$/i);
-    if (trailingFormMatch) {
-      val = `${trailingFormMatch[2]} ${trailingFormMatch[1]}`;
+    // 4. If legal form is at the end (e.g. "ЛЕГНОПРОМ ТОВ"), move it to front ONLY if there isn't already a legal form at the front
+    const hasLeadingLegal = /^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)\b/i.test(val);
+    if (!hasLeadingLegal) {
+      const trailingFormMatch = val.match(/^(.+?)\s+(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)$/i);
+      if (trailingFormMatch) {
+        val = `${trailingFormMatch[2]} ${trailingFormMatch[1]}`;
+      }
     }
 
     // 4b. Remove duplicate repeated legal forms at the front (e.g. "ТОВ ТОВ ЛЕГНОПРОМ" -> "ТОВ ЛЕГНОПРОМ")
@@ -733,19 +766,48 @@ export class OCRService {
   }
 
   /**
+   * Helper to extract distinctive significant tokens from a company name
+   * (filtering out generic legal forms and common business terms like "КОМПАНІЯ", "ФІРМА")
+   */
+  public static getDistinctiveCompanyTokens(name: string): string[] {
+    let s = this.normalizeHomoglyphs(name || '').toUpperCase();
+    s = s.replace(/["'«»“”„‟`\.,\/\\()\[\]]/g, ' ');
+    s = s.replace(/[-–—]/g, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    const tokens = s.split(' ').filter(Boolean);
+    const stopWords = new Set([
+      'ТОВ', 'ФОП', 'ПП', 'ТДВ', 'ПРАТ', 'ПАТ', 'АТ', 'ДП', 'LLC',
+      'КОМПАНІЯ', 'ФІРМА', 'ПІДПРИЄМСТВО', 'ТОВАРИСТВО', 'ОБМЕЖЕНОЮ', 'ВІДПОВІДАЛЬНІСТЮ',
+      'ПРИВАТНЕ', 'ФІЗИЧНА', 'ОСОБА', 'ПІДПРИЄМЕЦЬ', 'ТОРГОВИЙ', 'ДІМ',
+      'КИЇВ', 'УКРАЇНА', 'ЦЕНТР', 'ГРУП', 'ТРЕЙД', 'СЕРВІС', 'ПЛЮС', 'ЛТД',
+      'ТОРГ', 'БУД', 'МАРКЕТ', 'СВІТ', 'СИСТЕМИ', 'ТЕХНОЛОГІЇ'
+    ]);
+    return tokens.filter((t) => !stopWords.has(t));
+  }
+
+  /**
    * Check if two company names refer to the same company.
-   * Strips legal form prefixes (ТОВ, ФОП, ПП, etc.) and compares core names.
-   * Prevents matching on generic terms like 'КИЇВ', 'УКРАЇНА', etc.
+   * Strips legal form prefixes (ТОВ, ФОП, ПП, etc.), handles hyphens/dots/homoglyphs,
+   * and compares core names and distinctive word tokens.
    */
   public static isCompanyNameMatch(name1: string, name2: string): boolean {
-    const n1 = this.normalizeCompanyName(name1 || '');
-    const n2 = this.normalizeCompanyName(name2 || '');
+    if (!name1 || !name2) return false;
+    if (name1.trim().toLowerCase() === name2.trim().toLowerCase()) return true;
+
+    const n1 = this.normalizeCompanyName(name1);
+    const n2 = this.normalizeCompanyName(name2);
     if (!n1 || !n2) return false;
     if (n1 === n2) return true;
 
-    // Strip legal prefixes (ТОВ, ФОП, ПП, ТДВ, ПРАТ, ПАТ, АТ, ДП)
-    const core1 = n1.replace(/^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)\s+/i, '').trim();
-    const core2 = n2.replace(/^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП)\s+/i, '').trim();
+    // 1. Compare with all punctuation, hyphens, and dots replaced by spaces
+    const clean1 = n1.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\s+/g, ' ').trim();
+    const clean2 = n2.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (clean1 === clean2) return true;
+
+    // 2. Strip legal prefixes (ТОВ, ФОП, ПП, ТДВ, ПРАТ, ПАТ, АТ, ДП, ТД)
+    const legalPrefixRegex = /^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП|ТД)\s+/i;
+    const core1 = clean1.replace(legalPrefixRegex, '').trim();
+    const core2 = clean2.replace(legalPrefixRegex, '').trim();
 
     if (!core1 || !core2) return false;
     if (core1 === core2) return true;
@@ -753,15 +815,34 @@ export class OCRService {
     // Generic words that must not match just because both companies contain them
     const genericWords = new Set([
       'КИЇВ', 'УКРАЇНА', 'ЦЕНТР', 'ГРУП', 'ТРЕЙД', 'СЕРВІС',
-      'ПЛЮС', 'ЛТД', 'ТОРГ', 'БУД', 'МАРКЕТ', 'СВІТ', 'СИСТЕМИ', 'ТЕХНОЛОГІЇ'
+      'ПЛЮС', 'ЛТД', 'ТОРГ', 'БУД', 'МАРКЕТ', 'СВІТ', 'СИСТЕМИ', 'ТЕХНОЛОГІЇ', 'КОМПАНІЯ'
     ]);
     if (genericWords.has(core1) || genericWords.has(core2)) {
       return core1 === core2;
     }
 
-    // High confidence substring match for long specific company names
-    if (core1.length >= 6 && core2.length >= 6) {
+    // High confidence substring match for specific company names (e.g. "КОМПАНІЯ ЛІНА ТД" and "ЛІНА ТД")
+    if (core1.length >= 5 && core2.length >= 5) {
       if (core1.includes(core2) || core2.includes(core1)) {
+        return true;
+      }
+    }
+
+    // 3. Significant distinctive token comparison (e.g. "ТОВ КОМПАНІЯ ЛІНА ТД" vs "ТОВ «КОМПАНІЯ «ЛІНА-ТД»" or "ТОВ ЛІНА ТД")
+    const tokens1 = this.getDistinctiveCompanyTokens(name1);
+    const tokens2 = this.getDistinctiveCompanyTokens(name2);
+    if (tokens1.length > 0 && tokens2.length > 0) {
+      const set2 = new Set(tokens2);
+      const common = tokens1.filter((t) => set2.has(t));
+      // If they share at least one distinctive token of length >= 4 (like "ЛІНА")
+      const distinctiveShared = common.filter((t) => t.length >= 4);
+      if (distinctiveShared.length > 0) {
+        return true;
+      }
+      // Or if all tokens of the shorter name are contained in the longer name
+      const shorter = tokens1.length <= tokens2.length ? tokens1 : tokens2;
+      const longer = new Set(tokens1.length <= tokens2.length ? tokens2 : tokens1);
+      if (shorter.length > 0 && shorter.every((t) => longer.has(t))) {
         return true;
       }
     }
@@ -851,6 +932,23 @@ export class OCRService {
   }
 
   /**
+   * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none")
+   */
+  public static isPlaceholderNumber(num?: string): boolean {
+    if (!num) return true;
+    const s = num.trim().toLowerCase();
+    if (s.length < 2) return true;
+    // Date strings like 2026-08-25 or 25.08.2026
+    if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
+    const placeholders = new Set([
+      'б/н', 'бн', 'б.н.', 'б/н.', 'безномера', 'без_номера', 'без-номера',
+      'n/a', 'na', 'none', 'null', '-', '--', '—', '0', '00', '000',
+      'рахунок', 'інвойс', 'счет'
+    ]);
+    return placeholders.has(s);
+  }
+
+  /**
    * Extract all invoice number tokens from raw text, strings, or arrays
    */
   public static extractAllInvoiceNumbers(
@@ -880,7 +978,8 @@ export class OCRService {
     }
 
     if (paymentPurpose) {
-      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?|№)\s*[:№#]?\s*([A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+(?:\s*(?:,|і|та|також|;|\/)\s*(?:№|No|#)?\s*[A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+)*)/gi;
+      // Check for invoice keywords: рахунок, рах, СФ, інвойс
+      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?)\s*[:№#]?\s*([A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+(?:\s*(?:,|і|та|також|;|\/)\s*(?:№|No|#)?\s*[A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+)*)/gi;
       let match: RegExpExecArray | null;
       while ((match = generalInvRegex.exec(paymentPurpose)) !== null) {
         if (match[1]) {
@@ -891,6 +990,22 @@ export class OCRService {
               found.add(cleaned);
             }
           });
+        }
+      }
+
+      // Check for standalone "№ 123" only if NOT preceded by contract/order/bank keywords
+      const nakedNumRegex = /(?<!(?:договір|договору|договором|контракт|контракту|наказ|наказу|п\/п|п\/р|р\/р|iban|код|єдрпоу|акта|акт)\s*)(?:№|No|#)\s*([A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+)/gi;
+      let nakedMatch: RegExpExecArray | null;
+      while ((nakedMatch = nakedNumRegex.exec(paymentPurpose)) !== null) {
+        if (nakedMatch[1]) {
+          const cleaned = nakedMatch[1].replace(/^(?:від|от|\.|\,)\s*/i, '').trim();
+          if (
+            cleaned.length >= 1 &&
+            !/^(від|от|року|р|грн|коп|без|пдв|до)$/i.test(cleaned) &&
+            !/^\d{2}\.\d{2}\.\d{4}$/.test(cleaned)
+          ) {
+            found.add(cleaned);
+          }
         }
       }
     }
@@ -989,15 +1104,19 @@ export class OCRService {
       );
 
       // Check if payment purpose specifies a different invoice number
+      // If invoice has no real invoice number (placeholder or empty), it CANNOT contradict!
+      const isCleanInvPlaceholder = this.isPlaceholderNumber(cleanInvNum);
       const hasContradictingInvoice =
+        !isCleanInvPlaceholder &&
         cleanRefNumbers.length > 0 &&
         !cleanRefNumbers.includes(cleanInvNum) &&
         !hasInvNumMatch;
 
       // Valid conditions:
       const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch);
-      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      // When payee/supplier matches and amount matches down to kopecks, it is a definitive match
+      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && (!hasContradictingInvoice || Math.abs(paymentAmount - invAmount) <= 0.05);
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch;
 
       if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount) {
         let reason = '';
@@ -1320,7 +1439,10 @@ export class OCRService {
       );
 
       // If payment has other referenced invoice numbers that don't match this one, avoid matching
+      // If invoice number is empty or placeholder (e.g. б/н), it cannot contradict!
+      const isCleanInvPlaceholder = this.isPlaceholderNumber(cleanInvNum);
       const hasContradictingInvoice =
+        !isCleanInvPlaceholder &&
         cleanPRefNumbers.length > 0 &&
         !cleanPRefNumbers.includes(cleanInvNum) &&
         !hasDirectInvNumMatch;
@@ -1328,11 +1450,11 @@ export class OCRService {
       // Condition 1: Direct match by invoice number (payee must not contradict supplier)
       const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch);
 
-      // Condition 2: Exact Payee + Exact Amount match (no conflicting invoice number)
-      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      // Condition 2: Exact Payee + Exact Amount match (e.g. 177.72 грн)
+      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && (!hasContradictingInvoice || Math.abs(invAmount - pAmount) <= 0.05);
 
-      // Condition 3: Exact Order + Exact Payee + Exact Amount match (no conflicting invoice number)
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      // Condition 3: Exact Order + Exact Payee + Exact Amount match
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch;
 
       if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount) {
         seenPaymentKeys.add(pKey);
@@ -1385,14 +1507,16 @@ export class OCRService {
           purpose.includes(cleanOrderNum))
       );
 
+      const isCleanInvPlaceholder = this.isPlaceholderNumber(cleanInvNum);
       const hasContradictingInvoice =
+        !isCleanInvPlaceholder &&
         cleanPRefNumbers.length > 0 &&
         !cleanPRefNumbers.includes(cleanInvNum) &&
         !hasDirectInvNumMatch;
 
       const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch);
-      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && (!hasContradictingInvoice || Math.abs(invAmount - pAmount) <= 0.05);
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch;
 
       if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount) {
         seenPaymentKeys.add(pKey);
@@ -1449,6 +1573,94 @@ export class OCRService {
       matchedPaymentRows: matchedPayments,
       matchReason: reason,
     };
+  }
+
+  /**
+   * Reconciles existing invoices with existing payments.
+   * Scans all invoices in "Рахунки" against all payments in "Платіжки".
+   * For invoices where status in the sheet is "Не оплачено" or "Оплачено частково",
+   * checks if a corresponding payment exists in "Платіжки" (e.g. invoice in row 20
+   * from "ТОВ КОМПАНІЯ ЛІНА ТД" on 177,72 грн matching payment in row 24).
+   * Returns all detected reconciliation matches with computed status, paid amount, and payment row index.
+   */
+  public static reconcileInvoicesWithPayments(
+    existingInvoices: ExistingSheetRow[] = [],
+    existingPayments: ExistingPaymentRow[] = []
+  ): Array<{
+    invoiceRowIndex: number;
+    invoiceNumber: string;
+    orderNumber?: string;
+    supplier: string;
+    invoiceAmount: number;
+    currentStatus: InvoicePaymentStatus;
+    computedStatus: InvoicePaymentStatus;
+    paidAmount: number;
+    matchedPaymentRowIndex?: number;
+    matchedPaymentNumber?: string;
+    matchedPaymentDate?: string;
+    matchedPaymentAmount?: number;
+    matchedPaymentPayee?: string;
+    matchReason: string;
+  }> {
+    const results: Array<{
+      invoiceRowIndex: number;
+      invoiceNumber: string;
+      orderNumber?: string;
+      supplier: string;
+      invoiceAmount: number;
+      currentStatus: InvoicePaymentStatus;
+      computedStatus: InvoicePaymentStatus;
+      paidAmount: number;
+      matchedPaymentRowIndex?: number;
+      matchedPaymentNumber?: string;
+      matchedPaymentDate?: string;
+      matchedPaymentAmount?: number;
+      matchedPaymentPayee?: string;
+      matchReason: string;
+    }> = [];
+
+    for (const inv of existingInvoices) {
+      if (!inv.rowIndex) continue;
+
+      const mockOcr: OCRResult = {
+        invoiceNumber: inv.invoiceNumber,
+        invoiceDate: inv.invoiceDate,
+        handwrittenOrderNumber: inv.orderNumber,
+        supplierName: inv.supplier,
+        buyerName: inv.buyer,
+        totalAmount: inv.amount,
+        currency: inv.currency || 'UAH',
+        documentType: 'invoice',
+        documentTypeUkrainian: 'Рахунок-фактура',
+        handwrittenConfidence: 'high',
+        confidenceScore: 1,
+        paymentStatus: inv.paymentStatus,
+      };
+
+      const match = this.matchInvoiceWithPayments(mockOcr, existingPayments);
+
+      if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
+        const firstPay = match.matchedPaymentRows[0];
+        results.push({
+          invoiceRowIndex: inv.rowIndex,
+          invoiceNumber: inv.invoiceNumber,
+          orderNumber: inv.orderNumber,
+          supplier: inv.supplier,
+          invoiceAmount: inv.amount,
+          currentStatus: inv.paymentStatus,
+          computedStatus: match.computedStatus,
+          paidAmount: match.totalPaidAmount || inv.amount,
+          matchedPaymentRowIndex: firstPay?.rowIndex,
+          matchedPaymentNumber: firstPay?.paymentNumber,
+          matchedPaymentDate: firstPay?.paymentDate,
+          matchedPaymentAmount: firstPay?.amountPaid,
+          matchedPaymentPayee: firstPay?.payee,
+          matchReason: match.matchReason || `Знайдено платіжку на суму ${this.formatCurrency(match.totalPaidAmount)}`,
+        });
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -1565,7 +1777,7 @@ export class OCRService {
           !isExistInvPlaceholder &&
           cleanInvNum === cleanExistInvNum;
 
-        if (validInvNumbersMatch && amountMatch) {
+        if (validInvNumbersMatch && (amountMatch || amount === 0 || existAmount === 0 || Math.abs(amount - existAmount) <= 1.0)) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
@@ -1579,13 +1791,23 @@ export class OCRService {
           continue;
         }
 
-        // Condition 2: Unnumbered / placeholder ("б/н"), but exact amount + order number + date match
-        if (amountMatch && orderNumMatch && dateMatch) {
+        // Condition 2: Handwritten order number + supplier match + amount match
+        if (orderNumMatch && (amountMatch || (amount === 0 && existAmount > 0))) {
           return {
             alreadyInSheet: true,
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
-            reason: `Рахунок від ${existSupplier} за замовленням ${inv.orderNumber} на суму ${amount} грн від ${existDate} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            reason: `Рахунок від ${existSupplier} за замовленням ${inv.orderNumber} на суму ${amount || existAmount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+          };
+        }
+
+        // Condition 3: Exact amount + date match + supplier match
+        if (amountMatch && dateMatch) {
+          return {
+            alreadyInSheet: true,
+            rowIndex: inv.rowIndex,
+            tabName: 'Рахунки',
+            reason: `Рахунок від ${existSupplier} на суму ${amount} грн від ${existDate} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
           };
         }
       }
@@ -1594,6 +1816,231 @@ export class OCRService {
     return {
       alreadyInSheet: false,
     };
+  }
+
+  /**
+   * Scan existing rows in "Рахунки" to find all duplicate rows.
+   * For each duplicate group, keeps the earliest row (lower rowIndex) as canonical
+   * and marks later rows as duplicates to be deleted.
+   */
+  public static findDuplicateInvoices(
+    existingInvoices: ExistingSheetRow[]
+  ): DuplicateRowMatch[] {
+    const duplicates: DuplicateRowMatch[] = [];
+    if (!existingInvoices || existingInvoices.length <= 1) return duplicates;
+
+    const isPlaceholderNumber = (num: string): boolean => {
+      if (!num) return true;
+      const s = num.trim().toLowerCase();
+      if (s.length < 2) return true;
+      if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
+      const placeholders = new Set([
+        'б/н', 'бн', 'б.н.', 'б/н.', 'безномера', 'без_номера', 'без-номера',
+        'n/a', 'na', 'none', 'null', '-', '--', '—', '0', '00', '000',
+        'рахунок', 'інвойс', 'счет'
+      ]);
+      return placeholders.has(s);
+    };
+
+    // Filter valid rows and sort ascending by rowIndex
+    const validRows = existingInvoices
+      .filter((r) => r.rowIndex > 1 && (r.supplier || r.invoiceNumber || r.orderNumber || (r.amount && r.amount > 0)))
+      .sort((a, b) => a.rowIndex - b.rowIndex);
+
+    const alreadyFlagged = new Set<number>();
+
+    for (let i = 0; i < validRows.length; i++) {
+      const a = validRows[i];
+      if (alreadyFlagged.has(a.rowIndex)) continue;
+
+      const aSup = this.normalizeCompanyName(a.supplier || '');
+      const aInvRaw = (a.invoiceNumber || '').trim();
+      const aInv = this.normalizeInvoiceNumber(aInvRaw);
+      const aIsPlaceholderInv = isPlaceholderNumber(aInv);
+      const aOrd = this.normalizeOrderNumber(a.orderNumber || '').toLowerCase();
+      const aAmount = a.amount || 0;
+      const aDate = (a.invoiceDate || '').trim();
+
+      for (let j = i + 1; j < validRows.length; j++) {
+        const b = validRows[j];
+        if (alreadyFlagged.has(b.rowIndex)) continue;
+
+        const bSup = this.normalizeCompanyName(b.supplier || '');
+        const bInvRaw = (b.invoiceNumber || '').trim();
+        const bInv = this.normalizeInvoiceNumber(bInvRaw);
+        const bIsPlaceholderInv = isPlaceholderNumber(bInv);
+        const bOrd = this.normalizeOrderNumber(b.orderNumber || '').toLowerCase();
+        const bAmount = b.amount || 0;
+        const bDate = (b.invoiceDate || '').trim();
+
+        // 1. Supplier match check
+        const supMatch = Boolean(
+          aSup && bSup && (this.isCompanyNameMatch(aSup, bSup) || aSup === bSup || (aSup.length >= 6 && bSup.includes(aSup)))
+        );
+
+        // 2. Amount match check
+        const amountMatch = (aAmount > 0 && bAmount > 0 && Math.abs(aAmount - bAmount) <= 0.50);
+        const exactAmountMatch = (aAmount > 0 && bAmount > 0 && Math.abs(aAmount - bAmount) <= 0.05);
+
+        // 3. Invoice numbers check
+        const validInvNumbersMatch = !aIsPlaceholderInv && !bIsPlaceholderInv && aInv === bInv;
+        const conflictingInvNumbers = !aIsPlaceholderInv && !bIsPlaceholderInv && aInv !== bInv;
+
+        // 4. Order number match check
+        const orderNumMatch = Boolean(aOrd && bOrd && aOrd === bOrd);
+
+        // 5. Date match check
+        const dateMatch = Boolean(aDate && bDate && aDate === bDate);
+
+        let isDuplicate = false;
+        let matchReason = '';
+
+        // Duplicate Case 1: Same supplier + same valid invoice number + same amount (or one is 0)
+        if (supMatch && validInvNumbersMatch && (amountMatch || aAmount === 0 || bAmount === 0)) {
+          isDuplicate = true;
+          matchReason = `Однакові постачальник (${b.supplier}), номер рахунку (№${b.invoiceNumber}) та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Duplicate Case 2: Same supplier + same handwritten order number + amount match (and not conflicting invoice numbers)
+        else if (supMatch && orderNumMatch && amountMatch && !conflictingInvNumbers) {
+          isDuplicate = true;
+          matchReason = `Однакові постачальник (${b.supplier}), замовлення (${b.orderNumber}) та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Duplicate Case 3: Same supplier + same date + exact amount match (and not conflicting invoice numbers)
+        else if (supMatch && dateMatch && exactAmountMatch && !conflictingInvNumbers) {
+          isDuplicate = true;
+          matchReason = `Однакові постачальник (${b.supplier}), дата (${b.invoiceDate}) та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Duplicate Case 4: Completely identical row content
+        else if (aSup === bSup && aInv === bInv && aOrd === bOrd && Math.abs(aAmount - bAmount) < 0.01) {
+          isDuplicate = true;
+          matchReason = `Повністю ідентичні дані рядків`;
+        }
+
+        if (isDuplicate) {
+          alreadyFlagged.add(b.rowIndex);
+          duplicates.push({
+            rowIndex: b.rowIndex,
+            originalRowIndex: a.rowIndex,
+            tabName: 'Рахунки',
+            type: 'invoice',
+            identifier: `Рахунок ${b.invoiceNumber ? `№${b.invoiceNumber}` : `(замовл. ${b.orderNumber || 'б/н'})`} від ${b.supplier || '—'}`,
+            amount: b.amount,
+            reason: matchReason,
+            date: b.invoiceDate,
+            orderNumber: b.orderNumber,
+          });
+        }
+      }
+    }
+
+    return duplicates;
+  }
+
+  /**
+   * Scan existing rows in "Платіжки" to find all duplicate rows.
+   * For each duplicate group, keeps the earliest row (lower rowIndex) as canonical
+   * and marks later rows as duplicates to be deleted.
+   */
+  public static findDuplicatePayments(
+    existingPayments: ExistingPaymentRow[]
+  ): DuplicateRowMatch[] {
+    const duplicates: DuplicateRowMatch[] = [];
+    if (!existingPayments || existingPayments.length <= 1) return duplicates;
+
+    const isPlaceholderNumber = (num: string): boolean => {
+      if (!num) return true;
+      const s = num.trim().toLowerCase();
+      if (s.length < 2) return true;
+      if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
+      const placeholders = new Set([
+        'б/н', 'бн', 'б.н.', 'б/н.', 'безномера', 'без_номера', 'без-номера',
+        'n/a', 'na', 'none', 'null', '-', '--', '—', '0', '00', '000',
+      ]);
+      return placeholders.has(s);
+    };
+
+    const validRows = existingPayments
+      .filter((r) => r.rowIndex > 1 && (r.payee || r.paymentNumber || (r.amountPaid && r.amountPaid > 0)))
+      .sort((a, b) => a.rowIndex - b.rowIndex);
+
+    const alreadyFlagged = new Set<number>();
+
+    for (let i = 0; i < validRows.length; i++) {
+      const a = validRows[i];
+      if (alreadyFlagged.has(a.rowIndex)) continue;
+
+      const aPayee = this.normalizeCompanyName(a.payee || '');
+      const aNumRaw = (a.paymentNumber || '').trim();
+      const aNum = this.normalizeInvoiceNumber(aNumRaw);
+      const aIsPlaceholderNum = isPlaceholderNumber(aNum);
+      const aDate = (a.paymentDate || '').trim();
+      const aAmount = a.amountPaid || 0;
+      const aPurpose = (a.paymentPurpose || '').trim().toLowerCase();
+
+      for (let j = i + 1; j < validRows.length; j++) {
+        const b = validRows[j];
+        if (alreadyFlagged.has(b.rowIndex)) continue;
+
+        const bPayee = this.normalizeCompanyName(b.payee || '');
+        const bNumRaw = (b.paymentNumber || '').trim();
+        const bNum = this.normalizeInvoiceNumber(bNumRaw);
+        const bIsPlaceholderNum = isPlaceholderNumber(bNum);
+        const bDate = (b.paymentDate || '').trim();
+        const bAmount = b.amountPaid || 0;
+        const bPurpose = (b.paymentPurpose || '').trim().toLowerCase();
+
+        const payeeMatch = Boolean(
+          aPayee && bPayee && (this.isCompanyNameMatch(aPayee, bPayee) || aPayee === bPayee || (aPayee.length >= 6 && bPayee.includes(aPayee)))
+        );
+
+        const amountMatch = (aAmount > 0 && bAmount > 0 && Math.abs(aAmount - bAmount) <= 0.50);
+        const exactAmountMatch = (aAmount > 0 && bAmount > 0 && Math.abs(aAmount - bAmount) <= 0.05);
+
+        const validNumbersMatch = !aIsPlaceholderNum && !bIsPlaceholderNum && aNum === bNum;
+        const conflictingNumbers = !aIsPlaceholderNum && !bIsPlaceholderNum && aNum !== bNum;
+        const dateMatch = Boolean(aDate && bDate && aDate === bDate);
+
+        let isDuplicate = false;
+        let matchReason = '';
+
+        // Case 1: Same payee + same valid payment number + same amount
+        if (payeeMatch && validNumbersMatch && (amountMatch || aAmount === 0 || bAmount === 0)) {
+          isDuplicate = true;
+          matchReason = `Однакові отримувач (${b.payee}), номер платіжки (№${b.paymentNumber}) та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Case 2: Same payee + same payment date + exact amount match (and no conflicting numbers)
+        else if (payeeMatch && dateMatch && exactAmountMatch && !conflictingNumbers) {
+          isDuplicate = true;
+          matchReason = `Однакові отримувач (${b.payee}), дата (${b.paymentDate}) та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Case 3: Same payee + same purpose + exact amount
+        else if (payeeMatch && aPurpose && bPurpose && aPurpose === bPurpose && exactAmountMatch) {
+          isDuplicate = true;
+          matchReason = `Однакові отримувач (${b.payee}), призначення платежу та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Case 4: Completely identical payment row
+        else if (aPayee === bPayee && aNum === bNum && aDate === bDate && Math.abs(aAmount - bAmount) < 0.01) {
+          isDuplicate = true;
+          matchReason = `Повністю ідентичні дані платіжки`;
+        }
+
+        if (isDuplicate) {
+          alreadyFlagged.add(b.rowIndex);
+          duplicates.push({
+            rowIndex: b.rowIndex,
+            originalRowIndex: a.rowIndex,
+            tabName: 'Платіжки',
+            type: 'payment',
+            identifier: `Платіжка ${b.paymentNumber ? `№${b.paymentNumber}` : 'б/н'} на користь ${b.payee || '—'}`,
+            amount: b.amountPaid,
+            reason: matchReason,
+            date: b.paymentDate,
+          });
+        }
+      }
+    }
+
+    return duplicates;
   }
 }
 

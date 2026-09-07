@@ -21,7 +21,8 @@ import {
   SheetCompanyLists, 
   ExistingSheetRow, 
   OCRResult,
-  InvoicePaymentStatus 
+  InvoicePaymentStatus,
+  DuplicateRowMatch
 } from './types';
 import { googleAuth, AuthState } from './services/googleAuth';
 import { GoogleDriveService } from './services/googleDrive';
@@ -382,6 +383,13 @@ export default function App() {
     await refreshSheetData(updated);
   };
 
+  const handleChangeInvoicesTab = async (newTab: string) => {
+    if (!sheetConfig) return;
+    const updated = { ...sheetConfig, invoicesSheetName: newTab };
+    handleUpdateSheetConfig(updated);
+    await refreshSheetData(updated);
+  };
+
   // Process a single document with Gemini OCR
   const handleProcessDocument = async (docId: string, directDoc?: ProcessedDocument): Promise<void> => {
     const currentList = documentsRef.current;
@@ -647,15 +655,113 @@ export default function App() {
       return;
     }
 
-    // Safety Duplicate Check: log duplicate detection for diagnostics
+    // CRITICAL: Fetch fresh rows from Google Sheets right before appending to avoid race condition duplicates with concurrent users (e.g. secretary)
+    let freshInvoices = existingInvoicesRef.current;
+    let freshPayments = existingPaymentsRef.current;
+    try {
+      const [invData, payData] = await Promise.all([
+        GoogleSheetsService.loadExistingInvoices(
+          sheetConfig.spreadsheetId,
+          authState.accessToken,
+          sheetConfig.invoicesSheetName
+        ),
+        GoogleSheetsService.loadExistingPayments(
+          sheetConfig.spreadsheetId,
+          authState.accessToken,
+          sheetConfig.paymentsSheetName,
+          sheetConfig.availableSheets
+        ),
+      ]);
+      if (invData && invData.length > 0) {
+        freshInvoices = invData;
+        setExistingInvoices(invData);
+      }
+      if (payData && payData.payments && payData.payments.length > 0) {
+        freshPayments = payData.payments;
+        setExistingPayments(payData.payments);
+      }
+    } catch (e) {
+      console.warn('Could not fetch fresh rows before sync, using cached:', e);
+    }
+
+    // Strict Duplicate Check: verify if this record already exists in Google Sheets
     const doubleCheck = OCRService.checkExistingDocumentInSheet(
       dataToSync,
-      existingInvoicesRef.current,
-      existingPaymentsRef.current
+      freshInvoices,
+      freshPayments
     );
 
     if (doubleCheck.alreadyInSheet) {
-      console.info(`[Sync] Document "${doc.fileName}" has match in sheet: ${doubleCheck.reason}. Proceeding with user-requested sync.`);
+      // PREVENT DUPLICATE ROW: do NOT call appendInvoice / appendPayment!
+      // If user altered payment status or amount on invoice, update the existing row instead of duplicating
+      if (dataToSync.documentType === 'invoice' && doubleCheck.rowIndex) {
+        if (dataToSync.paymentStatus || dataToSync.paidAmount !== undefined) {
+          try {
+            await GoogleSheetsService.updateInvoicePaymentInSheet(
+              sheetConfig.spreadsheetId,
+              authState.accessToken,
+              doubleCheck.rowIndex,
+              dataToSync.paymentStatus || 'Не оплачено',
+              dataToSync.paidAmount || 0,
+              sheetConfig.invoicesSheetName
+            );
+          } catch (e) {
+            console.warn('Could not update status of existing row:', e);
+          }
+        }
+      }
+
+      // If it's a payment and matches an invoice, reconcile the invoice status
+      let paymentReconcileMsg = '';
+      if (dataToSync.documentType === 'payment') {
+        const allMatches = OCRService.matchPaymentWithAllInvoices(
+          dataToSync,
+          freshInvoices,
+          documentsRef.current
+        );
+        for (const m of allMatches) {
+          if (m.matchedRowIndex && m.computedStatus) {
+            try {
+              await GoogleSheetsService.updateInvoicePaymentInSheet(
+                sheetConfig.spreadsheetId,
+                authState.accessToken,
+                m.matchedRowIndex,
+                m.computedStatus,
+                m.paidAmount || 0
+              );
+            } catch (err) {
+              console.warn('Could not update invoice for duplicate payment:', err);
+            }
+          }
+        }
+        if (allMatches.length > 0) {
+          paymentReconcileMsg = ` Рахунки зв'язано зі статусом "${allMatches[0].computedStatus}".`;
+        }
+      }
+
+      setDocuments((prev) =>
+        prev.map((d) =>
+          d.id === docId
+            ? {
+                ...d,
+                status: 'synced',
+                syncedRowIndex: doubleCheck.rowIndex,
+                alreadyInSheet: true,
+                alreadyInSheetReason: doubleCheck.reason,
+                alreadyInSheetTab: doubleCheck.tabName,
+                syncedAt: new Date().toISOString(),
+                editedData: dataToSync,
+              }
+            : d
+        )
+      );
+
+      await refreshSheetData();
+      notify(
+        `⚠️ Запис вже є у вкладці "${doubleCheck.tabName}" (рядок ${doubleCheck.rowIndex}). Створення дубліката скасовано! Документ зв'язано.${paymentReconcileMsg}`,
+        'info'
+      );
+      return;
     }
 
     try {
@@ -806,28 +912,110 @@ export default function App() {
   };
 
   // Direct status update from SheetLivePreview table
-  const handleUpdateInvoiceStatus = async (rowIndex: number, newStatus: InvoicePaymentStatus) => {
+  const handleUpdateInvoiceStatus = async (
+    rowIndex: number, 
+    newStatus: InvoicePaymentStatus,
+    paidAmount?: number
+  ) => {
+    const targetInvoice = existingInvoices.find((i) => i.rowIndex === rowIndex);
+    const effectivePaidAmount =
+      paidAmount !== undefined
+        ? paidAmount
+        : newStatus === 'Оплачено'
+        ? (targetInvoice?.amount || 0)
+        : (targetInvoice?.paidAmount || 0);
+
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
       setExistingInvoices((prev) =>
-        prev.map((inv) => (inv.rowIndex === rowIndex ? { ...inv, paymentStatus: newStatus } : inv))
+        prev.map((inv) => 
+          inv.rowIndex === rowIndex 
+            ? { ...inv, paymentStatus: newStatus, paidAmount: effectivePaidAmount } 
+            : inv
+        )
       );
       notify(`Статус рахунку оновлено на "${newStatus}"`, 'success');
       return;
     }
 
     try {
-      await GoogleSheetsService.updateInvoiceStatusInSheet(
+      await GoogleSheetsService.updateInvoicePaymentInSheet(
         sheetConfig.spreadsheetId,
         authState.accessToken,
         rowIndex,
-        newStatus
+        newStatus,
+        effectivePaidAmount,
+        sheetConfig.invoicesSheetName
       );
       setExistingInvoices((prev) =>
-        prev.map((inv) => (inv.rowIndex === rowIndex ? { ...inv, paymentStatus: newStatus } : inv))
+        prev.map((inv) => 
+          inv.rowIndex === rowIndex 
+            ? { ...inv, paymentStatus: newStatus, paidAmount: effectivePaidAmount } 
+            : inv
+        )
       );
       notify(`Статус у Google Таблиці (рядок ${rowIndex}) оновлено на "${newStatus}"!`, 'success');
     } catch (err: any) {
       notify(err.message || 'Помилка оновлення статусу в Google Таблиці.', 'error');
+    }
+  };
+
+  // Batch reconcile statuses from SheetLivePreview
+  const handleBatchReconcileInvoiceStatuses = async (
+    matches: Array<{
+      invoiceRowIndex: number;
+      computedStatus: InvoicePaymentStatus;
+      paidAmount: number;
+    }>
+  ) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
+      setExistingInvoices((prev) =>
+        prev.map((inv) => {
+          const match = matches.find((m) => m.invoiceRowIndex === inv.rowIndex);
+          if (match) {
+            return { ...inv, paymentStatus: match.computedStatus, paidAmount: match.paidAmount };
+          }
+          return inv;
+        })
+      );
+      notify(`Оновлено статуси для ${matches.length} рахунків`, 'success');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    let updatedCount = 0;
+    try {
+      for (const item of matches) {
+        try {
+          await GoogleSheetsService.updateInvoicePaymentInSheet(
+            sheetConfig.spreadsheetId,
+            authState.accessToken,
+            item.invoiceRowIndex,
+            item.computedStatus,
+            item.paidAmount,
+            sheetConfig.invoicesSheetName
+          );
+          updatedCount++;
+        } catch (e) {
+          console.error(`Error updating row ${item.invoiceRowIndex}:`, e);
+        }
+      }
+      setExistingInvoices((prev) =>
+        prev.map((inv) => {
+          const match = matches.find((m) => m.invoiceRowIndex === inv.rowIndex);
+          if (match) {
+            return { ...inv, paymentStatus: match.computedStatus, paidAmount: match.paidAmount };
+          }
+          return inv;
+        })
+      );
+      notify(
+        `Успішно оновлено статуси оплат для ${updatedCount} рахунків у Google Таблиці!`,
+        'success'
+      );
+    } catch (err: any) {
+      notify(err.message || 'Помилка при оновленні статусів.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
     }
   };
 
@@ -856,6 +1044,65 @@ export default function App() {
 
     setIsSyncingBatch(false);
     notify(`Успішно занесено ${successCount} записів у Google Таблицю!`, 'success');
+  };
+
+  // Delete duplicate rows from Google Sheets ("Рахунки" and "Платіжки")
+  const handleDeleteDuplicateRows = async (duplicates: DuplicateRowMatch[]) => {
+    if (!authState.accessToken) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    if (!sheetConfig?.spreadsheetId) {
+      notify('Будь ласка, спочатку підключіть Google Таблицю.', 'error');
+      return;
+    }
+    if (!duplicates || duplicates.length === 0) {
+      notify('Не знайдено дублікатів для видалення.', 'info');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    try {
+      const invoiceRowIndices = duplicates
+        .filter((d) => d.type === 'invoice')
+        .map((d) => d.rowIndex);
+      const paymentRowIndices = duplicates
+        .filter((d) => d.type === 'payment')
+        .map((d) => d.rowIndex);
+
+      let deletedTotal = 0;
+
+      if (invoiceRowIndices.length > 0) {
+        const res = await GoogleSheetsService.deleteRowsFromSheet(
+          sheetConfig.spreadsheetId,
+          authState.accessToken,
+          sheetConfig.invoicesSheetName || 'Рахунки',
+          invoiceRowIndices
+        );
+        deletedTotal += res.deletedCount;
+      }
+
+      if (paymentRowIndices.length > 0) {
+        const res = await GoogleSheetsService.deleteRowsFromSheet(
+          sheetConfig.spreadsheetId,
+          authState.accessToken,
+          sheetConfig.paymentsSheetName || 'Платіжки',
+          paymentRowIndices
+        );
+        deletedTotal += res.deletedCount;
+      }
+
+      await refreshSheetData();
+      notify(
+        `🧹 Успішно видалено ${deletedTotal} дублікатів рядків з Google Таблиці! Оновлено.`,
+        'success'
+      );
+    } catch (err: any) {
+      console.error('Error deleting duplicate rows:', err);
+      notify(err.message || 'Помилка при видаленні дублікатів з Google Таблиці.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
   };
 
   const handleSaveLocalData = (docId: string, updatedOcr: OCRResult) => {
@@ -1054,7 +1301,7 @@ export default function App() {
       )}
 
       {/* Main Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+      <main className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col min-h-0 ${activeTab === 'sheet' ? 'space-y-4' : 'space-y-6'}`}>
         {/* Session Expired Banner */}
         {(!authState.isAuthenticated && authState.userEmail) && (
           <div className="bg-amber-50 border border-amber-300/80 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
@@ -1146,16 +1393,21 @@ export default function App() {
 
         {/* View Mode: Google Sheet Live Table */}
         {activeTab === 'sheet' && (
-          <SheetLivePreview
-            sheetConfig={sheetConfig}
-            existingInvoices={existingInvoices}
-            existingPayments={existingPayments}
-            companyLists={companyLists}
-            onRefresh={refreshSheetData}
-            isLoading={isLoadingSheet}
-            onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
-            onChangePaymentsTab={handleChangePaymentsTab}
-          />
+          <div className="flex-1 flex flex-col min-h-0">
+            <SheetLivePreview
+              sheetConfig={sheetConfig}
+              existingInvoices={existingInvoices}
+              existingPayments={existingPayments}
+              companyLists={companyLists}
+              onRefresh={refreshSheetData}
+              isLoading={isLoadingSheet}
+              onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
+              onBatchReconcile={handleBatchReconcileInvoiceStatuses}
+              onDeleteDuplicates={handleDeleteDuplicateRows}
+              onChangePaymentsTab={handleChangePaymentsTab}
+              onChangeInvoicesTab={handleChangeInvoicesTab}
+            />
+          </div>
         )}
 
         {/* View Mode: Companies Management */}

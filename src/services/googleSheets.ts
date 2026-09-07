@@ -98,15 +98,85 @@ export class GoogleSheetsService {
   public static async getSpreadsheetDetails(
     spreadsheetId: string,
     accessToken: string
-  ): Promise<{ title: string; sheets: string[]; id: string }> {
+  ): Promise<{
+    title: string;
+    sheets: string[];
+    id: string;
+    sheetMeta?: Array<{ sheetId: number; title: string }>;
+  }> {
     const cleanId = this.extractSpreadsheetId(spreadsheetId);
     const data = await this.request<any>(`${cleanId}?includeGridData=false`, accessToken);
     const sheets = (data.sheets || []).map((s: any) => s.properties?.title || '');
+    const sheetMeta = (data.sheets || []).map((s: any) => ({
+      sheetId: Number(s.properties?.sheetId ?? 0),
+      title: s.properties?.title || '',
+    }));
     return {
       id: cleanId,
       title: data.properties?.title || 'Google Таблиця',
       sheets,
+      sheetMeta,
     };
+  }
+
+  /**
+   * Find numeric sheetId (gid) by sheet tab name
+   */
+  public static async getSheetIdByName(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName: string
+  ): Promise<number | null> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    const details = await this.getSpreadsheetDetails(cleanId, accessToken);
+    const resolvedName = this.resolveMatchingSheetTab(details.sheets, tabName);
+    const meta = details.sheetMeta?.find(
+      (m) => m.title === resolvedName || m.title === tabName
+    );
+    return meta !== undefined && meta.sheetId !== undefined ? meta.sheetId : null;
+  }
+
+  /**
+   * Delete specified rows (1-based row indices, e.g. [25, 27]) from a Google Sheet tab.
+   * Requests are sorted in descending order to avoid row index shift side effects.
+   */
+  public static async deleteRowsFromSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName: string,
+    rowIndices: number[]
+  ): Promise<{ deletedCount: number }> {
+    if (!rowIndices || rowIndices.length === 0) return { deletedCount: 0 };
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    const sheetId = await this.getSheetIdByName(cleanId, accessToken, tabName);
+    if (sheetId === null) {
+      throw new Error(`Не вдалося знайти вкладку "${tabName}" у Google Таблиці.`);
+    }
+
+    // Filter out row 1 (never delete table header row) and non-positive numbers
+    const validRows = Array.from(new Set(rowIndices)).filter((r) => r > 1);
+    if (validRows.length === 0) return { deletedCount: 0 };
+
+    // Sort descending: e.g. [30, 25, 21]
+    validRows.sort((a, b) => b - a);
+
+    const requests = validRows.map((rowNum) => ({
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: 'ROWS',
+          startIndex: rowNum - 1,
+          endIndex: rowNum,
+        },
+      },
+    }));
+
+    await this.request<any>(`${cleanId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({ requests }),
+    });
+
+    return { deletedCount: validRows.length };
   }
 
   /**

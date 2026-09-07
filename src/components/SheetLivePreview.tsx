@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   FileSpreadsheet, 
   RefreshCw, 
@@ -10,12 +10,20 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  AlertTriangle,
   CreditCard,
   Calculator,
-  X
+  Check,
+  Loader2,
+  X,
+  Trash2,
+  Sparkles,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
-import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus } from '../types';
+import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, DuplicateRowMatch } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
+import { OCRService } from '../services/ocrService';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -25,6 +33,8 @@ interface Props {
   onRefresh: () => Promise<void>;
   isLoading: boolean;
   onUpdateInvoiceStatus?: (rowIndex: number, newStatus: InvoicePaymentStatus, paidAmount?: number) => Promise<void>;
+  onBatchReconcile?: (matches: any[]) => Promise<void>;
+  onDeleteDuplicates?: (duplicates: DuplicateRowMatch[]) => Promise<void>;
   onChangePaymentsTab?: (newTab: string) => void;
   onChangeInvoicesTab?: (newTab: string) => void;
 }
@@ -37,6 +47,8 @@ export const SheetLivePreview: React.FC<Props> = ({
   onRefresh,
   isLoading,
   onUpdateInvoiceStatus,
+  onBatchReconcile,
+  onDeleteDuplicates,
   onChangePaymentsTab,
   onChangeInvoicesTab,
 }) => {
@@ -44,6 +56,71 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [filterText, setFilterText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoicePaymentStatus>('all');
   const [updatingRowIndex, setUpdatingRowIndex] = useState<number | null>(null);
+  const [isBatchReconciling, setIsBatchReconciling] = useState(false);
+  const [isDeletingDuplicates, setIsDeletingDuplicates] = useState(false);
+  const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  // Real-time detection of duplicate rows in "Рахунки" and "Платіжки"
+  const duplicateInvoices = useMemo(
+    () => OCRService.findDuplicateInvoices(existingInvoices),
+    [existingInvoices]
+  );
+  const duplicatePayments = useMemo(
+    () => OCRService.findDuplicatePayments(existingPayments),
+    [existingPayments]
+  );
+  const allDuplicates = useMemo(
+    () => [...duplicateInvoices, ...duplicatePayments],
+    [duplicateInvoices, duplicatePayments]
+  );
+
+  const duplicateInvoicesMap = useMemo(() => {
+    const map = new Map<number, DuplicateRowMatch>();
+    for (const d of duplicateInvoices) {
+      map.set(d.rowIndex, d);
+    }
+    return map;
+  }, [duplicateInvoices]);
+
+  const duplicatePaymentsMap = useMemo(() => {
+    const map = new Map<number, DuplicateRowMatch>();
+    for (const d of duplicatePayments) {
+      map.set(d.rowIndex, d);
+    }
+    return map;
+  }, [duplicatePayments]);
+
+  const handleDeleteAllDuplicates = async () => {
+    if (!onDeleteDuplicates || allDuplicates.length === 0) return;
+    const confirmed = window.confirm(
+      `Видалити всі ${allDuplicates.length} виявлених дублікатів рядків з Google Таблиці?\n\nПерші оригінальні записи буде збережено, видаляться лише повторні рядки.`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingDuplicates(true);
+    try {
+      await onDeleteDuplicates(allDuplicates);
+      setShowDuplicatesModal(false);
+    } finally {
+      setIsDeletingDuplicates(false);
+    }
+  };
+
+  const handleDeleteSingleDuplicate = async (match: DuplicateRowMatch) => {
+    if (!onDeleteDuplicates) return;
+    const confirmed = window.confirm(
+      `Видалити дублікат рядок ${match.rowIndex} з вкладки "${match.tabName}" (${match.identifier})?`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingDuplicates(true);
+    try {
+      await onDeleteDuplicates([match]);
+    } finally {
+      setIsDeletingDuplicates(false);
+    }
+  };
 
   if (!sheetConfig?.isConfigured) {
     return (
@@ -152,22 +229,67 @@ export const SheetLivePreview: React.FC<Props> = ({
   const uniqueOur = GoogleSheetsService.deduplicateCompanyList(companyLists.ourCompanies);
   const uniqueSuppliers = GoogleSheetsService.deduplicateCompanyList(companyLists.suppliers);
 
-  const handleStatusChange = async (rowIndex: number, newStatus: InvoicePaymentStatus) => {
+  // Reconcile invoices with payments from "Платіжки"
+  const reconciledMatches = useMemo(() => {
+    return OCRService.reconcileInvoicesWithPayments(existingInvoices, existingPayments);
+  }, [existingInvoices, existingPayments]);
+
+  const reconciledMap = useMemo(() => {
+    const map = new Map<number, (typeof reconciledMatches)[0]>();
+    for (const m of reconciledMatches) {
+      map.set(m.invoiceRowIndex, m);
+    }
+    return map;
+  }, [reconciledMatches]);
+
+  const pendingReconciliations = useMemo(() => {
+    return reconciledMatches.filter((m) => m.currentStatus !== 'Оплачено');
+  }, [reconciledMatches]);
+
+  const handleStatusChange = async (rowIndex: number, newStatus: InvoicePaymentStatus, customPaidAmt?: number) => {
     if (!onUpdateInvoiceStatus) return;
     setUpdatingRowIndex(rowIndex);
     try {
       const targetInvoice = existingInvoices.find((i) => i.rowIndex === rowIndex);
-      const paidAmt = newStatus === 'Оплачено' ? (targetInvoice?.amount || 0) : (targetInvoice?.paidAmount || 0);
+      const recMatch = reconciledMap.get(rowIndex);
+      const paidAmt =
+        customPaidAmt !== undefined
+          ? customPaidAmt
+          : newStatus === 'Оплачено'
+          ? (recMatch?.paidAmount || targetInvoice?.amount || 0)
+          : (targetInvoice?.paidAmount || 0);
       await onUpdateInvoiceStatus(rowIndex, newStatus, paidAmt);
     } finally {
       setUpdatingRowIndex(null);
     }
   };
 
+  const handleBatchReconcileAllPending = async () => {
+    if (pendingReconciliations.length === 0) return;
+    setIsBatchReconciling(true);
+    try {
+      if (onBatchReconcile) {
+        await onBatchReconcile(pendingReconciliations);
+      } else if (onUpdateInvoiceStatus) {
+        for (const item of pendingReconciliations) {
+          await onUpdateInvoiceStatus(item.invoiceRowIndex, item.computedStatus, item.paidAmount);
+        }
+      }
+    } finally {
+      setIsBatchReconciling(false);
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+    <div
+      className={`bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0 transition-all ${
+        isMaximized
+          ? 'fixed inset-2 md:inset-4 z-50 rounded-2xl shadow-2xl border-slate-300'
+          : ''
+      }`}
+    >
       {/* Header & Tabs */}
-      <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50">
+      <div className="p-4 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50 shrink-0">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
             <FileSpreadsheet className="w-4 h-4" />
@@ -243,22 +365,57 @@ export const SheetLivePreview: React.FC<Props> = ({
             </button>
           </div>
 
-          <button
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="p-2 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors shadow-xs disabled:opacity-50"
-            title="Оновити дані з Google Sheets"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setShowDuplicatesModal(true)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer border ${
+                allDuplicates.length > 0
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 shadow-xs'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Перевірка та видалення дублікатів у Рахунках та Платіжках"
+            >
+              {allDuplicates.length > 0 ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+              ) : (
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              )}
+              <span>
+                Дублікати: {allDuplicates.length > 0 ? `${allDuplicates.length} знайдено` : '0'}
+              </span>
+            </button>
+
+            <button
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="p-2 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+              title="Оновити дані з Google Sheets"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsMaximized((prev) => !prev)}
+              className="p-2 bg-white border border-slate-200 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors shadow-xs cursor-pointer"
+              title={isMaximized ? 'Згорнути до стандартного розміру' : 'Розгорнути таблицю на весь екран'}
+            >
+              {isMaximized ? (
+                <Minimize2 className="w-3.5 h-3.5" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Tab: Invoices */}
       {activeTab === 'invoices' && (
-        <div>
+        <div className="flex-1 flex flex-col min-h-0">
           {/* Sub-bar: Search & Status Filters */}
-          <div className="p-3 border-b border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="p-3 border-b border-slate-100 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
             <div className="relative w-full sm:w-80">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
               <input
@@ -406,18 +563,107 @@ export const SheetLivePreview: React.FC<Props> = ({
             </div>
           )}
 
+          {/* Duplicate Warning Banner: Invoices */}
+          {duplicateInvoices.length > 0 && (
+            <div className="mx-4 my-2.5 p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 border border-amber-300">
+                  <AlertTriangle className="w-4 h-4 text-amber-700" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-950">
+                    У вкладці «Рахунки» виявлено {duplicateInvoices.length} {duplicateInvoices.length === 1 ? 'дублікат рядка' : duplicateInvoices.length < 5 ? 'дублікати рядків' : 'дублікатів рядків'}!
+                  </h4>
+                  <p className="text-[11px] text-amber-900 mt-0.5">
+                    {duplicateInvoices
+                      .slice(0, 3)
+                      .map((d) => `Рядок ${d.rowIndex} (дублює р. ${d.originalRowIndex}: ${d.identifier})`)
+                      .join('; ')}
+                    {duplicateInvoices.length > 3 && ` та ще ${duplicateInvoices.length - 3}...`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => setShowDuplicatesModal(true)}
+                  className="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100/70 text-amber-950 rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                >
+                  Деталі дублів
+                </button>
+                {onDeleteDuplicates && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteDuplicates(duplicateInvoices)}
+                    disabled={isDeletingDuplicates}
+                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isDeletingDuplicates ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>Видалити {duplicateInvoices.length} дублів</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Reconciliation Notice Banner: Invoices that have matching payments in "Платіжки" */}
+          {pendingReconciliations.length > 0 && (
+            <div className="mx-4 my-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0 mt-0.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-emerald-950">
+                    Знайдено підтвердження оплати для {pendingReconciliations.length}{' '}
+                    {pendingReconciliations.length === 1 ? 'рахунку' : pendingReconciliations.length < 5 ? 'рахунків' : 'рахунків'} у вкладці «Платіжки»!
+                  </h4>
+                  <p className="text-[11px] text-emerald-800 mt-0.5">
+                    {pendingReconciliations
+                      .slice(0, 3)
+                      .map((p) => `Рядок ${p.invoiceRowIndex}: ${p.supplier} (${new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2 }).format(p.invoiceAmount)} ₴) → платіжка в рядку ${p.matchedPaymentRowIndex}`)
+                      .join('; ')}
+                    {pendingReconciliations.length > 3 && ` та ще ${pendingReconciliations.length - 3}...`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleBatchReconcileAllPending}
+                disabled={isBatchReconciling}
+                className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shrink-0 self-start sm:self-center shadow-xs cursor-pointer"
+              >
+                {isBatchReconciling ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Оновлення...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Оновити статуси в таблиці ({pendingReconciliations.length})</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
           {filteredInvoices.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-xs">
+            <div className="p-8 text-center text-slate-400 text-xs flex-1 flex items-center justify-center">
               {existingInvoices.length === 0
                 ? 'У вкладці "Рахунки" поки немає записів. Додайте перший рахунок вище.'
                 : 'Не знайдено записів за поточним фільтром.'}
             </div>
           ) : (
-            <div className="overflow-x-auto max-h-96">
+            <div className="flex-1 min-h-[500px] lg:min-h-[560px] overflow-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px] z-10">
                   <tr>
-                    <th className="p-2.5 w-12 text-slate-400 font-mono">№</th>
+                    <th className="p-2.5 w-14 text-slate-400 font-mono">№</th>
                     <th className="p-2.5 bg-amber-50/80 text-amber-950 border-x border-amber-200">A: Номер замовлення</th>
                     <th className="p-2.5">B: Постачальник</th>
                     <th className="p-2.5">C: Платник</th>
@@ -435,12 +681,38 @@ export const SheetLivePreview: React.FC<Props> = ({
                 <tbody className="divide-y divide-slate-100 font-sans">
                   {filteredInvoices.map((inv) => {
                     const invoiceAmount = inv.amount || 0;
-                    const paidAmount = inv.paidAmount !== undefined ? inv.paidAmount : (inv.paymentStatus === 'Оплачено' ? invoiceAmount : 0);
+                    const recMatch = reconciledMap.get(inv.rowIndex);
+                    const dupInvoice = duplicateInvoicesMap.get(inv.rowIndex);
+                    const paidAmount = inv.paidAmount !== undefined 
+                      ? inv.paidAmount 
+                      : (inv.paymentStatus === 'Оплачено' ? invoiceAmount : (recMatch ? recMatch.paidAmount : 0));
                     const remainingAmount = Math.max(0, invoiceAmount - paidAmount);
 
                     return (
-                      <tr key={inv.rowIndex} className="hover:bg-slate-50 transition-colors">
-                        <td className="p-2.5 text-slate-400 font-mono">{inv.rowIndex}</td>
+                      <tr 
+                        key={inv.rowIndex} 
+                        className={`transition-colors ${
+                          dupInvoice 
+                            ? 'bg-amber-50/70 hover:bg-amber-100/70 border-l-4 border-l-amber-500' 
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="p-2.5 text-slate-400 font-mono">
+                          <div className="flex items-center space-x-1">
+                            <span>{inv.rowIndex}</span>
+                            {dupInvoice && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSingleDuplicate(dupInvoice)}
+                                disabled={isDeletingDuplicates}
+                                title={`Дублікат рядка ${dupInvoice.originalRowIndex}. Натисніть, щоб видалити цей рядок з таблиці.`}
+                                className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-2.5 bg-amber-50/40 border-x border-amber-100/80 font-mono font-bold text-amber-950">
                           {inv.orderNumber ? (
                             <button
@@ -498,6 +770,40 @@ export const SheetLivePreview: React.FC<Props> = ({
                               {inv.paymentStatus || 'Не оплачено'}
                             </span>
                           )}
+
+                          {dupInvoice && (
+                            <div className="mt-1 flex items-center justify-center">
+                              <span 
+                                title={dupInvoice.reason}
+                                className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                              >
+                                <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                <span>Дубль р.{dupInvoice.originalRowIndex}</span>
+                              </span>
+                            </div>
+                          )}
+
+                          {recMatch && inv.paymentStatus !== 'Оплачено' && (
+                            <div className="mt-1.5 flex flex-col items-center">
+                              <span
+                                title={recMatch.matchReason}
+                                className="text-[10px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-medium text-center"
+                              >
+                                💡 Платіжка в рядку {recMatch.matchedPaymentRowIndex}
+                              </span>
+                              {onUpdateInvoiceStatus && (
+                                <button
+                                  type="button"
+                                  disabled={updatingRowIndex === inv.rowIndex}
+                                  onClick={() => handleStatusChange(inv.rowIndex, recMatch.computedStatus, recMatch.paidAmount)}
+                                  className="mt-0.5 text-[10px] text-emerald-700 underline font-bold hover:text-emerald-950 cursor-pointer"
+                                  title={`Застосувати статус "${recMatch.computedStatus}" та оновити в таблиці`}
+                                >
+                                  {updatingRowIndex === inv.rowIndex ? 'Оновлення...' : 'Застосувати «Оплачено»'}
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="p-2.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
                           {inv.uploadedAt || '—'}
@@ -505,12 +811,17 @@ export const SheetLivePreview: React.FC<Props> = ({
                         <td className="p-2.5 text-right font-mono font-bold bg-emerald-50/50 border-l border-emerald-100">
                           {paidAmount > 0 ? (
                             <div>
-                              <span className="text-emerald-950">
+                              <span className={inv.paymentStatus === 'Оплачено' ? 'text-emerald-950' : 'text-emerald-700'}>
                                 {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(paidAmount)}
                               </span>
                               {inv.paymentStatus === 'Оплачено частково' && remainingAmount > 0 && (
                                 <p className="text-[10px] text-amber-700 font-normal">
                                   залишок: {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(remainingAmount)}
+                                </p>
+                              )}
+                              {recMatch && inv.paymentStatus !== 'Оплачено' && (
+                                <p className="text-[9px] text-emerald-600 font-medium">
+                                  знайдено в платіжках
                                 </p>
                               )}
                             </div>
@@ -552,8 +863,8 @@ export const SheetLivePreview: React.FC<Props> = ({
 
       {/* Tab: Payments (Платіжки) */}
       {activeTab === 'payments' && (
-        <div className="p-4 space-y-3">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+        <div className="p-4 space-y-3 flex-1 flex flex-col min-h-0">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 text-xs bg-slate-50 p-2.5 rounded-lg border border-slate-200 shrink-0">
             <div className="relative w-full sm:w-72">
               <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
               <input
@@ -588,6 +899,53 @@ export const SheetLivePreview: React.FC<Props> = ({
               </p>
             </div>
           </div>
+
+          {/* Duplicate Warning Banner: Payments */}
+          {duplicatePayments.length > 0 && (
+            <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 border border-amber-300">
+                  <AlertTriangle className="w-4 h-4 text-amber-700" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-950">
+                    У вкладці «{sheetConfig?.paymentsSheetName || 'Платіжки'}» виявлено {duplicatePayments.length} {duplicatePayments.length === 1 ? 'дублікат рядка' : duplicatePayments.length < 5 ? 'дублікати рядків' : 'дублікатів рядків'}!
+                  </h4>
+                  <p className="text-[11px] text-amber-900 mt-0.5">
+                    {duplicatePayments
+                      .slice(0, 3)
+                      .map((d) => `Рядок ${d.rowIndex} (дублює р. ${d.originalRowIndex}: ${d.identifier})`)
+                      .join('; ')}
+                    {duplicatePayments.length > 3 && ` та ще ${duplicatePayments.length - 3}...`}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => setShowDuplicatesModal(true)}
+                  className="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-100/70 text-amber-950 rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-2xs"
+                >
+                  Деталі дублів
+                </button>
+                {onDeleteDuplicates && (
+                  <button
+                    type="button"
+                    onClick={() => onDeleteDuplicates(duplicatePayments)}
+                    disabled={isDeletingDuplicates}
+                    className="px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isDeletingDuplicates ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3.5 h-3.5" />
+                    )}
+                    <span>Видалити {duplicatePayments.length} дублів</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {filteredPayments.length === 0 ? (
             <div className="p-8 text-center bg-slate-50/50 rounded-xl border border-slate-200 space-y-3">
@@ -634,7 +992,7 @@ export const SheetLivePreview: React.FC<Props> = ({
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto max-h-96">
+            <div className="flex-1 min-h-[500px] lg:min-h-[560px] overflow-auto border border-slate-200 rounded-lg shadow-2xs">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                   <tr>
@@ -651,36 +1009,76 @@ export const SheetLivePreview: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-sans">
-                  {filteredPayments.map((pay, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-2.5 text-slate-400 font-mono">{pay.rowIndex || idx + 1}</td>
-                      <td className="p-2.5 font-mono font-bold text-slate-900">{pay.paymentNumber || '—'}</td>
-                      <td className="p-2.5 text-slate-600 font-mono">{pay.paymentDate || '—'}</td>
-                      <td className="p-2.5 font-semibold text-slate-900">{pay.payer || '—'}</td>
-                      <td className="p-2.5 font-semibold text-slate-900">{pay.payee || '—'}</td>
-                      <td className="p-2.5 text-right font-mono font-bold text-blue-950 bg-blue-50/50">
-                        {pay.amountPaid
-                          ? new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pay.amountPaid)
-                          : '0,00'} {pay.currency || 'UAH'}
-                      </td>
-                      <td className="p-2.5 text-slate-700 max-w-xs truncate" title={pay.paymentPurpose}>
-                        {pay.paymentPurpose || '—'}
-                      </td>
-                      <td className="p-2.5 bg-amber-50/40 font-mono font-bold text-amber-950">
-                        {pay.referencedInvoiceNumber ? (
-                          <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300">
-                            {pay.referencedInvoiceNumber}
-                          </span>
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-                      <td className="p-2.5 font-mono">{pay.orderNumber || '—'}</td>
-                      <td className="p-2.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
-                        {pay.uploadedAt || '—'}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredPayments.map((pay, idx) => {
+                    const rowNum = pay.rowIndex || idx + 1;
+                    const dupPayment = pay.rowIndex ? duplicatePaymentsMap.get(pay.rowIndex) : undefined;
+
+                    return (
+                      <tr 
+                        key={idx} 
+                        className={`transition-colors ${
+                          dupPayment 
+                            ? 'bg-amber-50/70 hover:bg-amber-100/70 border-l-4 border-l-amber-500' 
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="p-2.5 text-slate-400 font-mono">
+                          <div className="flex items-center space-x-1">
+                            <span>{rowNum}</span>
+                            {dupPayment && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSingleDuplicate(dupPayment)}
+                                disabled={isDeletingDuplicates}
+                                title={`Дублікат рядка ${dupPayment.originalRowIndex}. Натисніть, щоб видалити цей рядок з таблиці.`}
+                                className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-2.5 font-mono font-bold text-slate-900">
+                          <div>{pay.paymentNumber || '—'}</div>
+                          {dupPayment && (
+                            <div className="mt-0.5">
+                              <span 
+                                title={dupPayment.reason}
+                                className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-bold"
+                              >
+                                <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                <span>Дубль р.{dupPayment.originalRowIndex}</span>
+                              </span>
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-slate-600 font-mono">{pay.paymentDate || '—'}</td>
+                        <td className="p-2.5 font-semibold text-slate-900">{pay.payer || '—'}</td>
+                        <td className="p-2.5 font-semibold text-slate-900">{pay.payee || '—'}</td>
+                        <td className="p-2.5 text-right font-mono font-bold text-blue-950 bg-blue-50/50">
+                          {pay.amountPaid
+                            ? new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(pay.amountPaid)
+                            : '0,00'} {pay.currency || 'UAH'}
+                        </td>
+                        <td className="p-2.5 text-slate-700 max-w-xs truncate" title={pay.paymentPurpose}>
+                          {pay.paymentPurpose || '—'}
+                        </td>
+                        <td className="p-2.5 bg-amber-50/40 font-mono font-bold text-amber-950">
+                          {pay.referencedInvoiceNumber ? (
+                            <span className="px-2 py-0.5 rounded bg-amber-100 border border-amber-300">
+                              {pay.referencedInvoiceNumber}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                        <td className="p-2.5 font-mono">{pay.orderNumber || '—'}</td>
+                        <td className="p-2.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
+                          {pay.uploadedAt || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -690,7 +1088,7 @@ export const SheetLivePreview: React.FC<Props> = ({
 
       {/* Tab: Our Companies */}
       {activeTab === 'ourCompanies' && (
-        <div className="p-6">
+        <div className="p-6 flex-1 overflow-auto">
           <div className="max-w-2xl">
             <h4 className="text-sm font-bold text-slate-800 mb-1 flex items-center space-x-2">
               <Building2 className="w-4 h-4 text-indigo-600" />
@@ -723,7 +1121,7 @@ export const SheetLivePreview: React.FC<Props> = ({
 
       {/* Tab: Suppliers */}
       {activeTab === 'suppliers' && (
-        <div className="p-6">
+        <div className="p-6 flex-1 overflow-auto">
           <div className="max-w-3xl">
             <h4 className="text-sm font-bold text-slate-800 mb-1 flex items-center space-x-2">
               <Users className="w-4 h-4 text-indigo-600" />
@@ -750,6 +1148,172 @@ export const SheetLivePreview: React.FC<Props> = ({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Duplicates Modal */}
+      {showDuplicatesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div className="flex items-center space-x-3">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  allDuplicates.length > 0 ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                }`}>
+                  {allDuplicates.length > 0 ? (
+                    <AlertTriangle className="w-5 h-5 text-amber-700" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                    Перевірка дублікатів у Google Таблиці
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Автоматичне виявлення та безпечне видалення повторних рядків з таблиці
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowDuplicatesModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-4">
+              {/* Summary Stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div className="text-[11px] text-slate-500 font-medium">Всього дублікатів</div>
+                  <div className={`text-xl font-extrabold mt-0.5 ${
+                    allDuplicates.length > 0 ? 'text-amber-600' : 'text-emerald-600'
+                  }`}>
+                    {allDuplicates.length}
+                  </div>
+                </div>
+                <div className="p-3 bg-amber-50/50 border border-amber-200 rounded-xl">
+                  <div className="text-[11px] text-amber-900 font-medium">Дублів у «Рахунки»</div>
+                  <div className="text-xl font-extrabold text-amber-800 mt-0.5">
+                    {duplicateInvoices.length}
+                  </div>
+                </div>
+                <div className="p-3 bg-blue-50/50 border border-blue-200 rounded-xl">
+                  <div className="text-[11px] text-blue-900 font-medium">Дублів у «Платіжки»</div>
+                  <div className="text-xl font-extrabold text-blue-800 mt-0.5">
+                    {duplicatePayments.length}
+                  </div>
+                </div>
+              </div>
+
+              {allDuplicates.length === 0 ? (
+                <div className="p-8 text-center bg-emerald-50/60 border border-emerald-200 rounded-xl space-y-2">
+                  <div className="w-12 h-12 mx-auto rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-emerald-950">Дублікатів не виявлено!</h4>
+                  <p className="text-xs text-emerald-800 max-w-md mx-auto">
+                    Всі записи у вкладках «Рахунки» ({existingInvoices.length}) та «Платіжки» ({existingPayments.length}) є унікальними. Захист від повторного внесення активний.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <div className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                    <span>Знайдені повторні рядки (видаляється лише дубль, оригінал зберігається):</span>
+                    <span className="text-[11px] text-slate-400">Сортування за номером рядка</span>
+                  </div>
+
+                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                    {allDuplicates.map((item, idx) => (
+                      <div
+                        key={`${item.tabName}-${item.rowIndex}-${idx}`}
+                        className="p-3 sm:p-3.5 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                item.type === 'invoice'
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                  : 'bg-blue-100 text-blue-900 border border-blue-300'
+                              }`}
+                            >
+                              {item.tabName}
+                            </span>
+                            <span className="text-xs font-bold text-rose-700 font-mono">
+                              Рядок {item.rowIndex}
+                            </span>
+                            <span className="text-xs text-slate-400">→</span>
+                            <span className="text-xs text-slate-600 font-mono">
+                              повторює оригінал (рядок {item.originalRowIndex})
+                            </span>
+                          </div>
+
+                          <p className="text-xs font-bold text-slate-900 truncate">
+                            {item.identifier}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            <span>Причина: <span className="text-slate-700 font-medium">{item.reason}</span></span>
+                            {item.amount !== undefined && (
+                              <span>• Сума: <strong className="text-slate-800">{new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2 }).format(item.amount)} грн</strong></span>
+                            )}
+                            {item.date && <span>• Дата: {item.date}</span>}
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 self-end sm:self-center">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSingleDuplicate(item)}
+                            disabled={isDeletingDuplicates}
+                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            title={`Видалити рядок ${item.rowIndex} з вкладки "${item.tabName}"`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Видалити дубль</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowDuplicatesModal(false)}
+                className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              >
+                Закрити
+              </button>
+
+              {allDuplicates.length > 0 && onDeleteDuplicates && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAllDuplicates}
+                  disabled={isDeletingDuplicates}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-2 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isDeletingDuplicates ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                  <span>Видалити всі {allDuplicates.length} дублікатів з Google Таблиці</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
