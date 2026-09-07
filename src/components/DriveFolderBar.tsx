@@ -213,7 +213,7 @@ export const DriveFolderBar: React.FC<Props> = ({
             <Clock className={`w-3.5 h-3.5 ${isAutoSyncing ? 'text-indigo-600 animate-spin' : 'text-slate-500'}`} />
             <span className="text-[11px] font-medium text-slate-600">Авто-зчитування:</span>
             <select
-              value={autoSyncIntervalMinutes}
+              value={autoSyncIntervalMinutes ?? 0}
               onChange={(e) => onChangeAutoSyncInterval(Number(e.target.value))}
               className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
             >

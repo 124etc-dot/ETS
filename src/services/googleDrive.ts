@@ -1,4 +1,4 @@
-import { GoogleDriveFile, GoogleDriveFolder } from '../types';
+import { GoogleDriveFile, GoogleDriveFolder, OCRResult } from '../types';
 import { googleAuth } from './googleAuth';
 
 export class GoogleDriveService {
@@ -119,13 +119,84 @@ export class GoogleDriveService {
     const cleanId = this.extractFolderId(folderId);
     const q = `'${cleanId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`;
     
-    const fields = 'files(id,name,mimeType,size,thumbnailLink,webContentLink,webViewLink,createdTime,modifiedTime)';
+    const fields = 'files(id,name,mimeType,size,thumbnailLink,webContentLink,webViewLink,createdTime,modifiedTime,appProperties,properties)';
     const data = await this.request<any>(
       `files?q=${encodeURIComponent(q)}&pageSize=100&orderBy=modifiedTime desc&fields=${encodeURIComponent(fields)}`,
       accessToken
     );
 
     return data.files || [];
+  }
+
+  /**
+   * Save OCR result to Google Drive file appProperties
+   * Enables all devices and sessions to share already-processed documents without repeating Gemini AI calls.
+   */
+  public static async saveOcrToDriveProperties(
+    fileId: string,
+    ocrResult: OCRResult,
+    accessToken: string
+  ): Promise<void> {
+    if (!fileId || !ocrResult || !accessToken) return;
+
+    try {
+      const jsonStr = JSON.stringify(ocrResult);
+      const chunkSize = 110; // Under Google Drive 124-byte property value limit
+      const count = Math.ceil(jsonStr.length / chunkSize);
+      
+      const appProperties: Record<string, string> = {
+        ocr_done: 'true',
+        ocr_type: ocrResult.documentType || 'other',
+        ocr_order: (ocrResult.handwrittenOrderNumber || '').slice(0, 50),
+        ocr_date: new Date().toISOString(),
+        ocr_chunks_count: String(count),
+      };
+
+      for (let i = 0; i < count; i++) {
+        appProperties[`ocr_c_${i}`] = jsonStr.slice(i * chunkSize, (i + 1) * chunkSize);
+      }
+
+      await this.request<any>(`files/${fileId}`, accessToken, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          appProperties,
+        }),
+      });
+    } catch (err) {
+      console.warn(`Could not save OCR properties to Google Drive for file ${fileId}:`, err);
+    }
+  }
+
+  /**
+   * Extract OCR result from Google Drive file appProperties if previously processed
+   */
+  public static extractOcrFromDriveProperties(
+    appProperties?: Record<string, string>
+  ): OCRResult | null {
+    if (!appProperties || appProperties.ocr_done !== 'true') {
+      return null;
+    }
+    try {
+      const count = parseInt(appProperties.ocr_chunks_count || '0', 10);
+      if (count > 0) {
+        let fullJson = '';
+        for (let i = 0; i < count; i++) {
+          fullJson += appProperties[`ocr_c_${i}`] || '';
+        }
+        if (fullJson) {
+          const parsed = JSON.parse(fullJson);
+          if (parsed && typeof parsed === 'object') {
+            return parsed as OCRResult;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to parse cached OCR from Drive appProperties:', e);
+    }
+    return null;
   }
 
   /**

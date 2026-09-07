@@ -29,6 +29,7 @@ import { googleAuth, AuthState } from './services/googleAuth';
 import { GoogleDriveService } from './services/googleDrive';
 import { GoogleSheetsService } from './services/googleSheets';
 import { OCRService } from './services/ocrService';
+import { normalizeFileName, deduplicateDocuments } from './utils/deduplication';
 import { Header } from './components/Header';
 import { DriveFolderBar } from './components/DriveFolderBar';
 import { SpreadsheetBar } from './components/SpreadsheetBar';
@@ -232,8 +233,9 @@ export default function App() {
                 }
                 return d;
               });
-            localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(realDocs));
-            return realDocs;
+            const dedupedDocs = deduplicateDocuments(realDocs).uniqueDocs;
+            localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(dedupedDocs));
+            return dedupedDocs;
           }
         }
       } catch {
@@ -655,6 +657,17 @@ export default function App() {
         return next;
       });
       setSelectedReviewDoc((prev) => (prev?.id === docId ? updatedDoc : prev));
+
+      // Persist OCR result directly into Google Drive appProperties so all devices share cached OCR without re-querying AI
+      if (authState.accessToken && updatedDoc.driveFileId) {
+        GoogleDriveService.saveOcrToDriveProperties(
+          updatedDoc.driveFileId,
+          ocrResult,
+          authState.accessToken
+        ).catch((saveErr) => {
+          console.warn(`Could not save OCR properties to Drive for ${updatedDoc.fileName}:`, saveErr);
+        });
+      }
     } catch (err: any) {
       const errDoc: ProcessedDocument = {
         ...doc,
@@ -698,22 +711,34 @@ export default function App() {
       const files = await GoogleDriveService.listFilesInFolder(folderId, authState.accessToken);
       
       const now = Date.now();
-      const newDocs: ProcessedDocument[] = files.map((f, idx) => ({
-        id: `drive_${f.id}`,
-        source: 'drive',
-        driveFileId: f.id,
-        fileName: f.name,
-        fileSize: parseInt(f.size || '0', 10),
-        mimeType: f.mimeType,
-        driveLink: f.webViewLink,
-        thumbnailUrl: f.thumbnailLink,
-        status: 'pending',
-        createdAt: f.createdTime ? new Date(f.createdTime).getTime() : (now + idx),
-      }));
+      const newDocs: ProcessedDocument[] = files.map((f, idx) => {
+        const cachedOcr = GoogleDriveService.extractOcrFromDriveProperties(f.appProperties);
+        return {
+          id: `drive_${f.id}`,
+          source: 'drive',
+          driveFileId: f.id,
+          fileName: f.name,
+          fileSize: parseInt(f.size || '0', 10),
+          mimeType: f.mimeType,
+          driveLink: f.webViewLink,
+          thumbnailUrl: f.thumbnailLink,
+          status: cachedOcr ? ('ready_for_review' as const) : ('pending' as const),
+          ocrResult: cachedOcr || undefined,
+          editedData: cachedOcr || undefined,
+          createdAt: f.createdTime ? new Date(f.createdTime).getTime() : (now + idx),
+        };
+      });
 
       // Filter to really new items not yet in documents and not dismissed by the user
       const dismissedIds = getDismissedDriveIds();
       const existingDriveIds = new Set(documentsRef.current.map((d) => d.driveFileId).filter(Boolean));
+      const existingNamesMap = new Map<string, ProcessedDocument>();
+      for (const d of documentsRef.current) {
+        const norm = normalizeFileName(d.fileName);
+        if (norm && !existingNamesMap.has(norm)) {
+          existingNamesMap.set(norm, d);
+        }
+      }
 
       // Match files against existing rows in Google Sheets
       const currentInvoices = existingInvoicesRef.current;
@@ -825,8 +850,43 @@ export default function App() {
         return { inSheet: false };
       };
 
+      // Collect updates for local/manually-uploaded documents that match Drive files by name
+      const docUpdatesToApply: {
+        docId: string;
+        driveFileId: string;
+        driveLink?: string;
+        thumbnailUrl?: string;
+        cachedOcr?: OCRResult;
+      }[] = [];
+
       const newlyAddedDocs = newDocs
-        .filter((nd) => !existingDriveIds.has(nd.driveFileId) && (!isAutoSync || documentsRef.current.length === 0 || !dismissedIds.has(nd.driveFileId!)))
+        .filter((nd) => {
+          // 1. Skip if already dismissed by user
+          if (isAutoSync && documentsRef.current.length > 0 && dismissedIds.has(nd.driveFileId!)) {
+            return false;
+          }
+          // 2. Skip if driveFileId already exists in queue
+          if (existingDriveIds.has(nd.driveFileId)) {
+            return false;
+          }
+          // 3. Skip if a document with this normalized file name already exists in queue (e.g. manual upload)
+          const normName = normalizeFileName(nd.fileName);
+          const existingByName = normName ? existingNamesMap.get(normName) : undefined;
+          if (existingByName) {
+            // Link Google Drive metadata and cached OCR to the existing document instead of creating a duplicate
+            if (!existingByName.driveFileId || existingByName.driveUploadStatus !== 'uploaded' || (!existingByName.ocrResult && nd.ocrResult)) {
+              docUpdatesToApply.push({
+                docId: existingByName.id,
+                driveFileId: nd.driveFileId!,
+                driveLink: nd.driveLink,
+                thumbnailUrl: nd.thumbnailUrl,
+                cachedOcr: !existingByName.ocrResult ? nd.ocrResult : undefined,
+              });
+            }
+            return false;
+          }
+          return true;
+        })
         .map((nd) => {
           const match = findSheetMatchForDriveFile({
             id: nd.driveFileId!,
@@ -854,21 +914,54 @@ export default function App() {
           return nd;
         });
 
-      if (newlyAddedDocs.length > 0) {
-        setDocuments((prev) => [...newlyAddedDocs, ...prev]);
+      // Deduplicate new batch items among themselves just in case Drive has duplicate file names
+      const dedupedNewlyAdded = deduplicateDocuments(newlyAddedDocs).uniqueDocs;
 
-        // Auto-trigger OCR ONLY for docs that are NOT already in the sheet
-        const docsToOcr = newlyAddedDocs.filter((d) => d.status !== 'synced');
+      // Apply Google Drive metadata and cached OCR updates to matched local documents
+      if (docUpdatesToApply.length > 0) {
+        const updateMap = new Map(docUpdatesToApply.map((u) => [u.docId, u]));
+        setDocuments((prev) =>
+          prev.map((d) => {
+            const u = updateMap.get(d.id);
+            if (u) {
+              const effectiveOcr = d.ocrResult || u.cachedOcr;
+              return {
+                ...d,
+                driveFileId: u.driveFileId,
+                driveLink: u.driveLink || d.driveLink,
+                driveWebViewLink: u.driveLink || d.driveWebViewLink,
+                thumbnailUrl: u.thumbnailUrl || d.thumbnailUrl,
+                driveUploadStatus: 'uploaded' as const,
+                ocrResult: effectiveOcr,
+                editedData: d.editedData || effectiveOcr,
+                status: d.status === 'pending' && effectiveOcr ? ('ready_for_review' as const) : d.status,
+              };
+            }
+            return d;
+          })
+        );
+      }
+
+      if (dedupedNewlyAdded.length > 0) {
+        setDocuments((prev) => deduplicateDocuments([...dedupedNewlyAdded, ...prev]).uniqueDocs);
+
+        // Auto-trigger OCR ONLY for docs that are completely pending (not synced and not cached in Drive)
+        const docsToOcr = dedupedNewlyAdded.filter((d) => d.status === 'pending');
+        const docsWithCachedOcr = dedupedNewlyAdded.filter((d) => d.status === 'ready_for_review');
+
         if (autoOcrEnabled && docsToOcr.length > 0) {
-          notify(`Знайдено ${docsToOcr.length} нових файлів. Запускаємо авто-розпізнавання AI...`, 'info');
+          const cacheNote = docsWithCachedOcr.length > 0 ? ` (${docsWithCachedOcr.length} завантажено з кешу Drive)` : '';
+          notify(`Знайдено ${docsToOcr.length} нових файлів для AI-розпізнавання${cacheNote}...`, 'info');
           setTimeout(() => {
             handleBatchProcess(docsToOcr.map((d) => d.id));
           }, 300);
         } else if (docsToOcr.length > 0) {
-          notify(`Знайдено ${docsToOcr.length} нових файлів у папці Google Drive.`, 'success');
+          notify(`Знайдено ${docsToOcr.length} нових файлів у папці Google Drive (очікують розпізнавання).`, 'success');
+        } else if (docsWithCachedOcr.length > 0) {
+          notify(`Підтягнуто ${docsWithCachedOcr.length} файлів із збереженими результатами розпізнавання (без повторних викликів AI).`, 'success');
         } else {
           if (!isAutoSync) {
-            notify(`Зчитано ${newlyAddedDocs.length} файлів (усі вже внесено в таблицю).`, 'info');
+            notify(`Зчитано ${dedupedNewlyAdded.length} файлів (усі вже внесені в таблицю або збережені в кеші).`, 'info');
           }
         }
       } else {
@@ -1580,6 +1673,15 @@ export default function App() {
     setDocuments((prev) =>
       prev.map((d) => (d.id === docId ? { ...d, editedData: effectiveOcr } : d))
     );
+
+    const targetDoc = documentsRef.current.find((d) => d.id === docId);
+    if (targetDoc?.driveFileId && authState.accessToken) {
+      GoogleDriveService.saveOcrToDriveProperties(
+        targetDoc.driveFileId,
+        effectiveOcr,
+        authState.accessToken
+      ).catch(() => {});
+    }
   };
 
   // Upload a local or camera file to Google Drive automatically in background
@@ -1650,6 +1752,15 @@ export default function App() {
             : d
         )
       );
+
+      const ocrToPersist = doc.editedData || doc.ocrResult;
+      if (ocrToPersist && authState.accessToken) {
+        GoogleDriveService.saveOcrToDriveProperties(
+          uploaded.id,
+          ocrToPersist,
+          authState.accessToken
+        ).catch(() => {});
+      }
     } catch (err: any) {
       console.warn(`Drive upload failed for ${doc.fileName}:`, err);
       setDocuments((prev) =>
@@ -1667,14 +1778,45 @@ export default function App() {
   };
 
   const handleAddLocalDocuments = (newDocs: ProcessedDocument[]) => {
+    const currentList = documentsRef.current;
+    const existingDriveIds = new Set(currentList.map((d) => d.driveFileId).filter(Boolean));
+    const existingNames = new Set(currentList.map((d) => normalizeFileName(d.fileName)).filter(Boolean));
+
+    const uniqueDocs: ProcessedDocument[] = [];
+    const skippedDuplicates: string[] = [];
+
+    for (const doc of newDocs) {
+      const normName = normalizeFileName(doc.fileName);
+      const isDupDrive = doc.driveFileId && existingDriveIds.has(doc.driveFileId);
+      const isDupName = normName && existingNames.has(normName);
+
+      if (isDupDrive || isDupName) {
+        skippedDuplicates.push(doc.fileName);
+      } else {
+        uniqueDocs.push(doc);
+        if (normName) existingNames.add(normName);
+        if (doc.driveFileId) existingDriveIds.add(doc.driveFileId);
+      }
+    }
+
+    if (uniqueDocs.length === 0) {
+      notify(
+        skippedDuplicates.length === 1
+          ? `Файл "${skippedDuplicates[0]}" вже є в Черзі обробки (дублікат пропущено).`
+          : `Усі завантажені файли (${skippedDuplicates.length} шт.) вже є в Черзі обробки (дублікати пропущено).`,
+        'info'
+      );
+      return;
+    }
+
     const now = Date.now();
-    const docsWithStatus = newDocs.map((d, idx) => ({
+    const docsWithStatus = uniqueDocs.map((d, idx) => ({
       ...d,
       createdAt: d.createdAt || (now + idx),
       driveUploadStatus: authState.accessToken ? ('uploading' as const) : ('idle' as const),
     }));
 
-    setDocuments((prev) => [...docsWithStatus, ...prev]);
+    setDocuments((prev) => deduplicateDocuments([...docsWithStatus, ...prev]).uniqueDocs);
 
     // Auto-upload to Google Drive in background if connected
     if (authState.accessToken) {
@@ -1682,24 +1824,36 @@ export default function App() {
         handleUploadDocToDrive(d.id, d);
       });
     }
+
+    const skipNotice = skippedDuplicates.length > 0 ? ` (${skippedDuplicates.length} дублікат(ів) пропущено)` : '';
     
     if (autoOcrEnabled) {
       notify(
         authState.accessToken
-          ? `Додано ${newDocs.length} файлів. Зберігаємо на Google Диск та запускаємо AI-розпізнавання...`
-          : `Додано ${newDocs.length} файлів. Запускаємо AI-розпізнавання...`,
+          ? `Додано ${uniqueDocs.length} файлів${skipNotice}. Зберігаємо на Google Диск та запускаємо AI-розпізнавання...`
+          : `Додано ${uniqueDocs.length} файлів${skipNotice}. Запускаємо AI-розпізнавання...`,
         'info'
       );
       setTimeout(() => {
-        handleBatchProcess(newDocs.map((d) => d.id));
+        handleBatchProcess(uniqueDocs.map((d) => d.id));
       }, 200);
     } else {
       notify(
         authState.accessToken
-          ? `Додано ${newDocs.length} файлів (зберігаються на Google Диск). Натисніть "Обробити AI", щоб розпізнати.`
-          : `Додано ${newDocs.length} файлів. Натисніть "Обробити AI", щоб розпізнати.`,
+          ? `Додано ${uniqueDocs.length} файлів${skipNotice} (зберігаються на Google Диск). Натисніть "Обробити AI", щоб розпізнати.`
+          : `Додано ${uniqueDocs.length} файлів${skipNotice}. Натисніть "Обробити AI", щоб розпізнати.`,
         'info'
       );
+    }
+  };
+
+  const handleDeduplicateDocuments = () => {
+    const { uniqueDocs, removedCount } = deduplicateDocuments(documents);
+    if (removedCount > 0) {
+      setDocuments(uniqueDocs);
+      notify(`Прибрано ${removedCount} дублікат(ів) з Черги обробки. Дані та статуси об'єднано.`, 'success');
+    } else {
+      notify('У Черзі обробки немає дублікатів файлів.', 'info');
     }
   };
 
@@ -1866,6 +2020,7 @@ export default function App() {
               onBatchSync={handleBatchSync}
               onRemoveDoc={handleRemoveDoc}
               onClearAll={handleClearAll}
+              onDeduplicate={handleDeduplicateDocuments}
               onRetryDriveUpload={handleUploadDocToDrive}
               isProcessingAny={isProcessingBatch}
               isSyncingAny={isSyncingBatch}

@@ -114,6 +114,8 @@ export interface GoogleDriveFile {
   createdTime?: string;
   modifiedTime?: string;
   parents?: string[];
+  appProperties?: Record<string, string>;
+  properties?: Record<string, string>;
 }
 
 export interface GoogleDriveFolder {

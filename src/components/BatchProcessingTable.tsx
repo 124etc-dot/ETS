@@ -21,10 +21,12 @@ import {
   ChevronsLeft,
   ChevronsRight,
   X,
-  RotateCcw
+  RotateCcw,
+  Layers
 } from 'lucide-react';
 import { ProcessedDocument } from '../types';
 import { OCRService } from '../services/ocrService';
+import { countDuplicateDocuments } from '../utils/deduplication';
 
 interface Props {
   documents: ProcessedDocument[];
@@ -35,6 +37,7 @@ interface Props {
   onBatchSync: (docIds: string[]) => Promise<void>;
   onRemoveDoc: (docId: string) => void;
   onClearAll: () => void;
+  onDeduplicate?: () => void;
   onRetryDriveUpload?: (docId: string) => void;
   isProcessingAny: boolean;
   isSyncingAny: boolean;
@@ -49,6 +52,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
   onBatchSync,
   onRemoveDoc,
   onClearAll,
+  onDeduplicate,
   onRetryDriveUpload,
   isProcessingAny,
   isSyncingAny,
@@ -73,6 +77,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
   const countReady = documents.filter((d) => d.status === 'ready_for_review').length;
   const countSynced = documents.filter((d) => d.status === 'synced').length;
   const countError = documents.filter((d) => d.status === 'error').length;
+  const duplicateCount = countDuplicateDocuments(documents);
 
   // 1. Filter documents
   const filteredDocs = documents.filter((doc) => {
@@ -537,6 +542,18 @@ export const BatchProcessingTable: React.FC<Props> = ({
               >
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Очистити синхронізовані ({countSynced})</span>
+              </button>
+            )}
+
+            {duplicateCount > 0 && onDeduplicate && (
+              <button
+                type="button"
+                onClick={onDeduplicate}
+                className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1 cursor-pointer"
+                title="Прибрати дублікати файлів з однаковою назвою або Drive ID (дані будуть об'єднані)"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-600" />
+                <span>Прибрати дублікати ({duplicateCount})</span>
               </button>
             )}
 

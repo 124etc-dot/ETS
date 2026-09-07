@@ -87,20 +87,33 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (doc) {
-      const current = {
-        ...(doc.editedData || doc.ocrResult || {
-          documentType: 'invoice',
-          documentTypeUkrainian: 'Рахунок на оплату',
-          handwrittenOrderNumber: '',
-          handwrittenConfidence: 'none',
-          supplierName: '',
-          buyerName: companyLists.ourCompanies[0] || '',
-          invoiceNumber: '',
-          invoiceDate: new Date().toISOString().slice(0, 10),
-          totalAmount: 0,
-          currency: 'UAH',
-          confidenceScore: 0,
-        }),
+      const raw = doc.editedData || doc.ocrResult || {};
+      const current: OCRResult = {
+        ...raw,
+        documentType: raw.documentType || 'invoice',
+        documentTypeUkrainian:
+          raw.documentTypeUkrainian ||
+          (raw.documentType === 'payment' ? 'Платіжна інструкція' : 'Рахунок на оплату'),
+        handwrittenConfidence: raw.handwrittenConfidence || 'none',
+        handwrittenOrderNumber: raw.handwrittenOrderNumber || '',
+        supplierName: raw.supplierName || '',
+        buyerName: raw.buyerName || companyLists.ourCompanies[0] || '',
+        payerName: raw.payerName || raw.buyerName || companyLists.ourCompanies[0] || '',
+        payeeName: raw.payeeName || raw.supplierName || '',
+        invoiceNumber: raw.invoiceNumber || raw.paymentNumber || '',
+        paymentNumber: raw.paymentNumber || raw.invoiceNumber || '',
+        invoiceDate: raw.invoiceDate || raw.paymentDate || '',
+        paymentDate: raw.paymentDate || raw.invoiceDate || '',
+        totalAmount: raw.totalAmount ?? raw.amountPaid ?? 0,
+        amountPaid: raw.amountPaid ?? raw.totalAmount ?? 0,
+        currency: raw.currency || 'UAH',
+        confidenceScore: raw.confidenceScore ?? 0,
+        paymentStatus: raw.paymentStatus || (raw.documentType === 'payment' ? 'Оплачено' : 'Не оплачено'),
+        paymentPurpose: raw.paymentPurpose || '',
+        referencedInvoiceNumber: raw.referencedInvoiceNumber || '',
+        referencedOrderNumber: raw.referencedOrderNumber || '',
+        notes: raw.notes || '',
+        vatAmount: raw.vatAmount ?? 0,
       };
 
       // For payments, automatically inherit order number from matched invoice if not present
@@ -131,7 +144,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
     setFormData((prev) => {
       const updated = {
         ...prev,
-        [field]: value,
+        [field]: value ?? '',
       };
 
       // If updating paymentPurpose, try re-extracting referenced invoice
@@ -838,7 +851,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 <div className="relative">
                   <input
                     type="text"
-                    value={formData.handwrittenOrderNumber}
+                    value={formData.handwrittenOrderNumber || ''}
                     onChange={(e) => handleChange('handwrittenOrderNumber', e.target.value)}
                     onBlur={handleOrderNumberBlur}
                     placeholder="наприклад: 142-26 або 228-26"
@@ -873,7 +886,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   Тип документа
                 </label>
                 <select
-                  value={formData.documentType}
+                  value={formData.documentType || 'invoice'}
                   onChange={(e) => {
                     const dt = e.target.value as any;
                     handleChange('documentType', dt);
@@ -899,7 +912,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </label>
                 <input
                   type="text"
-                  value={formData.invoiceNumber}
+                  value={formData.invoiceNumber || ''}
                   onChange={(e) => handleChange('invoiceNumber', e.target.value)}
                   placeholder={isPaymentDoc ? "наприклад: 1042" : "наприклад СФ-000451"}
                   className="w-full text-xs font-mono p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -970,7 +983,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </label>
                 {companyLists.ourCompanies.length > 0 ? (
                   <select
-                    value={isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName}
+                    value={(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''}
                     onChange={(e) => {
                       const val = e.target.value;
                       handleChange('buyerName', val);
@@ -983,16 +996,16 @@ export const DocumentReviewModal: React.FC<Props> = ({
                         {c}
                       </option>
                     ))}
-                    {!companyLists.ourCompanies.includes(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) && (formData.payerName || formData.buyerName) && (
-                      <option value={isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName}>
-                        {isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName} (розпізнано)
+                    {!companyLists.ourCompanies.includes((isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || '') && ((isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || '') && (
+                      <option value={(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''}>
+                        {(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''} (розпізнано)
                       </option>
                     )}
                   </select>
                 ) : (
                   <input
                     type="text"
-                    value={isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName}
+                    value={(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''}
                     onChange={(e) => {
                       const val = e.target.value;
                       handleChange('buyerName', val);
@@ -1049,7 +1062,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 <input
                   type="text"
                   list="suppliersList"
-                  value={isPaymentDoc ? (formData.payeeName || formData.supplierName) : formData.supplierName}
+                  value={(isPaymentDoc ? (formData.payeeName || formData.supplierName) : formData.supplierName) || ''}
                   onChange={(e) => {
                     const val = e.target.value;
                     handleChange('supplierName', val);
@@ -1082,7 +1095,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </label>
                 <input
                   type="date"
-                  value={formData.invoiceDate}
+                  value={formData.invoiceDate || ''}
                   onChange={(e) => handleChange('invoiceDate', e.target.value)}
                   className="w-full text-xs font-medium p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
@@ -1100,7 +1113,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 <input
                   type="number"
                   step="0.01"
-                  value={formData.totalAmount || ''}
+                  value={formData.totalAmount !== undefined && formData.totalAmount !== null ? formData.totalAmount : ''}
                   onChange={(e) => {
                     const val = parseFloat(e.target.value) || 0;
                     handleChange('totalAmount', val);
@@ -1122,7 +1135,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   Валюта
                 </label>
                 <select
-                  value={formData.currency}
+                  value={formData.currency || 'UAH'}
                   onChange={(e) => handleChange('currency', e.target.value)}
                   className="w-full text-xs font-bold p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 >
