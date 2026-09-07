@@ -31,7 +31,7 @@ interface Props {
   onOpenReview: (doc: ProcessedDocument) => void;
   onProcessDoc: (docId: string) => Promise<void>;
   onBatchProcess: (docIds: string[]) => Promise<void>;
-  onSyncDoc: (docId: string) => Promise<void>;
+  onSyncDoc: (docId: string, forceAppend?: boolean) => Promise<void>;
   onBatchSync: (docIds: string[]) => Promise<void>;
   onRemoveDoc: (docId: string) => void;
   onClearAll: () => void;
@@ -509,6 +509,37 @@ export const BatchProcessingTable: React.FC<Props> = ({
               </span>
             </button>
 
+            {selectedIds.size > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const toRemove = Array.from(selectedIds);
+                  toRemove.forEach((id) => onRemoveDoc(id));
+                  clearSelection();
+                }}
+                className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1 cursor-pointer"
+                title="Видалити всі вибрані документи з черги обробки"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Видалити з черги ({selectedIds.size})</span>
+              </button>
+            )}
+
+            {countSynced > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const syncedDocs = documents.filter((d) => d.status === 'synced');
+                  syncedDocs.forEach((d) => onRemoveDoc(d.id));
+                }}
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+                title="Видалити з черги обробки всі успішно внесені документи"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Очистити синхронізовані ({countSynced})</span>
+              </button>
+            )}
+
             {documents.length > 0 && (
               <button
                 onClick={onClearAll}
@@ -516,7 +547,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
                 title="Очистити список"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Очистити</span>
+                <span className="hidden sm:inline">Очистити все</span>
               </button>
             )}
 
@@ -729,36 +760,47 @@ export const BatchProcessingTable: React.FC<Props> = ({
                     {/* Handwritten Order # */}
                     <td className="p-3 bg-amber-50/30 border-x border-amber-100/80 font-mono">
                       {data?.handwrittenOrderNumber ? (
-                        <div className="flex items-center space-x-1.5">
-                          <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 font-bold text-xs border border-amber-300">
-                            {data.handwrittenOrderNumber}
-                          </span>
-                          {data.handwrittenConfidence && (
-                            <span
-                              className={`text-[9px] uppercase px-1 rounded font-bold ${
-                                data.handwrittenConfidence === 'high'
-                                  ? 'text-emerald-700 bg-emerald-100'
-                                  : 'text-amber-700 bg-amber-100'
-                              }`}
-                              title={data.handwrittenLocation}
-                            >
-                              {data.handwrittenConfidence}
-                            </span>
-                          )}
-                        </div>
-                      ) : data?.documentType === 'payment' && (data?.referencedInvoiceNumbers?.length || data?.referencedInvoiceNumber) ? (
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] bg-blue-50 text-blue-900 border border-blue-200 px-1.5 py-0.5 rounded font-mono font-semibold truncate max-w-[150px]" title={`Прив'язка до рахунків: ${data.referencedInvoiceNumber || data.referencedInvoiceNumbers?.join(', ')}`}>
-                            Рах: {data.referencedInvoiceNumber || data.referencedInvoiceNumbers?.join(', ')}
-                          </span>
-                          {data?.referencedInvoiceNumbers && data.referencedInvoiceNumbers.length > 1 && (
-                            <span className="text-[9px] text-blue-700 font-bold">
-                              ({data.referencedInvoiceNumbers.length} рахунки)
+                          <div className="flex items-center space-x-1.5">
+                            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 font-bold text-xs border border-amber-300">
+                              {data.handwrittenOrderNumber}
+                            </span>
+                            {data?.documentType !== 'payment' && data.handwrittenConfidence && (
+                              <span
+                                className={`text-[9px] uppercase px-1 rounded font-bold ${
+                                  data.handwrittenConfidence === 'high'
+                                    ? 'text-emerald-700 bg-emerald-100'
+                                    : 'text-amber-700 bg-amber-100'
+                                }`}
+                                title={data.handwrittenLocation}
+                              >
+                                {data.handwrittenConfidence}
+                              </span>
+                            )}
+                          </div>
+                          {data?.documentType === 'payment' && (data.matchedInvoiceNumber || data.referencedInvoiceNumber) && (
+                            <span className="text-[9px] text-blue-700 font-medium truncate max-w-[150px]" title={`Номер замовлення визначено з пов'язаного рахунку № ${data.matchedInvoiceNumber || data.referencedInvoiceNumber}`}>
+                              з рах. № {data.matchedInvoiceNumber || data.referencedInvoiceNumber}
                             </span>
                           )}
                         </div>
-                      ) : doc.status === 'ready_for_review' || doc.status === 'synced' ? (
-                        <span className="text-[11px] text-amber-700/70 italic">Не знайдено</span>
+                      ) : data?.documentType === 'payment' ? (
+                        data?.referencedInvoiceNumbers?.length || data?.referencedInvoiceNumber ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[10px] bg-blue-50 text-blue-900 border border-blue-200 px-1.5 py-0.5 rounded font-mono font-semibold truncate max-w-[150px]" title={`Прив'язка до рахунків: ${data.referencedInvoiceNumber || data.referencedInvoiceNumbers?.join(', ')}`}>
+                              Рах: {data.referencedInvoiceNumber || data.referencedInvoiceNumbers?.join(', ')}
+                            </span>
+                            {data?.referencedInvoiceNumbers && data.referencedInvoiceNumbers.length > 1 && (
+                              <span className="text-[9px] text-blue-700 font-bold">
+                                ({data.referencedInvoiceNumbers.length} рахунки)
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )
+                      ) : doc.status === 'ready_for_review' ? (
+                        <span className="text-[11px] text-slate-500 italic" title="AI просканував документ, але рукописного номера замовлення не виявлено">Не виявлено</span>
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}
@@ -899,31 +941,75 @@ export const BatchProcessingTable: React.FC<Props> = ({
                         )}
 
                         {doc.status === 'ready_for_review' && (
-                          <button
-                            onClick={() => onSyncDoc(doc.id)}
-                            disabled={isSyncingAny}
-                            className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                            title="Занести в Google Таблицю"
-                          >
-                            <FileSpreadsheet className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center space-x-1">
+                            <button
+                              type="button"
+                              onClick={() => onProcessDoc(doc.id)}
+                              disabled={isProcessingAny}
+                              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                              title="Пересканувати документ через Gemini AI"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => onSyncDoc(doc.id)}
+                              disabled={isSyncingAny}
+                              className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                              title="Занести в Google Таблицю"
+                            >
+                              <FileSpreadsheet className="w-4 h-4" />
+                            </button>
+                          </div>
                         )}
 
                         {doc.status === 'synced' && (
-                          <span
-                            className="p-1 text-emerald-600 cursor-help"
-                            title={doc.alreadyInSheetReason || "Цей документ вже присутній у Google Таблиці, дублювання виключено."}
-                          >
-                            <CheckCircle2 className="w-4 h-4" />
-                          </span>
+                          <div className="flex items-center space-x-1">
+                            {(!data?.supplierName && !data?.payeeName) ? (
+                              <button
+                                type="button"
+                                onClick={() => onProcessDoc(doc.id)}
+                                disabled={isProcessingAny}
+                                className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1 cursor-pointer"
+                                title="Дані ще не розпізнано. Натисніть, щоб запустити Gemini AI"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                                <span>Розпізнати AI</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onProcessDoc(doc.id)}
+                                disabled={isProcessingAny}
+                                className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
+                                title="Повторно розпізнати документ через Gemini AI"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <span
+                              className="p-1 text-emerald-600 cursor-help"
+                              title={doc.alreadyInSheetReason || "Цей документ вже присутній у Google Таблиці, дублювання виключено."}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => onSyncDoc(doc.id, true)}
+                              disabled={isSyncingAny}
+                              className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                              title="Запис випадково відсутній у таблиці? Натисніть, щоб примусово додати новий рядок"
+                            >
+                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
 
                         <button
                           onClick={() => onRemoveDoc(doc.id)}
-                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          title="Видалити зі списку"
+                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                          title="Видалити цей документ з черги обробки"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

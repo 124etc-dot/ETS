@@ -321,37 +321,211 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Find the exact first available empty row index (1-based) in "Рахунки".
+   * Scans rows sequentially from row 2 downwards.
+   * Reads all existing genuine invoices from the sheet (ignoring template defaults)
+   * and returns the very first vacant row index.
+   * This guarantees new files are inserted at row 26 (right after real data), NOT skipped to row 498.
+   */
+  public static async findFirstAvailableInvoiceRow(
+    cleanId: string,
+    accessToken: string,
+    tabName: string
+  ): Promise<number> {
+    try {
+      const existingInvoices = await this.loadExistingInvoices(cleanId, accessToken, tabName);
+      const occupiedRowIndices = new Set(existingInvoices.map((inv) => inv.rowIndex));
+
+      // Header is at row 1, data starts at row 2
+      let targetRow = 2;
+      while (occupiedRowIndices.has(targetRow)) {
+        targetRow++;
+      }
+      return targetRow;
+    } catch (e) {
+      console.warn('Error determining first empty invoice row, defaulting to row 2:', e);
+      return 2;
+    }
+  }
+
+  /**
+   * Find the exact first available empty row index (1-based) in "Платіжки".
+   * Scans rows sequentially from row 2 downwards.
+   * Reads all existing genuine payments from the sheet and returns the very first vacant row index.
+   */
+  public static async findFirstAvailablePaymentRow(
+    cleanId: string,
+    accessToken: string,
+    tabName: string
+  ): Promise<number> {
+    try {
+      const { payments } = await this.loadExistingPayments(cleanId, accessToken, tabName);
+      const occupiedRowIndices = new Set(payments.map((p) => p.rowIndex));
+
+      let targetRow = 2;
+      while (occupiedRowIndices.has(targetRow)) {
+        targetRow++;
+      }
+      return targetRow;
+    } catch (e) {
+      console.warn('Error determining first empty payment row, defaulting to row 2:', e);
+      return 2;
+    }
+  }
+
+  /**
    * Find the exact next available row index (1-based) in a sheet tab.
-   * Scans rows to guarantee appending strictly starts at Column A of a new row.
+   * Scans rows from top to bottom to guarantee appending strictly into the first empty gap.
    */
   public static async getNextEmptyRowIndex(
     cleanId: string,
     accessToken: string,
     tabName: string
   ): Promise<number> {
-    try {
-      const res = await this.request<any>(
-        `${cleanId}/values/'${encodeURIComponent(tabName)}'!A1:L2000`,
-        accessToken
-      );
-      const values: any[][] = res.values || [];
-      if (values.length === 0) return 2; // If completely empty, row 1 is header, row 2 is data
-
-      let lastNonEmptyRow = 0;
-      for (let i = values.length - 1; i >= 0; i--) {
-        const row = values[i];
-        if (row && row.some((cell: any) => cell !== undefined && String(cell).trim() !== '')) {
-          lastNonEmptyRow = i + 1; // 1-based row index
-          break;
-        }
-      }
-
-      // If at least row 1 has something (headers), start at least on row 2
-      return Math.max(2, lastNonEmptyRow + 1);
-    } catch (e) {
-      console.warn(`Could not determine next row for "${tabName}", defaulting to row 2:`, e);
-      return 2;
+    const isPayments = tabName.toLowerCase().includes('платіж') || tabName.toLowerCase().includes('payment');
+    if (isPayments) {
+      return this.findFirstAvailablePaymentRow(cleanId, accessToken, tabName);
     }
+    return this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
+  }
+
+  /**
+   * Finds and deletes all empty/blank rows in a sheet tab (e.g. rows 26 to 497).
+   * Shifts any real data below them (like row 498) cleanly up to the top!
+   */
+  public static async compactEmptyRowsInTab(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName: string
+  ): Promise<{ removedCount: number }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(tabName)) return { removedCount: 0 };
+
+    const sheetId = await this.getSheetIdByName(cleanId, accessToken, tabName);
+    if (sheetId === null) {
+      throw new Error(`Вкладку "${tabName}" не знайдено.`);
+    }
+
+    const safeTab = tabName.replace(/'/g, "''");
+    const range = encodeURIComponent(`'${safeTab}'!A1:Z2500`);
+    const res = await this.request<any>(
+      `${cleanId}/values/${range}`,
+      accessToken
+    );
+    const rows: any[][] = res.values || [];
+    if (rows.length <= 2) return { removedCount: 0 };
+
+    // Detect header row index
+    let headerIdx = 0;
+    for (let i = 0; i < Math.min(rows.length, 5); i++) {
+      const joined = (rows[i] || []).map((c) => String(c || '').toLowerCase()).join(' ');
+      if (
+        joined.includes('замовлен') ||
+        joined.includes('постачальн') ||
+        joined.includes('платник') ||
+        joined.includes('рахун') ||
+        joined.includes('сума') ||
+        joined.includes('призначення')
+      ) {
+        headerIdx = i;
+        break;
+      }
+    }
+
+    // Find the last row with genuine data
+    let lastRealDataIdx = -1;
+    for (let r = rows.length - 1; r > headerIdx; r--) {
+      const row = rows[r] || [];
+      const hasRealContent = row.some((cell, colIdx) => {
+        if (colIdx > 12) return false;
+        if (cell === undefined || cell === null) return false;
+        const s = String(cell).trim();
+        return (
+          s !== '' &&
+          s !== '—' &&
+          s !== '-' &&
+          s !== '0' &&
+          s !== '0.00' &&
+          s !== '0,00' &&
+          s !== 'Не оплачено' &&
+          s !== 'UAH'
+        );
+      });
+      if (hasRealContent) {
+        lastRealDataIdx = r;
+        break;
+      }
+    }
+
+    if (lastRealDataIdx <= headerIdx) {
+      return { removedCount: 0 };
+    }
+
+    // Identify all empty row indices strictly between header and lastRealDataIdx
+    const emptyRowIndices: number[] = [];
+    for (let r = headerIdx + 1; r < lastRealDataIdx; r++) {
+      const row = rows[r] || [];
+      const hasRealContent = row.some((cell, colIdx) => {
+        if (colIdx > 12) return false;
+        if (cell === undefined || cell === null) return false;
+        const s = String(cell).trim();
+        return (
+          s !== '' &&
+          s !== '—' &&
+          s !== '-' &&
+          s !== '0' &&
+          s !== '0.00' &&
+          s !== '0,00' &&
+          s !== 'Не оплачено' &&
+          s !== 'UAH'
+        );
+      });
+      if (!hasRealContent) {
+        emptyRowIndices.push(r);
+      }
+    }
+
+    if (emptyRowIndices.length === 0) {
+      return { removedCount: 0 };
+    }
+
+    // Group contiguous empty rows into ranges: e.g. [25..496] -> { startIndex: 25, endIndex: 497 }
+    const ranges: Array<{ startIndex: number; endIndex: number }> = [];
+    let start = emptyRowIndices[0];
+    let prev = emptyRowIndices[0];
+
+    for (let i = 1; i < emptyRowIndices.length; i++) {
+      const curr = emptyRowIndices[i];
+      if (curr === prev + 1) {
+        prev = curr;
+      } else {
+        ranges.push({ startIndex: start, endIndex: prev + 1 });
+        start = curr;
+        prev = curr;
+      }
+    }
+    ranges.push({ startIndex: start, endIndex: prev + 1 });
+
+    // Sort ranges descending so deleting does not shift indices of preceding ranges
+    ranges.sort((a, b) => b.startIndex - a.startIndex);
+
+    const requests = ranges.map((rg) => ({
+      deleteDimension: {
+        range: {
+          sheetId,
+          dimension: 'ROWS',
+          startIndex: rg.startIndex,
+          endIndex: rg.endIndex,
+        },
+      },
+    }));
+
+    await this.request<any>(`${cleanId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({ requests }),
+    });
+
+    return { removedCount: emptyRowIndices.length };
   }
 
   /**
@@ -683,7 +857,31 @@ export class GoogleSheetsService {
       const dataRows = headerRowIdx >= 0 ? rows.slice(headerRowIdx + 1) : rows.slice(1);
       const startRowIdx = (headerRowIdx >= 0 ? headerRowIdx + 1 : 1) + 1; // 1-based in sheet
 
-      return dataRows.map((row, idx) => {
+      const parsedInvoices: ExistingSheetRow[] = [];
+
+      dataRows.forEach((row, idx) => {
+        if (!row || !Array.isArray(row)) return;
+
+        const rawSupplier = String(row[colSupplier] || '').trim();
+        const rawBuyer = String(row[colBuyer] || '').trim();
+        const rawOrder = String(row[colOrder] || '').trim();
+        let rawInvNumber = String(row[colInvoiceNum] || '').trim();
+        let rawInvDate = String(row[colDate] || '').trim();
+        const amount = parseFloat(String(row[colAmount] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
+        const paidAmount = parseFloat(String(row[colPaidAmount] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
+        const rawUploadedAt = String(row[colUploadedAt] || '').trim();
+
+        // Check if row has meaningful invoice content (not an empty or template row with defaults)
+        const hasSupplier = rawSupplier && rawSupplier !== '—' && rawSupplier !== '-';
+        const hasInvNumber = rawInvNumber && rawInvNumber !== '—' && rawInvNumber !== '-';
+        const hasOrder = rawOrder && rawOrder !== '—' && rawOrder !== '-';
+        const hasAmount = amount > 0;
+
+        // Skip completely empty template rows (like rows 26..497)
+        if (!hasSupplier && !hasInvNumber && !hasOrder && !hasAmount) {
+          return;
+        }
+
         let rawStatus = String(row[colStatus] || '').trim();
         let paymentStatus: InvoicePaymentStatus = 'Не оплачено';
         if (rawStatus === 'Оплачено' || rawStatus === 'Оплачено частково' || rawStatus === 'Не оплачено') {
@@ -694,12 +892,6 @@ export class GoogleSheetsService {
           paymentStatus = 'Оплачено';
         }
 
-        const amount = parseFloat(String(row[colAmount] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
-        const paidAmount = parseFloat(String(row[colPaidAmount] || '0').replace(/\s/g, '').replace(',', '.')) || 0;
-
-        let rawInvNumber = String(row[colInvoiceNum] || '').trim();
-        let rawInvDate = String(row[colDate] || '').trim();
-
         // Safety check: if rawInvNumber is formatted as a date (e.g. 2026-08-25 or 25.08.2026) and rawInvDate is not,
         // or if the two columns are swapped in the sheet row:
         const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s);
@@ -709,20 +901,22 @@ export class GoogleSheetsService {
           rawInvDate = tmp;
         }
 
-        return {
+        parsedInvoices.push({
           rowIndex: startRowIdx + idx,
-          orderNumber: OCRService.normalizeOrderNumber(String(row[colOrder] || '')),
-          supplier: OCRService.normalizeCompanyName(String(row[colSupplier] || '')),
-          buyer: OCRService.normalizeCompanyName(String(row[colBuyer] || '')),
+          orderNumber: OCRService.normalizeOrderNumber(rawOrder),
+          supplier: OCRService.normalizeCompanyName(rawSupplier),
+          buyer: OCRService.normalizeCompanyName(rawBuyer),
           invoiceNumber: rawInvNumber,
           invoiceDate: rawInvDate,
           amount,
           currency: String(row[colCurrency] || 'UAH').trim() || 'UAH',
           paymentStatus,
-          uploadedAt: String(row[colUploadedAt] || '').trim(),
+          uploadedAt: rawUploadedAt,
           paidAmount,
-        };
+        });
       });
+
+      return parsedInvoices;
     } catch (e) {
       console.warn(`Could not read sheet tab "${targetTab}":`, e);
       return [];
@@ -970,6 +1164,15 @@ export class GoogleSheetsService {
       const driveLink = String(row[colDriveLink] ?? '').trim();
       const uploadedAt = String(row[colUploadedAt] ?? '').trim();
 
+      const hasMeaningfulContent = (
+        amountPaid > 0 ||
+        Boolean(paymentNumber && paymentNumber !== '—' && paymentNumber !== '-') ||
+        Boolean(payee && payee !== '—' && payee !== '-') ||
+        Boolean(payer && payer !== '—' && payer !== '-') ||
+        Boolean(referencedInvoiceNumber && referencedInvoiceNumber !== '—' && referencedInvoiceNumber !== '-')
+      );
+      if (!hasMeaningfulContent) return;
+
       payments.push({
         rowIndex: startRowIndex + idx,
         paymentNumber,
@@ -1072,12 +1275,14 @@ export class GoogleSheetsService {
     // Ensure tab exists before writing
     await this.ensureTabExists(cleanId, accessToken, tabName, this.INVOICE_HEADERS);
 
-    const nextRow = await this.getNextEmptyRowIndex(cleanId, accessToken, tabName);
-    const range = `'${encodeURIComponent(tabName)}'!A${nextRow}:J${nextRow}`;
-
+    const safeTab = tabName.replace(/'/g, "''");
     try {
+      // Find the exact first available empty row (e.g. row 26, right below existing filled rows)
+      const targetRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
+      const range = `'${safeTab}'!A${targetRow}:J${targetRow}`;
+
       const res = await this.request<any>(
-        `${cleanId}/values/${range}?valueInputOption=USER_ENTERED`,
+        `${cleanId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
         accessToken,
         {
           method: 'PUT',
@@ -1087,17 +1292,16 @@ export class GoogleSheetsService {
         }
       );
 
-      return {
-        updatedRange: res.updatedRange || range,
-      };
+      const updatedRange = res.updatedRange || range;
+      return { updatedRange };
     } catch (err: any) {
       if (err?.message && err.message.includes('Unable to parse range')) {
         // Fallback: force create tab and retry once
         await this.ensureTabExists(cleanId, accessToken, tabName, this.INVOICE_HEADERS);
-        const retryRow = await this.getNextEmptyRowIndex(cleanId, accessToken, tabName);
-        const retryRange = `'${encodeURIComponent(tabName)}'!A${retryRow}:J${retryRow}`;
+        const retryRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
+        const retryRange = `'${safeTab}'!A${retryRow}:J${retryRow}`;
         const res = await this.request<any>(
-          `${cleanId}/values/${retryRange}?valueInputOption=USER_ENTERED`,
+          `${cleanId}/values/${encodeURIComponent(retryRange)}?valueInputOption=USER_ENTERED`,
           accessToken,
           {
             method: 'PUT',
@@ -1106,9 +1310,7 @@ export class GoogleSheetsService {
             }),
           }
         );
-        return {
-          updatedRange: res.updatedRange || retryRange,
-        };
+        return { updatedRange: res.updatedRange || retryRange };
       }
       throw err;
     }
@@ -1214,12 +1416,14 @@ export class GoogleSheetsService {
       new Date().toLocaleString('uk-UA'),
     ];
 
-    const nextRow = await this.getNextEmptyRowIndex(cleanId, accessToken, tabName);
-    const range = `'${encodeURIComponent(tabName)}'!A${nextRow}:L${nextRow}`;
-
+    const safeTab = tabName.replace(/'/g, "''");
     try {
+      // Find the exact first available empty row in "Платіжки"
+      const targetRow = await this.findFirstAvailablePaymentRow(cleanId, accessToken, tabName);
+      const range = `'${safeTab}'!A${targetRow}:L${targetRow}`;
+
       const res = await this.request<any>(
-        `${cleanId}/values/${range}?valueInputOption=USER_ENTERED`,
+        `${cleanId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
         accessToken,
         {
           method: 'PUT',
@@ -1229,17 +1433,16 @@ export class GoogleSheetsService {
         }
       );
 
-      return {
-        updatedRange: res.updatedRange || range,
-      };
+      const updatedRange = res.updatedRange || range;
+      return { updatedRange };
     } catch (err: any) {
       if (err?.message && err.message.includes('Unable to parse range')) {
         // Fallback: force create tab and retry once
         await this.ensureTabExists(cleanId, accessToken, tabName, this.PAYMENT_HEADERS);
-        const retryRow = await this.getNextEmptyRowIndex(cleanId, accessToken, tabName);
-        const retryRange = `'${encodeURIComponent(tabName)}'!A${retryRow}:L${retryRow}`;
+        const retryRow = await this.findFirstAvailablePaymentRow(cleanId, accessToken, tabName);
+        const retryRange = `'${safeTab}'!A${retryRow}:L${retryRow}`;
         const res = await this.request<any>(
-          `${cleanId}/values/${retryRange}?valueInputOption=USER_ENTERED`,
+          `${cleanId}/values/${encodeURIComponent(retryRange)}?valueInputOption=USER_ENTERED`,
           accessToken,
           {
             method: 'PUT',

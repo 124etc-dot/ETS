@@ -32,12 +32,15 @@ function getGeminiClient(): GoogleGenAI {
 
 // Auto-detect and normalize MIME type from base64 magic bytes or filename
 function detectAndNormalizeMimeType(base64: string, fallbackMime: string, fileName?: string): string {
-  const cleanHead = base64.replace(/\s+/g, '').slice(0, 30);
+  const cleanHead = base64.replace(/\s+/g, '').slice(0, 40);
   if (cleanHead.startsWith('JVBERi')) return 'application/pdf';
-  if (cleanHead.startsWith('/9j/') || cleanHead.startsWith('/9J/')) return 'image/jpeg';
+  if (cleanHead.startsWith('/9j/') || cleanHead.startsWith('/9J/') || cleanHead.startsWith('/9f/') || cleanHead.startsWith('/9H/')) return 'image/jpeg';
   if (cleanHead.startsWith('iVBORw')) return 'image/png';
   if (cleanHead.startsWith('UklGR')) return 'image/webp';
   if (cleanHead.startsWith('R0lGO')) return 'image/gif';
+  if (cleanHead.startsWith('Qk')) return 'image/bmp';
+  if (cleanHead.startsWith('SUkq') || cleanHead.startsWith('TU0A')) return 'image/tiff';
+  if (cleanHead.startsWith('AAAA') && (cleanHead.includes('Z0eX') || cleanHead.includes('ftyp'))) return 'image/jpeg';
 
   if (fileName) {
     const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -46,16 +49,25 @@ function detectAndNormalizeMimeType(base64: string, fallbackMime: string, fileNa
     if (ext === 'png') return 'image/png';
     if (ext === 'webp') return 'image/webp';
     if (ext === 'gif') return 'image/gif';
+    if (ext === 'heic' || ext === 'heif') return 'image/jpeg';
+    if (ext === 'bmp') return 'image/bmp';
   }
 
-  if (fallbackMime === 'image/jpg' || fallbackMime === 'image/pjpeg' || fallbackMime === 'image/heic' || fallbackMime === 'image/heif') {
-    return 'image/jpeg';
-  }
-  if (fallbackMime === 'image/x-png') {
-    return 'image/png';
+  if (fallbackMime) {
+    const lower = fallbackMime.toLowerCase().trim();
+    if (lower === 'image/jpg' || lower === 'image/pjpeg' || lower === 'image/heic' || lower === 'image/heif') {
+      return 'image/jpeg';
+    }
+    if (lower === 'image/x-png') return 'image/png';
+    if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(lower)) {
+      return lower;
+    }
   }
 
-  return fallbackMime || 'application/pdf';
+  if (cleanHead.startsWith('/')) return 'image/jpeg';
+
+  // For phone/messenger files (e.g. 0-02-05-... without extension), default to image/jpeg
+  return 'image/jpeg';
 }
 
 // Clean and normalize company name strictly to format "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES)
@@ -91,6 +103,35 @@ function normalizeCompanyName(input: string): string {
 
   // 6. Convert entirely to UPPERCASE
   return val.toUpperCase();
+}
+
+function isCompanyNameMatch(name1: string, name2: string): boolean {
+  if (!name1 || !name2) return false;
+  if (name1.trim().toLowerCase() === name2.trim().toLowerCase()) return true;
+
+  const n1 = normalizeCompanyName(name1);
+  const n2 = normalizeCompanyName(name2);
+  if (!n1 || !n2) return false;
+  if (n1 === n2) return true;
+
+  const clean1 = n1.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\s+/g, ' ').trim();
+  const clean2 = n2.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (clean1 === clean2) return true;
+
+  const legalPrefixRegex = /^(ТОВ|ФОП|ПП|ТДВ|ПРАТ|ПАТ|АТ|ДП|ТД)\s+/i;
+  const core1 = clean1.replace(legalPrefixRegex, '').trim();
+  const core2 = clean2.replace(legalPrefixRegex, '').trim();
+
+  if (!core1 || !core2) return false;
+  if (core1 === core2) return true;
+
+  if (core1.length >= 5 && core2.length >= 5) {
+    if (core1.includes(core2) || core2.includes(core1)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // Extract numeric amount from string or formatted text (e.g. "96 932,88 грн" -> 96932.88)
@@ -189,11 +230,11 @@ const ocrResponseSchema: Schema = {
     },
     payerName: {
       type: Type.STRING,
-      description: 'Payer company name in payment order',
+      description: 'Payer company name in payment order (Платник). CRITICAL FOR BANK FORMS: In many modern bank forms (PrivatBank, Raiffeisen, Oshchad, PUMB etc.), the payer name is NOT in the line "Платник" (which only has code/IBAN or is a block title), but on the line directly BELOW where it says "Найменування" (or "Найменування платника"). This is our company name (Покупець / Платник). Do NOT confuse with payee\'s "Найменування"!',
     },
     payeeName: {
       type: Type.STRING,
-      description: 'Payee company name in payment order',
+      description: 'Payee company name in payment order (Отримувач). CRITICAL FOR BANK FORMS: In many modern bank forms, the payee name is NOT in the line "Отримувач" (which only has code/IBAN or is a block title), but on the line directly BELOW where it says "Найменування" (or "Найменування отримувача"). This is the supplier company (Отримувач коштів / Постачальник). Do NOT confuse with payer\'s "Найменування"!',
     },
     amountPaid: {
       type: Type.NUMBER,
@@ -272,7 +313,12 @@ export async function processOcrDocument(params: {
     };
   }
 
-  const cleanBase64 = fileData.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+  // Safely strip ANY data URL prefix regardless of attributes (e.g. data:...;charset=...;base64,)
+  const commaIndex = fileData.indexOf(',');
+  const rawBase64 = (fileData.startsWith('data:') && commaIndex !== -1)
+    ? fileData.slice(commaIndex + 1)
+    : fileData;
+  const cleanBase64 = rawBase64.replace(/\s+/g, '');
   const finalMimeType = detectAndNormalizeMimeType(cleanBase64, rawMimeType, fileName);
 
   const ai = getGeminiClient();
@@ -289,9 +335,10 @@ export async function processOcrDocument(params: {
     ? `\nДОВІДНИК АКТИВНИХ ВНУТРІШНІХ ЗАМОВЛЕНЬ (для точної перевірки рукописного номера):\n${knownOrders.map((o: any) => `- Код: ${typeof o === 'string' ? o : o.code + ' (' + o.title + ')'}`).join('\n')}`
     : '';
 
-  const systemPrompt = `Ти високоточний експертний модуль автоматичного розпізнавання (OCR) первинних фінансових документів (Рахунків на оплату та Банківських платіжок/квитанцій) для українського та міжнародного бізнесу.
+  const systemPrompt = `Ти високоточний експертний модуль автоматичного розпізнавання (OCR) первинних фінансових документів (Рахунків на оплату, Банківських платіжок/квитанцій, чеків, скріншотів мобільного банкінгу) для українського та міжнародного бізнесу.
 
 Перед тобою документ (PDF або фото) з ім'ям "${fileName}".
+ЗВЕРНИ УВАГУ: Документ може бути фотографією роздрукованого рахунку, квитанції про оплату, чеку або скріншоту додатку інтернет-банкінгу (Приват24, Монобанк тощо), завантаженим через телефон чи месенджер (WhatsApp/Viber/Telegram). Ретельно прочитай кожне поле, цифру та літеру навіть якщо зображення стиснене чи сфотографоване під кутом.
 
 ${ourCompaniesPromptList}
 ${suppliersPromptList}
@@ -333,11 +380,34 @@ ${knownOrdersPromptList}
    - ЗАПИШИ ЦЮ СУМУ В ОБИДВА ПОЛЯ: "totalAmount" ТА "amountPaid"!
    - currency: Валюта ("UAH", "USD", "EUR", "PLN").
 
-6. ДЛЯ ПЛАТІЖОК (payment):
-   - paymentNumber: номер платіжки (платіжної інструкції / квитанції)
+6. ДЛЯ ПЛАТІЖОК ТА БАНКІВСЬКИХ КВИТАНЦІЙ (payment):
+   - paymentNumber: номер платіжки (платіжної інструкції / квитанції / меморіального ордера)
    - paymentDate: дата проведення (РРРР-ММ-ДД)
-   - payerName: платник (наша компанія, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ БУДМОНТАЖ-2026")
-   - payeeName: одержувач (постачальник, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ МЕТІНВЕСТ-СМЦ")
+   - КРИТИЧНО — ЛОГІКА РОЗПІЗНАВАННЯ ПЛАТНИКА ТА ОТРИМУВАЧА В РІЗНИХ ФОРМАХ БАНКІВ:
+     Різні українські банки (ПриватБанк, Райффайзен, Ощадбанк, ПУМБ, Укрсиббанк, Монобанк тощо) мають дещо різні форми платіжних документів!
+     
+     * ФОРМА 1 (Класична): назви компаній вказані безпосередньо в рядках: "Платник: ТОВ НАША КОМПАНІЯ", "Отримувач: ТОВ ПОСТАЧАЛЬНИК".
+
+     * ФОРМА 2 (Нова / Таблична банківська форма — БЛОКИ З ПОЛЕМ "Найменування"):
+       У цій формі назва платника та отримувача вказані НЕ в самому рядку "Платник" чи "Отримувач" (де може стояти лише код ЄДРПОУ, IBAN рахунок або заголовок блоку), А РЯДКОМ НИЖЧЕ навпроти підпису "Найменування" (або "Найменування платника", "Найменування отримувача", "Найменування клієнта"):
+       
+       [БЛОК ПЛАТНИКА / ДЕБЕТ]:
+       Рядок: "Платник" (або "Платник / Дебет / Payer")
+       Рядок нижче: "Найменування: [НАЗВА НАШОЇ КОМПАНІЇ]"
+       ---> ЦЕ СТРОГО payerName (Платник / наша компанія зі СПИСКУ НАШИХ КОМПАНІЙ)!
+
+       [БЛОК ОТРИМУВАЧА / КРЕДИТ]:
+       Рядок: "Отримувач" (або "Отримувач / Одержувач / Кредит / Payee")
+       Рядок нижче: "Найменування: [НАЗВА ПОСТАЧАЛЬНИКА]"
+       ---> ЦЕ СТРОГО payeeName (Отримувач / постачальник зі СПИСКУ ПОСТАЧАЛЬНИКІВ)!
+
+     * СУВОРЕ ПРАВИЛО: НЕ ПЛУТАЙ СЛОВО "Найменування"!
+       І у блоці платника, і у блоці отримувача надруковано однакове слово "Найменування":
+       - Те "Найменування", яке розташоване безпосередньо під/у блоці "Платник" — це ЗАВЖДИ Платник (payerName, наша компанія)!
+       - Те "Найменування", яке розташоване безпосередньо під/у блоці "Отримувач" — це ЗАВЖДИ Отримувач (payeeName, постачальник)!
+
+   - payerName: платник (наша компанія, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ БУДМОНТАЖ-2026", обов'язково звір зі СПИСКОМ НАШИХ КОМПАНІЙ)
+   - payeeName: одержувач (постачальник, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ МЕТІНВЕСТ-СМЦ", витягни з блоку Отримувача)
    - amountPaid: точна сума оплати (наприклад 96932.88)
    - totalAmount: така сама точна сума оплати (наприклад 96932.88)
    - paymentPurpose: повне "Призначення платежу" дослівно
@@ -469,11 +539,70 @@ ${knownOrdersPromptList}
 
   // Payment-specific normalization and cross-filling
   if (parsedResult.documentType === 'payment') {
+    // 1. Smart Anti-Swap Check: In bank receipts with two "Найменування" rows (one under Платник, one under Отримувач),
+    // models sometimes mix them up. Check against configured ourCompanies and suppliers:
+    if (parsedResult.payeeName && parsedResult.payerName && ourCompanies.length > 0) {
+      const isPayeeOurCompany = ourCompanies.some((c) => isCompanyNameMatch(c, parsedResult.payeeName!));
+      const isPayerOurCompany = ourCompanies.some((c) => isCompanyNameMatch(c, parsedResult.payerName!));
+      const isPayerSupplier = suppliers.some((s) => isCompanyNameMatch(s, parsedResult.payerName!));
+
+      if (isPayeeOurCompany && (!isPayerOurCompany || isPayerSupplier)) {
+        console.log(`[OCR Smart Swap API] Swapping payerName "${parsedResult.payerName}" and payeeName "${parsedResult.payeeName}" because payee matches ourCompanies!`);
+        const temp = parsedResult.payerName;
+        parsedResult.payerName = parsedResult.payeeName;
+        parsedResult.payeeName = temp;
+      }
+    }
+
+    // 2. Rescue missing payeeName (Отримувач / Постачальник)
+    if (!parsedResult.payeeName || parsedResult.payeeName === '—') {
+      const purpose = parsedResult.paymentPurpose || '';
+      const notes = parsedResult.notes || '';
+      const fullText = `${purpose} ${notes}`;
+
+      // A) Try matching against suppliers list
+      for (const sup of suppliers) {
+        if (sup && sup.length >= 3 && isCompanyNameMatch(fullText, sup)) {
+          parsedResult.payeeName = normalizeCompanyName(sup);
+          break;
+        }
+      }
+
+      // B) Try regex extraction for company name in paymentPurpose
+      if (!parsedResult.payeeName || parsedResult.payeeName === '—') {
+        const compMatch = purpose.match(/(?:отримувач|одержувач|постачальник|продавець)?\s*[:=]?\s*(ТОВ|ПП|ФОП|ПрАТ|ПАТ|АТ|ТДВ)\s+["'«»]?[A-Za-zА-Яа-яІіЇїЄєҐґ0-9\s\-–—]{2,40}["'«»]?/i);
+        if (compMatch && compMatch[0]) {
+          const candidate = normalizeCompanyName(compMatch[0]);
+          if (!ourCompanies.some((c) => isCompanyNameMatch(c, candidate))) {
+            parsedResult.payeeName = candidate;
+          }
+        }
+      }
+    }
+
+    // 3. Rescue missing payerName (Платник / Наша компанія)
+    if (!parsedResult.payerName || parsedResult.payerName === '—') {
+      const fullText = `${parsedResult.paymentPurpose || ''} ${parsedResult.notes || ''}`;
+      for (const ourComp of ourCompanies) {
+        if (ourComp && isCompanyNameMatch(fullText, ourComp)) {
+          parsedResult.payerName = normalizeCompanyName(ourComp);
+          break;
+        }
+      }
+      if ((!parsedResult.payerName || parsedResult.payerName === '—') && ourCompanies.length === 1) {
+        parsedResult.payerName = normalizeCompanyName(ourCompanies[0]);
+      }
+    }
+
     if (parsedResult.payerName && !parsedResult.buyerName) {
       parsedResult.buyerName = parsedResult.payerName;
+    } else if (parsedResult.buyerName && !parsedResult.payerName) {
+      parsedResult.payerName = parsedResult.buyerName;
     }
     if (parsedResult.payeeName && !parsedResult.supplierName) {
       parsedResult.supplierName = parsedResult.payeeName;
+    } else if (parsedResult.supplierName && !parsedResult.payeeName) {
+      parsedResult.payeeName = parsedResult.supplierName;
     }
 
     if (parsedResult.amountPaid > 0 && parsedResult.totalAmount <= 0) {

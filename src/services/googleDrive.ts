@@ -135,9 +135,9 @@ export class GoogleDriveService {
     fileId: string,
     accessToken: string
   ): Promise<{ base64: string; mimeType: string; blob: Blob }> {
-    // 1. Get file metadata for mimeType
+    // 1. Get file metadata for mimeType and name
     const meta = await this.request<any>(`files/${fileId}?fields=id,name,mimeType`, accessToken);
-    const mimeType = meta.mimeType || 'application/pdf';
+    let detectedMime = meta.mimeType || '';
 
     // 2. Download binary media content (with 35s timeout)
     const res = await this.fetchWithTimeout(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
@@ -151,12 +151,50 @@ export class GoogleDriveService {
     }
 
     const blob = await res.blob();
-    const base64 = await this.blobToBase64(blob);
+
+    // 3. Inspect binary magic bytes to determine real MIME type with 100% precision
+    try {
+      const headerSlice = await blob.slice(0, 32).arrayBuffer();
+      const bytes = new Uint8Array(headerSlice);
+      if (bytes.length >= 3 && bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
+        detectedMime = 'image/jpeg';
+      } else if (bytes.length >= 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+        detectedMime = 'application/pdf';
+      } else if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) {
+        detectedMime = 'image/png';
+      } else if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+        detectedMime = 'image/webp';
+      } else if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+        detectedMime = 'image/gif';
+      } else if (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+        detectedMime = 'image/jpeg';
+      } else if (meta.name) {
+        const ext = meta.name.toLowerCase().split('.').pop() || '';
+        if (ext === 'jpg' || ext === 'jpeg') detectedMime = 'image/jpeg';
+        else if (ext === 'png') detectedMime = 'image/png';
+        else if (ext === 'pdf') detectedMime = 'application/pdf';
+        else if (ext === 'webp') detectedMime = 'image/webp';
+        else if (ext === 'heic' || ext === 'heif') detectedMime = 'image/jpeg';
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!detectedMime || detectedMime === 'application/octet-stream') {
+      detectedMime = 'image/jpeg';
+    }
+
+    // 4. Convert blob to pure base64
+    const rawDataUrl = await this.blobToBase64(blob);
+    const commaIndex = rawDataUrl.indexOf(',');
+    const cleanBase64 = commaIndex !== -1 ? rawDataUrl.slice(commaIndex + 1).replace(/\s+/g, '') : rawDataUrl.replace(/\s+/g, '');
+    const cleanDataUrl = `data:${detectedMime};base64,${cleanBase64}`;
+    const cleanBlob = new Blob([blob], { type: detectedMime });
 
     return {
-      base64,
-      mimeType,
-      blob,
+      base64: cleanDataUrl,
+      mimeType: detectedMime,
+      blob: cleanBlob,
     };
   }
 

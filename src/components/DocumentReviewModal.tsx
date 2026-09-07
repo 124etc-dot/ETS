@@ -20,7 +20,8 @@ import {
   Info,
   RefreshCw,
   RotateCcw,
-  AlertCircle
+  AlertCircle,
+  ArrowUpDown
 } from 'lucide-react';
 import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
@@ -32,7 +33,7 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSave: (docId: string, updatedOcr: OCRResult) => void;
-  onSyncToSheet: (docId: string, customOcr?: OCRResult) => Promise<void>;
+  onSyncToSheet: (docId: string, customOcr?: OCRResult, forceAppend?: boolean) => Promise<void>;
   onReprocess?: (docId: string) => Promise<void>;
   onUploadToDrive?: (docId: string) => Promise<void>;
   isDriveConnected?: boolean;
@@ -86,19 +87,35 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (doc) {
-      const current = doc.editedData || doc.ocrResult || {
-        documentType: 'invoice',
-        documentTypeUkrainian: 'Рахунок на оплату',
-        handwrittenOrderNumber: '',
-        handwrittenConfidence: 'none',
-        supplierName: '',
-        buyerName: companyLists.ourCompanies[0] || '',
-        invoiceNumber: '',
-        invoiceDate: new Date().toISOString().slice(0, 10),
-        totalAmount: 0,
-        currency: 'UAH',
-        confidenceScore: 0,
+      const current = {
+        ...(doc.editedData || doc.ocrResult || {
+          documentType: 'invoice',
+          documentTypeUkrainian: 'Рахунок на оплату',
+          handwrittenOrderNumber: '',
+          handwrittenConfidence: 'none',
+          supplierName: '',
+          buyerName: companyLists.ourCompanies[0] || '',
+          invoiceNumber: '',
+          invoiceDate: new Date().toISOString().slice(0, 10),
+          totalAmount: 0,
+          currency: 'UAH',
+          confidenceScore: 0,
+        }),
       };
+
+      // For payments, automatically inherit order number from matched invoice if not present
+      if (current.documentType === 'payment' && !current.handwrittenOrderNumber) {
+        const match = OCRService.matchPaymentWithInvoices(current, existingInvoices, allDocuments);
+        if (match.matchedOrderNumber) {
+          current.referencedOrderNumber = match.matchedOrderNumber;
+          current.handwrittenOrderNumber = match.matchedOrderNumber;
+          current.handwrittenConfidence = 'high';
+          if (!current.matchedInvoiceNumber && match.matchedInvoiceNumber) {
+            current.matchedInvoiceNumber = match.matchedInvoiceNumber;
+          }
+        }
+      }
+
       setFormData(current);
       setZoom(1);
       setRotation(0);
@@ -134,6 +151,13 @@ export const DocumentReviewModal: React.FC<Props> = ({
           updated.matchedInvoiceNumber = allMatches.map((m) => m.invoiceNumber).filter(Boolean).join(', ');
           updated.matchedInvoiceAmount = allMatches.reduce((acc, m) => acc + (m.invoiceAmount || 0), 0);
           updated.matchedInvoiceRowIndex = allMatches[0].matchedRowIndex;
+
+          const orderNums = Array.from(new Set(allMatches.map((m) => m.orderNumber).filter(Boolean)));
+          if (orderNums.length > 0 && !updated.handwrittenOrderNumber) {
+            updated.handwrittenOrderNumber = orderNums.join(', ');
+            updated.referencedOrderNumber = orderNums.join(', ');
+            updated.handwrittenConfidence = 'high';
+          }
         }
       }
 
@@ -204,6 +228,11 @@ export const DocumentReviewModal: React.FC<Props> = ({
       clean.matchedInvoiceNumber = match.matchedInvoiceNumber;
       clean.matchedInvoiceAmount = match.invoiceAmount;
       clean.matchedInvoiceRowIndex = match.matchedRowIndex;
+      if (match.matchedOrderNumber && !clean.handwrittenOrderNumber) {
+        clean.referencedOrderNumber = match.matchedOrderNumber;
+        clean.handwrittenOrderNumber = match.matchedOrderNumber;
+        clean.handwrittenConfidence = 'high';
+      }
     } else {
       const match = OCRService.matchInvoiceWithPayments(clean, existingPayments, allDocuments);
       if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
@@ -230,7 +259,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
     setTimeout(() => setSavedSuccess(false), 2000);
   };
 
-  const handleSync = async () => {
+  const handleSync = async (forceAppend = false) => {
     const cleanData = getCleanFormData();
     if ((cleanData.totalAmount || 0) <= 0 && (cleanData.amountPaid || 0) <= 0) {
       alert('Увага: Занесення в Google Таблицю заблоковано, оскільки сума документа дорівнює 0 грн. В системі не може бути рахунків чи платіжок з нульовою сумою. Будь ласка, вкажіть суму.');
@@ -239,7 +268,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
     setFormData(cleanData);
     setIsSyncing(true);
     try {
-      await onSyncToSheet(doc.id, cleanData);
+      await onSyncToSheet(doc.id, cleanData, forceAppend);
     } finally {
       setIsSyncing(false);
     }
@@ -979,6 +1008,31 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </p>
               </div>
 
+              {/* Quick Swap button for Payment Documents */}
+              {isPaymentDoc && (
+                <div className="flex justify-end -my-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const currentPayer = formData.payerName || formData.buyerName || '';
+                      const currentPayee = formData.payeeName || formData.supplierName || '';
+                      setFormData((prev) => ({
+                        ...prev,
+                        payerName: currentPayee,
+                        buyerName: currentPayee,
+                        payeeName: currentPayer,
+                        supplierName: currentPayer,
+                      }));
+                    }}
+                    className="text-[11px] text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-md flex items-center space-x-1.5 transition-colors cursor-pointer font-medium"
+                    title="Поміняти місцями Платника та Отримувача, якщо банківська форма розпізнала їх навпаки"
+                  >
+                    <ArrowUpDown className="w-3 h-3 text-indigo-600" />
+                    <span>Поміняти місцями Платника та Отримувача</span>
+                  </button>
+                </div>
+              )}
+
               {/* Payee / Supplier (Counterparty) */}
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -1136,24 +1190,24 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   </span>
                   <button
                     type="button"
-                    onClick={handleSync}
+                    onClick={() => handleSync(true)}
                     disabled={isSyncing}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-medium transition-colors flex items-center space-x-1"
-                    title="Примусово записати повторно"
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+                    title="Примусово записати новий рядок у Google Таблицю"
                   >
-                    <span>{isSyncing ? 'Запис...' : 'Внести повторно'}</span>
+                    <span>{isSyncing ? 'Запис...' : 'Внести все одно (новий рядок)'}</span>
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
-                  onClick={handleSync}
+                  onClick={() => handleSync(doc.alreadyInSheet ? true : false)}
                   disabled={isSyncing}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
                 >
                   <FileSpreadsheet className="w-4 h-4" />
                   <span>
-                    {isSyncing ? 'Запис у таблицю...' : doc.alreadyInSheet ? 'Занести в Google Таблицю (все одно)' : 'Занести в Google Таблицю'}
+                    {isSyncing ? 'Запис у таблицю...' : doc.alreadyInSheet ? 'Занести в Google Таблицю (все одно як новий рядок)' : 'Занести в Google Таблицю'}
                   </span>
                 </button>
               )}

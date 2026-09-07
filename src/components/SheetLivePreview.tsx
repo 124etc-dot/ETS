@@ -19,7 +19,9 @@ import {
   Trash2,
   Sparkles,
   Maximize2,
-  Minimize2
+  Minimize2,
+  Scissors,
+  ArrowRightLeft
 } from 'lucide-react';
 import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, DuplicateRowMatch } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -35,8 +37,13 @@ interface Props {
   onUpdateInvoiceStatus?: (rowIndex: number, newStatus: InvoicePaymentStatus, paidAmount?: number) => Promise<void>;
   onBatchReconcile?: (matches: any[]) => Promise<void>;
   onDeleteDuplicates?: (duplicates: DuplicateRowMatch[]) => Promise<void>;
+  onCompactEmptyRows?: (tabName: string) => Promise<void>;
   onChangePaymentsTab?: (newTab: string) => void;
   onChangeInvoicesTab?: (newTab: string) => void;
+  onDeleteInvoiceRow?: (rowIndex: number) => Promise<void>;
+  onDeletePaymentRow?: (rowIndex: number) => Promise<void>;
+  onMoveInvoiceToPayments?: (inv: ExistingSheetRow) => Promise<void>;
+  onMovePaymentToInvoices?: (pay: ExistingPaymentRow) => Promise<void>;
 }
 
 export const SheetLivePreview: React.FC<Props> = ({
@@ -49,8 +56,13 @@ export const SheetLivePreview: React.FC<Props> = ({
   onUpdateInvoiceStatus,
   onBatchReconcile,
   onDeleteDuplicates,
+  onCompactEmptyRows,
   onChangePaymentsTab,
   onChangeInvoicesTab,
+  onDeleteInvoiceRow,
+  onDeletePaymentRow,
+  onMoveInvoiceToPayments,
+  onMovePaymentToInvoices,
 }) => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ourCompanies' | 'suppliers'>('invoices');
   const [filterText, setFilterText] = useState('');
@@ -58,8 +70,40 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [updatingRowIndex, setUpdatingRowIndex] = useState<number | null>(null);
   const [isBatchReconciling, setIsBatchReconciling] = useState(false);
   const [isDeletingDuplicates, setIsDeletingDuplicates] = useState(false);
+  const [isCompactingEmptyRows, setIsCompactingEmptyRows] = useState(false);
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
+  const [actionInProgressRow, setActionInProgressRow] = useState<number | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
+
+  const maxInvoiceRow = useMemo(() => {
+    return existingInvoices.reduce((max, inv) => Math.max(max, inv.rowIndex), 0);
+  }, [existingInvoices]);
+
+  const hasInvoiceRowGaps = useMemo(() => {
+    return existingInvoices.length > 0 && maxInvoiceRow > existingInvoices.length + 3;
+  }, [existingInvoices, maxInvoiceRow]);
+
+  const maxPaymentRow = useMemo(() => {
+    return existingPayments.reduce((max, p) => Math.max(max, p.rowIndex), 0);
+  }, [existingPayments]);
+
+  const hasPaymentRowGaps = useMemo(() => {
+    return existingPayments.length > 0 && maxPaymentRow > existingPayments.length + 3;
+  }, [existingPayments, maxPaymentRow]);
+
+  const handleCompactCurrentTab = async () => {
+    if (!onCompactEmptyRows || isCompactingEmptyRows) return;
+    const tabName = activeTab === 'payments' 
+      ? (sheetConfig?.paymentsSheetName || 'Платіжки')
+      : (sheetConfig?.invoicesSheetName || 'Рахунки');
+    
+    setIsCompactingEmptyRows(true);
+    try {
+      await onCompactEmptyRows(tabName);
+    } finally {
+      setIsCompactingEmptyRows(false);
+    }
+  };
 
   // Real-time detection of duplicate rows in "Рахунки" and "Платіжки"
   const duplicateInvoices = useMemo(
@@ -146,28 +190,45 @@ export const SheetLivePreview: React.FC<Props> = ({
 
   const trimmedFilter = filterText.trim();
   const q = trimmedFilter.toLowerCase();
+  const cleanQ = q.replace(/\s+/g, '').replace(',', '.');
 
   const filteredInvoices = existingInvoices.filter((inv) => {
     if (statusFilter !== 'all' && inv.paymentStatus !== statusFilter) {
       return false;
     }
     if (!trimmedFilter) return true;
+    const amtStr = String(inv.amount || '');
+    const paidStr = String(inv.paidAmount || '');
+    const formattedAmt = OCRService.formatCurrency(inv.amount || 0).toLowerCase();
     return (
       inv.orderNumber?.toLowerCase().includes(q) ||
       inv.supplier?.toLowerCase().includes(q) ||
       inv.buyer?.toLowerCase().includes(q) ||
-      inv.invoiceNumber?.toLowerCase().includes(q)
+      inv.invoiceNumber?.toLowerCase().includes(q) ||
+      inv.invoiceDate?.toLowerCase().includes(q) ||
+      inv.fileName?.toLowerCase().includes(q) ||
+      inv.notes?.toLowerCase().includes(q) ||
+      amtStr.includes(cleanQ) ||
+      paidStr.includes(cleanQ) ||
+      formattedAmt.includes(q)
     );
   });
 
   // All invoices matching the search query/order number across ALL statuses
   const orderMatchedInvoicesAllStatuses = trimmedFilter
     ? existingInvoices.filter((inv) => {
+        const amtStr = String(inv.amount || '');
+        const formattedAmt = OCRService.formatCurrency(inv.amount || 0).toLowerCase();
         return (
           inv.orderNumber?.toLowerCase().includes(q) ||
           inv.supplier?.toLowerCase().includes(q) ||
           inv.buyer?.toLowerCase().includes(q) ||
-          inv.invoiceNumber?.toLowerCase().includes(q)
+          inv.invoiceNumber?.toLowerCase().includes(q) ||
+          inv.invoiceDate?.toLowerCase().includes(q) ||
+          inv.fileName?.toLowerCase().includes(q) ||
+          inv.notes?.toLowerCase().includes(q) ||
+          amtStr.includes(cleanQ) ||
+          formattedAmt.includes(q)
         );
       })
     : [];
@@ -215,13 +276,19 @@ export const SheetLivePreview: React.FC<Props> = ({
 
   const filteredPayments = existingPayments.filter((pay) => {
     if (!trimmedFilter) return true;
+    const amtStr = String(pay.amountPaid || '');
+    const formattedAmt = OCRService.formatCurrency(pay.amountPaid || 0).toLowerCase();
     return (
       pay.paymentNumber?.toLowerCase().includes(q) ||
       pay.payer?.toLowerCase().includes(q) ||
       pay.payee?.toLowerCase().includes(q) ||
       pay.referencedInvoiceNumber?.toLowerCase().includes(q) ||
       pay.paymentPurpose?.toLowerCase().includes(q) ||
-      pay.orderNumber?.toLowerCase().includes(q)
+      pay.orderNumber?.toLowerCase().includes(q) ||
+      pay.paymentDate?.toLowerCase().includes(q) ||
+      pay.fileName?.toLowerCase().includes(q) ||
+      amtStr.includes(cleanQ) ||
+      formattedAmt.includes(q)
     );
   });
 
@@ -282,10 +349,10 @@ export const SheetLivePreview: React.FC<Props> = ({
 
   return (
     <div
-      className={`bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex-1 flex flex-col min-h-0 transition-all ${
+      className={`bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden flex-1 flex flex-col transition-all ${
         isMaximized
           ? 'fixed inset-2 md:inset-4 z-50 rounded-2xl shadow-2xl border-slate-300'
-          : ''
+          : 'h-[calc(100vh-220px)] min-h-[640px]'
       }`}
     >
       {/* Header & Tabs */}
@@ -366,6 +433,35 @@ export const SheetLivePreview: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            {onCompactEmptyRows && (
+              <button
+                type="button"
+                onClick={handleCompactCurrentTab}
+                disabled={isCompactingEmptyRows || isLoading}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer border ${
+                  (activeTab === 'invoices' && hasInvoiceRowGaps) || (activeTab === 'payments' && hasPaymentRowGaps)
+                    ? 'bg-amber-100 text-amber-900 border-amber-400 hover:bg-amber-200 shadow-xs'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                }`}
+                title="Видалити порожні проміжки між рядками в Google Таблиці та підтягнути дані вгору"
+              >
+                {isCompactingEmptyRows ? (
+                  <Loader2 className="w-3.5 h-3.5 text-amber-700 animate-spin shrink-0" />
+                ) : (
+                  <Scissors className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                )}
+                <span>
+                  {isCompactingEmptyRows
+                    ? 'Стиснення...'
+                    : (activeTab === 'invoices' && hasInvoiceRowGaps)
+                    ? `Усунути пусті рядки (є рядок ${maxInvoiceRow})`
+                    : (activeTab === 'payments' && hasPaymentRowGaps)
+                    ? `Усунути пусті рядки (є рядок ${maxPaymentRow})`
+                    : 'Очистити пусті рядки'}
+                </span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setShowDuplicatesModal(true)}
@@ -563,6 +659,40 @@ export const SheetLivePreview: React.FC<Props> = ({
             </div>
           )}
 
+          {/* Gap Warning Banner: Invoices */}
+          {hasInvoiceRowGaps && onCompactEmptyRows && (
+            <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 border border-amber-300">
+                  <Scissors className="w-4 h-4 text-amber-700" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-950">
+                    У вкладці «{sheetConfig?.invoicesSheetName || 'Рахунки'}» виявлено розрив рядків (запис на рядку {maxInvoiceRow})!
+                  </h4>
+                  <p className="text-[11px] text-amber-900 mt-0.5">
+                    У таблиці є порожні рядки між записами. Натисніть кнопку поруч, щоб автоматично видалити пусті проміжки та підтягнути всі рахунки вгору поспіль.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={handleCompactCurrentTab}
+                  disabled={isCompactingEmptyRows}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isCompactingEmptyRows ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Scissors className="w-3.5 h-3.5" />
+                  )}
+                  <span>Усунути пусті рядки (підтягнути р. {maxInvoiceRow})</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Duplicate Warning Banner: Invoices */}
           {duplicateInvoices.length > 0 && (
             <div className="mx-4 my-2.5 p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
@@ -659,7 +789,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                 : 'Не знайдено записів за поточним фільтром.'}
             </div>
           ) : (
-            <div className="flex-1 min-h-[500px] lg:min-h-[560px] overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px] z-10">
                   <tr>
@@ -700,15 +830,63 @@ export const SheetLivePreview: React.FC<Props> = ({
                         <td className="p-2.5 text-slate-400 font-mono">
                           <div className="flex items-center space-x-1">
                             <span>{inv.rowIndex}</span>
-                            {dupInvoice && (
+                            {dupInvoice ? (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSingleDuplicate(dupInvoice)}
-                                disabled={isDeletingDuplicates}
+                                disabled={isDeletingDuplicates || actionInProgressRow === inv.rowIndex}
                                 title={`Дублікат рядка ${dupInvoice.originalRowIndex}. Натисніть, щоб видалити цей рядок з таблиці.`}
                                 className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded cursor-pointer transition-colors"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              onDeleteInvoiceRow && (
+                                <button
+                                  type="button"
+                                  disabled={actionInProgressRow === inv.rowIndex}
+                                  onClick={async () => {
+                                    const confirmMsg = `Видалити рядок ${inv.rowIndex} (${inv.supplier || ''} ${inv.invoiceNumber || ''}) з вкладки «${sheetConfig?.invoicesSheetName || 'Рахунки'}»?\n\nПісля видалення цей запис також зникне з черги обробки.`;
+                                    if (window.confirm(confirmMsg)) {
+                                      setActionInProgressRow(inv.rowIndex);
+                                      try {
+                                        await onDeleteInvoiceRow(inv.rowIndex);
+                                      } finally {
+                                        setActionInProgressRow(null);
+                                      }
+                                    }
+                                  }}
+                                  title={`Видалити рядок ${inv.rowIndex} з Google Таблиці`}
+                                  className="p-1 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                >
+                                  {actionInProgressRow === inv.rowIndex ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )
+                            )}
+
+                            {onMoveInvoiceToPayments && (
+                              <button
+                                type="button"
+                                disabled={actionInProgressRow === inv.rowIndex}
+                                onClick={async () => {
+                                  const confirmMsg = `Перенести цей запис (рядок ${inv.rowIndex}: ${inv.supplier || ''} на суму ${inv.amount} грн) у вкладку «${sheetConfig?.paymentsSheetName || 'Платіжки'}»?`;
+                                  if (window.confirm(confirmMsg)) {
+                                    setActionInProgressRow(inv.rowIndex);
+                                    try {
+                                      await onMoveInvoiceToPayments(inv);
+                                    } finally {
+                                      setActionInProgressRow(null);
+                                    }
+                                  }
+                                }}
+                                title="Це насправді платіжка? Перенести у вкладку «Платіжки»"
+                                className="p-1 text-slate-300 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors cursor-pointer"
+                              >
+                                <ArrowRightLeft className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>
@@ -872,8 +1050,18 @@ export const SheetLivePreview: React.FC<Props> = ({
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Пошук за номером, платником, призначенням..."
-                className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full text-xs pl-8 pr-8 py-1.5 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
+              {filterText && (
+                <button
+                  type="button"
+                  onClick={() => setFilterText('')}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  title="Очистити пошук"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -899,6 +1087,40 @@ export const SheetLivePreview: React.FC<Props> = ({
               </p>
             </div>
           </div>
+
+          {/* Gap Warning Banner: Payments */}
+          {hasPaymentRowGaps && onCompactEmptyRows && (
+            <div className="p-3.5 bg-amber-50/90 border border-amber-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 border border-amber-300">
+                  <Scissors className="w-4 h-4 text-amber-700" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-950">
+                    У вкладці «{sheetConfig?.paymentsSheetName || 'Платіжки'}» виявлено порожні рядки перед записом на рядку {maxPaymentRow}!
+                  </h4>
+                  <p className="text-[11px] text-amber-900 mt-0.5">
+                    Платіжки (наприклад, ТОВ ЛАКОВЕР) могли бути записані внизу таблиці через порожні проміжки. Натисніть кнопку, щоб автоматично підтягнути всі записи нагору (на рядок 2).
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={handleCompactCurrentTab}
+                  disabled={isCompactingEmptyRows}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isCompactingEmptyRows ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Scissors className="w-3.5 h-3.5" />
+                  )}
+                  <span>Усунути пусті рядки (підтягнути р. {maxPaymentRow})</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Duplicate Warning Banner: Payments */}
           {duplicatePayments.length > 0 && (
@@ -988,11 +1210,26 @@ export const SheetLivePreview: React.FC<Props> = ({
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-slate-500">Не знайдено платіжок за поточним пошуком.</p>
+                <div className="max-w-md mx-auto space-y-2 py-2">
+                  <p className="text-xs font-semibold text-slate-800">
+                    Не знайдено платіжок за фільтром «<span className="text-blue-700">{filterText}</span>».
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    У вкладці «{sheetConfig?.paymentsSheetName || 'Платіжки'}» загалом є {existingPayments.length} {existingPayments.length === 1 ? 'запис' : existingPayments.length < 5 ? 'записи' : 'записів'}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setFilterText('')}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer shadow-xs inline-flex items-center space-x-1.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Очистити фільтр і показати всі ({existingPayments.length})</span>
+                  </button>
+                </div>
               )}
             </div>
           ) : (
-            <div className="flex-1 min-h-[500px] lg:min-h-[560px] overflow-auto border border-slate-200 rounded-lg shadow-2xs">
+            <div className="flex-1 min-h-0 overflow-auto border border-slate-200 rounded-lg shadow-2xs">
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 font-bold text-[11px]">
                   <tr>
@@ -1025,15 +1262,63 @@ export const SheetLivePreview: React.FC<Props> = ({
                         <td className="p-2.5 text-slate-400 font-mono">
                           <div className="flex items-center space-x-1">
                             <span>{rowNum}</span>
-                            {dupPayment && (
+                            {dupPayment ? (
                               <button
                                 type="button"
                                 onClick={() => handleDeleteSingleDuplicate(dupPayment)}
-                                disabled={isDeletingDuplicates}
+                                disabled={isDeletingDuplicates || actionInProgressRow === (pay.rowIndex || rowNum)}
                                 title={`Дублікат рядка ${dupPayment.originalRowIndex}. Натисніть, щоб видалити цей рядок з таблиці.`}
                                 className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded cursor-pointer transition-colors"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              onDeletePaymentRow && pay.rowIndex && (
+                                <button
+                                  type="button"
+                                  disabled={actionInProgressRow === pay.rowIndex}
+                                  onClick={async () => {
+                                    const confirmMsg = `Видалити рядок ${pay.rowIndex} (${pay.payee || ''} ${pay.amountPaid || ''} грн) з вкладки «${sheetConfig?.paymentsSheetName || 'Платіжки'}»?\n\nПісля видалення цей запис також зникне з черги обробки.`;
+                                    if (window.confirm(confirmMsg)) {
+                                      setActionInProgressRow(pay.rowIndex);
+                                      try {
+                                        await onDeletePaymentRow(pay.rowIndex);
+                                      } finally {
+                                        setActionInProgressRow(null);
+                                      }
+                                    }
+                                  }}
+                                  title={`Видалити рядок ${pay.rowIndex} з Google Таблиці`}
+                                  className="p-1 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                                >
+                                  {actionInProgressRow === pay.rowIndex ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              )
+                            )}
+
+                            {onMovePaymentToInvoices && pay.rowIndex && (
+                              <button
+                                type="button"
+                                disabled={actionInProgressRow === pay.rowIndex}
+                                onClick={async () => {
+                                  const confirmMsg = `Перенести цей запис (рядок ${pay.rowIndex}: ${pay.payee || ''} на суму ${pay.amountPaid} грн) у вкладку «${sheetConfig?.invoicesSheetName || 'Рахунки'}»?`;
+                                  if (window.confirm(confirmMsg)) {
+                                    setActionInProgressRow(pay.rowIndex);
+                                    try {
+                                      await onMovePaymentToInvoices(pay);
+                                    } finally {
+                                      setActionInProgressRow(null);
+                                    }
+                                  }
+                                }}
+                                title="Це насправді рахунок? Перенести у вкладку «Рахунки»"
+                                className="p-1 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                              >
+                                <ArrowRightLeft className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>

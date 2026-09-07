@@ -17,12 +17,15 @@ function getClientGeminiApiKey(): string {
 }
 
 function detectAndNormalizeMimeType(base64: string, fallbackMime: string, fileName?: string): string {
-  const cleanHead = base64.replace(/\s+/g, '').slice(0, 30);
+  const cleanHead = base64.replace(/\s+/g, '').slice(0, 40);
   if (cleanHead.startsWith('JVBERi')) return 'application/pdf';
-  if (cleanHead.startsWith('/9j/') || cleanHead.startsWith('/9J/')) return 'image/jpeg';
+  if (cleanHead.startsWith('/9j/') || cleanHead.startsWith('/9J/') || cleanHead.startsWith('/9f/') || cleanHead.startsWith('/9H/')) return 'image/jpeg';
   if (cleanHead.startsWith('iVBORw')) return 'image/png';
   if (cleanHead.startsWith('UklGR')) return 'image/webp';
   if (cleanHead.startsWith('R0lGO')) return 'image/gif';
+  if (cleanHead.startsWith('Qk')) return 'image/bmp';
+  if (cleanHead.startsWith('SUkq') || cleanHead.startsWith('TU0A')) return 'image/tiff';
+  if (cleanHead.startsWith('AAAA') && (cleanHead.includes('Z0eX') || cleanHead.includes('ftyp'))) return 'image/jpeg';
 
   if (fileName) {
     const ext = fileName.toLowerCase().split('.').pop() || '';
@@ -31,16 +34,25 @@ function detectAndNormalizeMimeType(base64: string, fallbackMime: string, fileNa
     if (ext === 'png') return 'image/png';
     if (ext === 'webp') return 'image/webp';
     if (ext === 'gif') return 'image/gif';
+    if (ext === 'heic' || ext === 'heif') return 'image/jpeg';
+    if (ext === 'bmp') return 'image/bmp';
   }
 
-  if (fallbackMime === 'image/jpg' || fallbackMime === 'image/pjpeg' || fallbackMime === 'image/heic' || fallbackMime === 'image/heif') {
-    return 'image/jpeg';
-  }
-  if (fallbackMime === 'image/x-png') {
-    return 'image/png';
+  if (fallbackMime) {
+    const lower = fallbackMime.toLowerCase().trim();
+    if (lower === 'image/jpg' || lower === 'image/pjpeg' || lower === 'image/heic' || lower === 'image/heif') {
+      return 'image/jpeg';
+    }
+    if (lower === 'image/x-png') return 'image/png';
+    if (['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(lower)) {
+      return lower;
+    }
   }
 
-  return fallbackMime || 'application/pdf';
+  if (cleanHead.startsWith('/')) return 'image/jpeg';
+
+  // For phone/messenger files (e.g. 0-02-05-... without extension), default to image/jpeg
+  return 'image/jpeg';
 }
 
 function parseAmountToNumber(val: any): number {
@@ -137,11 +149,11 @@ const ocrResponseSchema: Schema = {
     },
     payerName: {
       type: Type.STRING,
-      description: 'Payer company name in payment order',
+      description: 'Payer company name in payment order (Платник). CRITICAL FOR BANK FORMS: In many modern bank forms (PrivatBank, Raiffeisen, Oshchad, PUMB etc.), the payer name is NOT in the line "Платник" (which only has code/IBAN or is a block title), but on the line directly BELOW where it says "Найменування" (or "Найменування платника"). This is our company name (Покупець / Платник). Do NOT confuse with payee\'s "Найменування"!',
     },
     payeeName: {
       type: Type.STRING,
-      description: 'Payee company name in payment order',
+      description: 'Payee company name in payment order (Отримувач). CRITICAL FOR BANK FORMS: In many modern bank forms, the payee name is NOT in the line "Отримувач" (which only has code/IBAN or is a block title), but on the line directly BELOW where it says "Найменування" (or "Найменування отримувача"). This is the supplier company (Отримувач коштів / Постачальник). Do NOT confuse with payer\'s "Найменування"!',
     },
     amountPaid: {
       type: Type.NUMBER,
@@ -198,7 +210,12 @@ async function executeClientSideGeminiOcr(params: {
     apiKey,
   } = params;
 
-  const cleanBase64 = fileData.replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+  // Safely strip ANY data URL prefix regardless of attributes (e.g. data:...;charset=...;base64,)
+  const commaIndex = fileData.indexOf(',');
+  const rawBase64 = (fileData.startsWith('data:') && commaIndex !== -1)
+    ? fileData.slice(commaIndex + 1)
+    : fileData;
+  const cleanBase64 = rawBase64.replace(/\s+/g, '');
   const finalMimeType = detectAndNormalizeMimeType(cleanBase64, rawMimeType, fileName);
 
   const ai = new GoogleGenAI({
@@ -222,9 +239,10 @@ async function executeClientSideGeminiOcr(params: {
     ? `\nДОВІДНИК АКТИВНИХ ВНУТРІШНІХ ЗАМОВЛЕНЬ (для точної перевірки рукописного номера):\n${knownOrders.map((o: any) => `- Код: ${typeof o === 'string' ? o : o.code + ' (' + o.title + ')'}`).join('\n')}`
     : '';
 
-  const systemPrompt = `Ти високоточний експертний модуль автоматичного розпізнавання (OCR) первинних фінансових документів (Рахунків на оплату та Банківських платіжок/квитанцій) для українського та міжнародного бізнесу.
+  const systemPrompt = `Ти високоточний експертний модуль автоматичного розпізнавання (OCR) первинних фінансових документів (Рахунків на оплату, Банківських платіжок/квитанцій, чеків, скріншотів мобільного банкінгу) для українського та міжнародного бізнесу.
 
 Перед тобою документ (PDF або фото) з ім'ям "${fileName}".
+ЗВЕРНИ УВАГУ: Документ може бути фотографією роздрукованого рахунку, квитанції про оплату, чеку або скріншоту додатку інтернет-банкінгу (Приват24, Монобанк тощо), завантаженим через телефон чи месенджер (WhatsApp/Viber/Telegram). Ретельно прочитай кожне поле, цифру та літеру навіть якщо зображення стиснене чи сфотографоване під кутом.
 
 ${ourCompaniesPromptList}
 ${suppliersPromptList}
@@ -266,11 +284,34 @@ ${knownOrdersPromptList}
    - ЗАПИШИ ЦЮ СУМУ В ОБИДВА ПОЛЯ: "totalAmount" ТА "amountPaid"!
    - currency: Валюта ("UAH", "USD", "EUR", "PLN").
 
-6. ДЛЯ ПЛАТІЖОК (payment):
-   - paymentNumber: номер платіжки (платіжної інструкції / квитанції)
+6. ДЛЯ ПЛАТІЖОК ТА БАНКІВСЬКИХ КВИТАНЦІЙ (payment):
+   - paymentNumber: номер платіжки (платіжної інструкції / квитанції / меморіального ордера)
    - paymentDate: дата проведення (РРРР-ММ-ДД)
-   - payerName: платник (наша компанія, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ БУДМОНТАЖ-2026")
-   - payeeName: одержувач (постачальник, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ МЕТІНВЕСТ-СМЦ")
+   - КРИТИЧНО — ЛОГІКА РОЗПІЗНАВАННЯ ПЛАТНИКА ТА ОТРИМУВАЧА В РІЗНИХ ФОРМАХ БАНКІВ:
+     Різні українські банки (ПриватБанк, Райффайзен, Ощадбанк, ПУМБ, Укрсиббанк, Монобанк тощо) мають дещо різні форми платіжних документів!
+     
+     * ФОРМА 1 (Класична): назви компаній вказані безпосередньо в рядках: "Платник: ТОВ НАША КОМПАНІЯ", "Отримувач: ТОВ ПОСТАЧАЛЬНИК".
+
+     * ФОРМА 2 (Нова / Таблична банківська форма — БЛОКИ З ПОЛЕМ "Найменування"):
+       У цій формі назва платника та отримувача вказані НЕ в самому рядку "Платник" чи "Отримувач" (де може стояти лише код ЄДРПОУ, IBAN рахунок або заголовок блоку), А РЯДКОМ НИЖЧЕ навпроти підпису "Найменування" (або "Найменування платника", "Найменування отримувача", "Найменування клієнта"):
+       
+       [БЛОК ПЛАТНИКА / ДЕБЕТ]:
+       Рядок: "Платник" (або "Платник / Дебет / Payer")
+       Рядок нижче: "Найменування: [НАЗВА НАШОЇ КОМПАНІЇ]"
+       ---> ЦЕ СТРОГО payerName (Платник / наша компанія зі СПИСКУ НАШИХ КОМПАНІЙ)!
+
+       [БЛОК ОТРИМУВАЧА / КРЕДИТ]:
+       Рядок: "Отримувач" (або "Отримувач / Одержувач / Кредит / Payee")
+       Рядок нижче: "Найменування: [НАЗВА ПОСТАЧАЛЬНИКА]"
+       ---> ЦЕ СТРОГО payeeName (Отримувач / постачальник зі СПИСКУ ПОСТАЧАЛЬНИКІВ)!
+
+     * СУВОРЕ ПРАВИЛО: НЕ ПЛУТАЙ СЛОВО "Найменування"!
+       І у блоці платника, і у блоці отримувача надруковано однакове слово "Найменування":
+       - Те "Найменування", яке розташоване безпосередньо під/у блоці "Платник" — це ЗАВЖДИ Платник (payerName, наша компанія)!
+       - Те "Найменування", яке розташоване безпосередньо під/у блоці "Отримувач" — це ЗАВЖДИ Отримувач (payeeName, постачальник)!
+
+   - payerName: платник (наша компанія, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ БУДМОНТАЖ-2026", обов'язково звір зі СПИСКОМ НАШИХ КОМПАНІЙ)
+   - payeeName: одержувач (постачальник, ВЕЛИКИМИ БУКВАМИ БЕЗ ЛАПОК, наприклад "ТОВ МЕТІНВЕСТ-СМЦ", витягни з блоку Отримувача)
    - amountPaid: точна сума оплати (наприклад 96932.88)
    - totalAmount: така сама точна сума оплати (наприклад 96932.88)
    - paymentPurpose: повне "Призначення платежу" дослівно
@@ -384,13 +425,113 @@ ${knownOrdersPromptList}
   parsedResult.totalAmount = parseAmountToNumber(parsedResult.totalAmount);
   parsedResult.amountPaid = parseAmountToNumber(parsedResult.amountPaid);
 
+  // Auto-detect payment if fileName, title, or fields indicate payment instruction / receipt
+  const lowerFileName = (fileName || '').toLowerCase();
+  const lowerDocTypeUkr = String(parsedResult.documentTypeUkrainian || '').toLowerCase();
+  const lowerPurpose = String(parsedResult.paymentPurpose || '').toLowerCase();
+  const hasPaymentIndicators = (
+    lowerFileName.includes('платіж') ||
+    lowerFileName.includes('платеж') ||
+    lowerFileName.includes('доручен') ||
+    lowerFileName.includes('інструкц') ||
+    lowerFileName.includes('квитанц') ||
+    lowerFileName.includes('виписк') ||
+    lowerFileName.includes('payment') ||
+    lowerFileName.includes('receipt') ||
+    lowerDocTypeUkr.includes('платіж') ||
+    lowerDocTypeUkr.includes('інструкц') ||
+    lowerDocTypeUkr.includes('доручен') ||
+    lowerDocTypeUkr.includes('квитанц') ||
+    lowerDocTypeUkr.includes('виписк') ||
+    Boolean(parsedResult.paymentNumber && !parsedResult.invoiceNumber) ||
+    Boolean(parsedResult.paymentPurpose && (lowerPurpose.includes('оплата за') || lowerPurpose.includes('згідно рахунк') || lowerPurpose.includes('без пдв') || lowerPurpose.includes('у т.ч. пдв')))
+  );
+
+  if (hasPaymentIndicators && parsedResult.documentType !== 'payment') {
+    parsedResult.documentType = 'payment';
+    if (!parsedResult.documentTypeUkrainian || parsedResult.documentTypeUkrainian.includes('Рахунок')) {
+      parsedResult.documentTypeUkrainian = 'Платіжна інструкція';
+    }
+  }
+
   // Payment-specific normalization and cross-filling
   if (parsedResult.documentType === 'payment') {
+    // 1. Smart Anti-Swap Check: In bank receipts with two "Найменування" rows (one under Платник, one under Отримувач),
+    // models sometimes mix them up. Check against configured ourCompanies and suppliers:
+    if (parsedResult.payeeName && parsedResult.payerName && ourCompanies.length > 0) {
+      const isPayeeOurCompany = ourCompanies.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.payeeName!));
+      const isPayerOurCompany = ourCompanies.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.payerName!));
+      const isPayerSupplier = suppliers.some((s) => OCRService.isCompanyNameMatch(s, parsedResult.payerName!));
+
+      if (isPayeeOurCompany && (!isPayerOurCompany || isPayerSupplier)) {
+        console.log(`[OCR Smart Swap] Swapping payerName "${parsedResult.payerName}" and payeeName "${parsedResult.payeeName}" because payee matches ourCompanies!`);
+        const temp = parsedResult.payerName;
+        parsedResult.payerName = parsedResult.payeeName;
+        parsedResult.payeeName = temp;
+      }
+    }
+
+    // 2. Rescue missing payeeName (Отримувач / Постачальник)
+    if (!parsedResult.payeeName || parsedResult.payeeName === '—') {
+      const purpose = parsedResult.paymentPurpose || '';
+      const notes = parsedResult.notes || '';
+      const fullText = `${purpose} ${notes}`;
+
+      // A) Try matching against suppliers list
+      for (const sup of suppliers) {
+        if (sup && sup.length >= 3 && OCRService.isCompanyNameMatch(fullText, sup)) {
+          parsedResult.payeeName = OCRService.normalizeCompanyName(sup);
+          break;
+        }
+      }
+
+      // B) Try regex extraction for company name in paymentPurpose
+      if (!parsedResult.payeeName || parsedResult.payeeName === '—') {
+        const compMatch = purpose.match(/(?:отримувач|одержувач|постачальник|продавець)?\s*[:=]?\s*(ТОВ|ПП|ФОП|ПрАТ|ПАТ|АТ|ТДВ)\s+["'«»]?[A-Za-zА-Яа-яІіЇїЄєҐґ0-9\s\-–—]{2,40}["'«»]?/i);
+        if (compMatch && compMatch[0]) {
+          const candidate = OCRService.normalizeCompanyName(compMatch[0]);
+          if (!ourCompanies.some((c) => OCRService.isCompanyNameMatch(c, candidate))) {
+            parsedResult.payeeName = candidate;
+          }
+        }
+      }
+    }
+
+    // 3. Rescue missing payerName (Платник / Наша компанія)
+    if (!parsedResult.payerName || parsedResult.payerName === '—') {
+      const fullText = `${parsedResult.paymentPurpose || ''} ${parsedResult.notes || ''}`;
+      for (const ourComp of ourCompanies) {
+        if (ourComp && OCRService.isCompanyNameMatch(fullText, ourComp)) {
+          parsedResult.payerName = OCRService.normalizeCompanyName(ourComp);
+          break;
+        }
+      }
+      if ((!parsedResult.payerName || parsedResult.payerName === '—') && ourCompanies.length === 1) {
+        parsedResult.payerName = OCRService.normalizeCompanyName(ourCompanies[0]);
+      }
+    }
+
     if (parsedResult.payerName && !parsedResult.buyerName) {
       parsedResult.buyerName = parsedResult.payerName;
+    } else if (parsedResult.buyerName && !parsedResult.payerName) {
+      parsedResult.payerName = parsedResult.buyerName;
     }
     if (parsedResult.payeeName && !parsedResult.supplierName) {
       parsedResult.supplierName = parsedResult.payeeName;
+    } else if (parsedResult.supplierName && !parsedResult.payeeName) {
+      parsedResult.payeeName = parsedResult.supplierName;
+    }
+
+    if (parsedResult.invoiceNumber && !parsedResult.paymentNumber) {
+      parsedResult.paymentNumber = parsedResult.invoiceNumber;
+    } else if (parsedResult.paymentNumber && !parsedResult.invoiceNumber) {
+      parsedResult.invoiceNumber = parsedResult.paymentNumber;
+    }
+
+    if (parsedResult.invoiceDate && !parsedResult.paymentDate) {
+      parsedResult.paymentDate = parsedResult.invoiceDate;
+    } else if (parsedResult.paymentDate && !parsedResult.invoiceDate) {
+      parsedResult.invoiceDate = parsedResult.paymentDate;
     }
 
     if (parsedResult.amountPaid > 0 && parsedResult.totalAmount <= 0) {
@@ -1034,6 +1175,8 @@ export class OCRService {
     matchedRowIndex?: number;
     matchedDocId?: string;
     matchReason?: string;
+    supplier?: string;
+    buyer?: string;
   }> {
     const paymentAmount = paymentOcr.amountPaid || paymentOcr.totalAmount || 0;
     const refNumbers = this.extractAllInvoiceNumbers(
@@ -1046,7 +1189,7 @@ export class OCRService {
     const purpose = (paymentOcr.paymentPurpose || '').toLowerCase();
     const payeeName = this.normalizeCompanyName(paymentOcr.payeeName || paymentOcr.supplierName || '');
 
-    const matches: Array<{
+    let matches: Array<{
       invoiceNumber: string;
       orderNumber?: string;
       invoiceAmount: number;
@@ -1056,6 +1199,8 @@ export class OCRService {
       matchedRowIndex?: number;
       matchedDocId?: string;
       matchReason?: string;
+      supplier?: string;
+      buyer?: string;
     }> = [];
 
     const matchedRowIndices = new Set<number>();
@@ -1112,11 +1257,14 @@ export class OCRService {
         !cleanRefNumbers.includes(cleanInvNum) &&
         !hasInvNumMatch;
 
+      const hasContradictingOrder =
+        Boolean(cleanOrderNum && refOrder && cleanOrderNum !== refOrder && !purpose.includes(cleanOrderNum));
+
       // Valid conditions:
       const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch);
-      // When payee/supplier matches and amount matches down to kopecks, it is a definitive match
-      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && (!hasContradictingInvoice || Math.abs(paymentAmount - invAmount) <= 0.05);
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch;
+      // When payee/supplier matches and amount matches, it is only valid if there is NO conflicting invoice AND NO conflicting order
+      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
 
       if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount) {
         let reason = '';
@@ -1139,6 +1287,8 @@ export class OCRService {
           computedStatus: 'Оплачено',
           matchedRowIndex: inv.rowIndex,
           matchReason: reason,
+          supplier: inv.supplier,
+          buyer: inv.buyer,
         });
       }
     }
@@ -1229,8 +1379,11 @@ export class OCRService {
         !cleanRefNumbers.includes(cleanInvNum) &&
         !hasInvNumMatch;
 
+      const hasContradictingOrder =
+        Boolean(cleanOrderNum && refOrder && cleanOrderNum !== refOrder && !purpose.includes(cleanOrderNum));
+
       const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch);
-      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
+      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
       const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
 
       if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount) {
@@ -1254,11 +1407,25 @@ export class OCRService {
           computedStatus: 'Оплачено',
           matchedDocId: doc.id,
           matchReason: reason,
+          supplier: ocr.supplierName,
+          buyer: ocr.buyerName,
         });
       }
     }
 
     // 3. Compute status for all matched invoices based on payment amount & cumulative partial payments (доплати)
+    // Safety check: if multiple matches were found purely by supplier + amount (no specific invoice or order number),
+    // it is ambiguous and would erroneously pay multiple invoices. Keep only specific matches.
+    const purelyGenericMatches = matches.filter(
+      (m) => !m.matchReason?.includes('номеру рахунку') && !m.matchReason?.includes('замовленням')
+    );
+    if (purelyGenericMatches.length > 1) {
+      const specificMatches = matches.filter(
+        (m) => m.matchReason?.includes('номеру рахунку') || m.matchReason?.includes('замовленням')
+      );
+      matches = specificMatches;
+    }
+
     if (matches.length > 0) {
       if (matches.length === 1) {
         // Single invoice in payment order: can be full payment, partial/prepayment, or additional payment (доплата)
@@ -1318,6 +1485,8 @@ export class OCRService {
     matchedRowIndex?: number;
     matchedDocId?: string;
     matchReason?: string;
+    matchedSupplier?: string;
+    matchedBuyer?: string;
     matchedInvoices?: Array<{
       invoiceNumber: string;
       orderNumber?: string;
@@ -1328,6 +1497,8 @@ export class OCRService {
       matchedRowIndex?: number;
       matchedDocId?: string;
       matchReason?: string;
+      supplier?: string;
+      buyer?: string;
     }>;
   } {
     const paymentAmount = paymentOcr.amountPaid || paymentOcr.totalAmount || 0;
@@ -1345,6 +1516,8 @@ export class OCRService {
     const totalInvAmount = allMatches.reduce((acc, m) => acc + (m.invoiceAmount || 0), 0);
     const invoiceNumbersList = allMatches.map((m) => m.invoiceNumber).filter(Boolean).join(', ');
     const orderNumbersList = Array.from(new Set(allMatches.map((m) => m.orderNumber).filter(Boolean))).join(', ');
+    const supplierList = Array.from(new Set(allMatches.map((m) => m.supplier).filter(Boolean))).join(', ');
+    const buyerList = Array.from(new Set(allMatches.map((m) => m.buyer).filter(Boolean))).join(', ');
 
     return {
       matchedInvoiceNumber: invoiceNumbersList || first.invoiceNumber,
@@ -1358,6 +1531,8 @@ export class OCRService {
       matchReason: allMatches.length > 1 
         ? `Знайдено ${allMatches.length} рахунків у таблиці (${invoiceNumbersList})` 
         : first.matchReason,
+      matchedSupplier: supplierList || first.supplier,
+      matchedBuyer: buyerList || first.buyer,
       matchedInvoices: allMatches,
     };
   }
@@ -1447,14 +1622,17 @@ export class OCRService {
         !cleanPRefNumbers.includes(cleanInvNum) &&
         !hasDirectInvNumMatch;
 
+      const hasContradictingOrder =
+        Boolean(cleanOrderNum && refOrd && cleanOrderNum !== refOrd && !purpose.includes(cleanOrderNum));
+
       // Condition 1: Direct match by invoice number (payee must not contradict supplier)
       const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch);
 
-      // Condition 2: Exact Payee + Exact Amount match (e.g. 177.72 грн)
-      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && (!hasContradictingInvoice || Math.abs(invAmount - pAmount) <= 0.05);
+      // Condition 2: Exact Payee + Exact Amount match (strictly require no contradictory invoice number and no contradictory order)
+      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
 
       // Condition 3: Exact Order + Exact Payee + Exact Amount match
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch;
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
 
       if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount) {
         seenPaymentKeys.add(pKey);
@@ -1514,9 +1692,12 @@ export class OCRService {
         !cleanPRefNumbers.includes(cleanInvNum) &&
         !hasDirectInvNumMatch;
 
+      const hasContradictingOrder =
+        Boolean(cleanOrderNum && refOrd && cleanOrderNum !== refOrd && !purpose.includes(cleanOrderNum));
+
       const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch);
-      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && (!hasContradictingInvoice || Math.abs(invAmount - pAmount) <= 0.05);
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch;
+      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
+      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice;
 
       if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount) {
         seenPaymentKeys.add(pKey);
@@ -1731,13 +1912,15 @@ export class OCRService {
           };
         }
 
-        // Condition 2: Date + exact amount + payee
-        if (dateMatch && amountMatch) {
+        // Condition 2: Exact same payment purpose + payee + amount match
+        const existPurpose = (p.paymentPurpose || '').trim().toLowerCase();
+        const docPurpose = (docOcr.paymentPurpose || '').trim().toLowerCase();
+        if (docPurpose && existPurpose && docPurpose === existPurpose && amountMatch) {
           return {
             alreadyInSheet: true,
             rowIndex: p.rowIndex,
             tabName: 'Платіжки',
-            reason: `Платіжка на суму ${amount} грн від ${payDate} (${existPayee}) вже є у вкладці "Платіжки" (рядок ${p.rowIndex})`,
+            reason: `Платіжка з ідентичним призначенням від ${existPayee} на суму ${amount} грн вже є у вкладці "Платіжки" (рядок ${p.rowIndex})`,
           };
         }
       }
@@ -1900,20 +2083,24 @@ export class OCRService {
           isDuplicate = true;
           matchReason = `Однакові постачальник (${b.supplier}), номер рахунку (№${b.invoiceNumber}) та сума (${this.formatCurrency(bAmount)})`;
         }
-        // Duplicate Case 2: Same supplier + same handwritten order number + amount match (and not conflicting invoice numbers)
-        else if (supMatch && orderNumMatch && amountMatch && !conflictingInvNumbers) {
+        // Duplicate Case 2: Same supplier + same order number + same valid invoice number + amount match
+        else if (supMatch && orderNumMatch && validInvNumbersMatch && amountMatch) {
           isDuplicate = true;
-          matchReason = `Однакові постачальник (${b.supplier}), замовлення (${b.orderNumber}) та сума (${this.formatCurrency(bAmount)})`;
+          matchReason = `Однакові постачальник (${b.supplier}), замовлення (${b.orderNumber}), рахунок (№${b.invoiceNumber}) та сума (${this.formatCurrency(bAmount)})`;
         }
-        // Duplicate Case 3: Same supplier + same date + exact amount match (and not conflicting invoice numbers)
-        else if (supMatch && dateMatch && exactAmountMatch && !conflictingInvNumbers) {
+        // Duplicate Case 3: Same Drive link or file name with amount match
+        else if (
+          ((a.driveLink && b.driveLink && a.driveLink === b.driveLink) ||
+           (a.fileName && b.fileName && a.fileName === b.fileName)) &&
+          amountMatch
+        ) {
           isDuplicate = true;
-          matchReason = `Однакові постачальник (${b.supplier}), дата (${b.invoiceDate}) та сума (${this.formatCurrency(bAmount)})`;
+          matchReason = `Однаковий файл або посилання Google Drive (${b.fileName || 'файл'}) та сума (${this.formatCurrency(bAmount)})`;
         }
         // Duplicate Case 4: Completely identical row content
-        else if (aSup === bSup && aInv === bInv && aOrd === bOrd && Math.abs(aAmount - bAmount) < 0.01) {
+        else if (aSup === bSup && aInv === bInv && aOrd === bOrd && aDate === bDate && Math.abs(aAmount - bAmount) < 0.01) {
           isDuplicate = true;
-          matchReason = `Повністю ідентичні дані рядків`;
+          matchReason = `Повністю ідентичні дані рядків рахунку`;
         }
 
         if (isDuplicate) {
@@ -2008,15 +2195,19 @@ export class OCRService {
           isDuplicate = true;
           matchReason = `Однакові отримувач (${b.payee}), номер платіжки (№${b.paymentNumber}) та сума (${this.formatCurrency(bAmount)})`;
         }
-        // Case 2: Same payee + same payment date + exact amount match (and no conflicting numbers)
-        else if (payeeMatch && dateMatch && exactAmountMatch && !conflictingNumbers) {
-          isDuplicate = true;
-          matchReason = `Однакові отримувач (${b.payee}), дата (${b.paymentDate}) та сума (${this.formatCurrency(bAmount)})`;
-        }
-        // Case 3: Same payee + same purpose + exact amount
+        // Case 2: Same payee + same non-empty purpose + exact amount
         else if (payeeMatch && aPurpose && bPurpose && aPurpose === bPurpose && exactAmountMatch) {
           isDuplicate = true;
           matchReason = `Однакові отримувач (${b.payee}), призначення платежу та сума (${this.formatCurrency(bAmount)})`;
+        }
+        // Case 3: Same Drive link or file name with amount match
+        else if (
+          ((a.driveLink && b.driveLink && a.driveLink === b.driveLink) ||
+           (a.fileName && b.fileName && a.fileName === b.fileName)) &&
+          amountMatch
+        ) {
+          isDuplicate = true;
+          matchReason = `Однаковий файл або посилання Google Drive (${b.fileName || 'файл'}) та сума (${this.formatCurrency(bAmount)})`;
         }
         // Case 4: Completely identical payment row
         else if (aPayee === bPayee && aNum === bNum && aDate === bDate && Math.abs(aAmount - bAmount) < 0.01) {

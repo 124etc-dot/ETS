@@ -20,6 +20,7 @@ import {
   SheetConfig, 
   SheetCompanyLists, 
   ExistingSheetRow, 
+  ExistingPaymentRow,
   OCRResult,
   InvoicePaymentStatus,
   DuplicateRowMatch
@@ -51,6 +52,26 @@ const SHEET_STORAGE_KEY = 'invoice_ocr_sheet_config';
 const DOCUMENTS_STORAGE_KEY = 'invoice_ocr_documents_cache_v2';
 const AUTO_OCR_STORAGE_KEY = 'invoice_ocr_auto_ocr_v1';
 const AUTO_SYNC_INTERVAL_KEY = 'invoice_ocr_auto_sync_interval_v1';
+const DISMISSED_DRIVE_IDS_KEY = 'invoice_ocr_dismissed_drive_file_ids_v1';
+const COMPANIES_STORAGE_KEY = 'invoice_sheet_companies_cache_v1';
+const INVOICES_STORAGE_KEY = 'invoice_sheet_invoices_cache_v1';
+const PAYMENTS_STORAGE_KEY = 'invoice_sheet_payments_cache_v1';
+
+const getDismissedDriveIds = (): Set<string> => {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(DISMISSED_DRIVE_IDS_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+};
+
+const saveDismissedDriveIds = (ids: Set<string>) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DISMISSED_DRIVE_IDS_KEY, JSON.stringify(Array.from(ids)));
+  } catch {}
+};
 
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(googleAuth.getAuthState());
@@ -93,17 +114,51 @@ export default function App() {
     }
   };
 
-  const [companyLists, setCompanyLists] = useState<SheetCompanyLists>({
-    ourCompanies: DEFAULT_OUR_COMPANIES,
-    suppliers: DEFAULT_SUPPLIERS,
+  const [companyLists, setCompanyLists] = useState<SheetCompanyLists>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(COMPANIES_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed?.ourCompanies?.length || parsed?.suppliers?.length) return parsed;
+        }
+      } catch {}
+    }
+    return {
+      ourCompanies: DEFAULT_OUR_COMPANIES,
+      suppliers: DEFAULT_SUPPLIERS,
+    };
   });
-  const [existingInvoices, setExistingInvoices] = useState<ExistingSheetRow[]>([]);
+
+  const [existingInvoices, setExistingInvoices] = useState<ExistingSheetRow[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(INVOICES_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
   const existingInvoicesRef = useRef(existingInvoices);
   useEffect(() => {
     existingInvoicesRef.current = existingInvoices;
   }, [existingInvoices]);
 
-  const [existingPayments, setExistingPayments] = useState<any[]>([]);
+  const [existingPayments, setExistingPayments] = useState<any[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(PAYMENTS_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
   const existingPaymentsRef = useRef(existingPayments);
   useEffect(() => {
     existingPaymentsRef.current = existingPayments;
@@ -168,7 +223,7 @@ export default function App() {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            // Permanently filter out any sample/demo invoices and reset any stuck 'processing' status to 'pending'
+            // Permanently filter out any sample/demo invoices and reset stuck 'processing' status
             const realDocs = parsed
               .filter((d: ProcessedDocument) => !d.id?.startsWith('sample_'))
               .map((d: ProcessedDocument) => {
@@ -254,6 +309,10 @@ export default function App() {
     if (authState.accessToken && sheetConfig?.spreadsheetId) {
       refreshSheetData();
     }
+    // Auto-fetch Drive folder files if folder is configured and documents list is empty
+    if (authState.accessToken && driveFolderId && documentsRef.current.length === 0) {
+      handleFetchDriveFiles(driveFolderId);
+    }
     // Auto-upload any local documents that haven't been saved to Google Drive yet
     if (authState.accessToken) {
       const pendingUploads = documentsRef.current.filter(
@@ -265,7 +324,7 @@ export default function App() {
         });
       }
     }
-  }, [authState.accessToken, sheetConfig?.spreadsheetId]);
+  }, [authState.accessToken, sheetConfig?.spreadsheetId, driveFolderId]);
 
   // Show notification helper
   const notify = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -302,14 +361,18 @@ export default function App() {
         activeCfg.suppliersSheetName
       );
       if (lists.ourCompanies.length > 0 || lists.suppliers.length > 0) {
-        setCompanyLists({
+        const dedupedLists = {
           ourCompanies: GoogleSheetsService.deduplicateCompanyList(
             lists.ourCompanies.length > 0 ? lists.ourCompanies : DEFAULT_OUR_COMPANIES
           ),
           suppliers: GoogleSheetsService.deduplicateCompanyList(
             lists.suppliers.length > 0 ? lists.suppliers : DEFAULT_SUPPLIERS
           ),
-        });
+        };
+        setCompanyLists(dedupedLists);
+        try {
+          localStorage.setItem(COMPANIES_STORAGE_KEY, JSON.stringify(dedupedLists));
+        } catch {}
       }
 
       const rows = await GoogleSheetsService.loadExistingInvoices(
@@ -318,7 +381,12 @@ export default function App() {
         activeCfg.invoicesSheetName,
         availableTabs
       );
-      setExistingInvoices(rows);
+      if (rows && rows.length > 0) {
+        setExistingInvoices(rows);
+        try {
+          localStorage.setItem(INVOICES_STORAGE_KEY, JSON.stringify(rows));
+        } catch {}
+      }
 
       const { payments, resolvedTabName } = await GoogleSheetsService.loadExistingPayments(
         activeCfg.spreadsheetId,
@@ -326,7 +394,12 @@ export default function App() {
         activeCfg.paymentsSheetName,
         availableTabs
       );
-      setExistingPayments(payments);
+      if (payments && payments.length > 0) {
+        setExistingPayments(payments);
+        try {
+          localStorage.setItem(PAYMENTS_STORAGE_KEY, JSON.stringify(payments));
+        } catch {}
+      }
 
       // Auto-sync tab names or availableSheets back to sheetConfig if discovered
       if (
@@ -342,33 +415,67 @@ export default function App() {
       }
 
       // Automatically re-evaluate whether any documents in the list already exist in the sheet
-      setDocuments((prevDocs) =>
-        prevDocs.map((d) => {
+      setDocuments((prevDocs) => {
+        // If sheet data failed to load or is completely empty, do NOT modify documents state
+        if ((!rows || rows.length === 0) && (!payments || payments.length === 0)) {
+          return prevDocs;
+        }
+
+        const remainingDocs: ProcessedDocument[] = [];
+
+        for (const d of prevDocs) {
           const ocr = d.editedData || d.ocrResult;
-          if (!ocr) return d;
-          const check = OCRService.checkExistingDocumentInSheet(ocr, rows, payments);
+          if (!ocr) {
+            remainingDocs.push(d);
+            continue;
+          }
+
+          // For payments: if handwrittenOrderNumber is missing, inherit it from matching invoices
+          let effectiveOcr = ocr;
+          if (ocr.documentType === 'payment' && !ocr.handwrittenOrderNumber) {
+            const pMatch = OCRService.matchPaymentWithInvoices(ocr, rows, prevDocs);
+            if (pMatch.matchedOrderNumber) {
+              effectiveOcr = {
+                ...ocr,
+                handwrittenOrderNumber: pMatch.matchedOrderNumber,
+                referencedOrderNumber: pMatch.matchedOrderNumber,
+                handwrittenConfidence: 'high',
+                matchedInvoiceNumber: pMatch.matchedInvoiceNumber || ocr.matchedInvoiceNumber,
+              };
+            }
+          }
+
+          const check = OCRService.checkExistingDocumentInSheet(effectiveOcr, rows, payments);
+
           if (check.alreadyInSheet) {
-            return {
+            remainingDocs.push({
               ...d,
+              ocrResult: effectiveOcr,
+              editedData: effectiveOcr,
               syncedRowIndex: check.rowIndex,
               alreadyInSheet: true,
               alreadyInSheetReason: check.reason,
               alreadyInSheetTab: check.tabName,
-              // Only mark 'synced' if actually synced by the user in this session
               status: d.syncedAt ? 'synced' : d.status === 'synced' && !d.syncedAt ? 'ready_for_review' : d.status,
-            };
+            });
           } else {
-            return {
+            // Document is NOT currently in the Google Sheet:
+            // KEEP the document! Never drop documents from queue behind the user's back.
+            remainingDocs.push({
               ...d,
-              syncedRowIndex: d.syncedAt ? d.syncedRowIndex : undefined,
+              ocrResult: effectiveOcr,
+              editedData: effectiveOcr,
+              syncedRowIndex: undefined,
               alreadyInSheet: false,
               alreadyInSheetReason: undefined,
               alreadyInSheetTab: undefined,
-              status: d.syncedAt ? 'synced' : d.status === 'synced' ? 'ready_for_review' : d.status,
-            };
+              status: d.status === 'synced' ? 'ready_for_review' : d.status,
+            });
           }
-        })
-      );
+        }
+
+        return remainingDocs;
+      });
     } catch (err: any) {
       console.warn('Could not refresh sheet data:', err);
     } finally {
@@ -448,7 +555,7 @@ export default function App() {
           knownOrders: KNOWN_PROJECT_ORDERS,
         });
 
-        return { ocrResult, base64Payload };
+        return { ocrResult, base64Payload, mimeType };
       };
 
       // 45-second timeout safeguard so it NEVER hangs indefinitely
@@ -464,7 +571,7 @@ export default function App() {
         )
       );
 
-      const { ocrResult, base64Payload } = await Promise.race([executeOcrWorkflow(), timeoutPromise]);
+      const { ocrResult, base64Payload, mimeType } = await Promise.race([executeOcrWorkflow(), timeoutPromise]);
 
       if (ocrResult.documentType === 'payment') {
         const match = OCRService.matchPaymentWithInvoices(
@@ -476,6 +583,11 @@ export default function App() {
         ocrResult.matchedInvoiceAmount = match.invoiceAmount;
         ocrResult.matchedInvoiceRowIndex = match.matchedRowIndex;
         ocrResult.paymentStatus = match.computedStatus;
+        if (match.matchedOrderNumber) {
+          ocrResult.referencedOrderNumber = match.matchedOrderNumber;
+          ocrResult.handwrittenOrderNumber = match.matchedOrderNumber;
+          ocrResult.handwrittenConfidence = 'high';
+        }
       } else {
         const match = OCRService.matchInvoiceWithPayments(
           ocrResult,
@@ -509,13 +621,39 @@ export default function App() {
         alreadyInSheetTab: sheetCheck.tabName,
         ocrResult,
         editedData: ocrResult,
-        previewDataUrl: base64Payload,
+        previewDataUrl: base64Payload || doc.previewDataUrl,
+        mimeType: mimeType || doc.mimeType,
         errorMessage: undefined,
       };
 
-      setDocuments((prev) =>
-        prev.map((d) => (d.id === docId ? updatedDoc : d))
-      );
+      setDocuments((prev) => {
+        const next = prev.map((d) => (d.id === docId ? updatedDoc : d));
+        // If this was an invoice with an order number, propagate it to any matching payments in queue
+        if (updatedDoc.ocrResult?.documentType === 'invoice') {
+          const invOrder = updatedDoc.ocrResult.handwrittenOrderNumber;
+          if (invOrder) {
+            return next.map((d) => {
+              if (d.id === docId) return d;
+              const data = d.editedData || d.ocrResult;
+              if (data?.documentType === 'payment' && !data.handwrittenOrderNumber) {
+                const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, next);
+                if (pMatch.matchedOrderNumber) {
+                  const updatedData: OCRResult = {
+                    ...data,
+                    handwrittenOrderNumber: pMatch.matchedOrderNumber,
+                    referencedOrderNumber: pMatch.matchedOrderNumber,
+                    handwrittenConfidence: 'high',
+                    matchedInvoiceNumber: pMatch.matchedInvoiceNumber || data.matchedInvoiceNumber,
+                  };
+                  return { ...d, ocrResult: updatedData, editedData: updatedData };
+                }
+              }
+              return d;
+            });
+          }
+        }
+        return next;
+      });
       setSelectedReviewDoc((prev) => (prev?.id === docId ? updatedDoc : prev));
     } catch (err: any) {
       const errDoc: ProcessedDocument = {
@@ -573,25 +711,169 @@ export default function App() {
         createdAt: f.createdTime ? new Date(f.createdTime).getTime() : (now + idx),
       }));
 
-      // Filter to really new items not yet in documents
+      // Filter to really new items not yet in documents and not dismissed by the user
+      const dismissedIds = getDismissedDriveIds();
       const existingDriveIds = new Set(documentsRef.current.map((d) => d.driveFileId).filter(Boolean));
-      const newlyAddedDocs = newDocs.filter((nd) => !existingDriveIds.has(nd.driveFileId));
+
+      // Match files against existing rows in Google Sheets
+      const currentInvoices = existingInvoicesRef.current;
+      const currentPayments = existingPaymentsRef.current;
+
+      const findSheetMatchForDriveFile = (f: { id: string; name: string; webViewLink?: string }) => {
+        const cleanName = f.name.toLowerCase().trim();
+        const pMatch = currentPayments.find(
+          (p) =>
+            (p.payee || p.payer || p.amountPaid || p.paymentNumber) &&
+            ((p.driveLink && f.webViewLink && p.driveLink.includes(f.id)) ||
+              (p.fileName && p.fileName.trim().length > 3 && cleanName.length > 3 && p.fileName.toLowerCase().trim() === cleanName))
+        );
+        if (pMatch) {
+          // If pMatch does not have an order number in the sheet, inherit it from matching invoice
+          let orderNumber = pMatch.orderNumber || '';
+          let matchedInvNum = pMatch.referencedInvoiceNumber || '';
+          if (!orderNumber) {
+            const tempOcr: OCRResult = {
+              documentType: 'payment',
+              documentTypeUkrainian: 'Платіжна інструкція',
+              paymentNumber: pMatch.paymentNumber || '',
+              paymentDate: pMatch.paymentDate || '',
+              payerName: pMatch.payer || '',
+              buyerName: pMatch.payer || '',
+              payeeName: pMatch.payee || '',
+              supplierName: pMatch.payee || '',
+              invoiceNumber: '',
+              invoiceDate: '',
+              amountPaid: pMatch.amountPaid || 0,
+              totalAmount: pMatch.amountPaid || 0,
+              currency: pMatch.currency || 'UAH',
+              paymentPurpose: pMatch.paymentPurpose || '',
+              referencedInvoiceNumber: pMatch.referencedInvoiceNumber || '',
+              referencedInvoiceNumbers: pMatch.referencedInvoiceNumber ? [pMatch.referencedInvoiceNumber] : [],
+              handwrittenOrderNumber: '',
+              handwrittenConfidence: 'none',
+              confidenceScore: 100,
+            };
+            const match = OCRService.matchPaymentWithInvoices(tempOcr, currentInvoices, documentsRef.current);
+            if (match.matchedOrderNumber) {
+              orderNumber = match.matchedOrderNumber;
+            }
+            if (match.matchedInvoiceNumber && !matchedInvNum) {
+              matchedInvNum = match.matchedInvoiceNumber;
+            }
+          }
+
+          const matchedData: OCRResult = {
+            documentType: 'payment',
+            documentTypeUkrainian: 'Платіжна інструкція',
+            invoiceNumber: '',
+            invoiceDate: '',
+            paymentNumber: pMatch.paymentNumber || '',
+            paymentDate: pMatch.paymentDate || '',
+            payerName: pMatch.payer || '',
+            buyerName: pMatch.payer || '',
+            payeeName: pMatch.payee || '',
+            supplierName: pMatch.payee || '',
+            amountPaid: pMatch.amountPaid || 0,
+            totalAmount: pMatch.amountPaid || 0,
+            currency: pMatch.currency || 'UAH',
+            paymentPurpose: pMatch.paymentPurpose || '',
+            referencedInvoiceNumber: pMatch.referencedInvoiceNumber || '',
+            referencedInvoiceNumbers: pMatch.referencedInvoiceNumber ? [pMatch.referencedInvoiceNumber] : [],
+            handwrittenOrderNumber: orderNumber,
+            referencedOrderNumber: orderNumber,
+            handwrittenConfidence: orderNumber ? 'high' : 'none',
+            matchedInvoiceNumber: matchedInvNum,
+            confidenceScore: 100,
+            paymentStatus: 'Оплачено',
+          };
+          return {
+            inSheet: true,
+            tab: 'Платіжки',
+            rowIndex: pMatch.rowIndex,
+            matchedData,
+          };
+        }
+        const iMatch = currentInvoices.find(
+          (inv) =>
+            (inv.supplier || inv.buyer || inv.amount || inv.invoiceNumber) &&
+            ((inv.driveLink && f.webViewLink && inv.driveLink.includes(f.id)) ||
+              (inv.fileName && inv.fileName.trim().length > 3 && cleanName.length > 3 && inv.fileName.toLowerCase().trim() === cleanName))
+        );
+        if (iMatch) {
+          const matchedData: OCRResult = {
+            documentType: 'invoice',
+            documentTypeUkrainian: 'Рахунок на оплату',
+            invoiceNumber: iMatch.invoiceNumber || '',
+            invoiceDate: iMatch.invoiceDate || '',
+            supplierName: iMatch.supplier || '',
+            buyerName: iMatch.buyer || '',
+            totalAmount: iMatch.amount || 0,
+            amountPaid: iMatch.paidAmount || 0,
+            currency: iMatch.currency || 'UAH',
+            handwrittenOrderNumber: iMatch.orderNumber || '',
+            handwrittenConfidence: iMatch.orderNumber ? 'high' : 'none',
+            confidenceScore: 100,
+            paymentStatus: iMatch.paymentStatus || 'Не оплачено',
+          };
+          return {
+            inSheet: true,
+            tab: 'Рахунки',
+            rowIndex: iMatch.rowIndex,
+            matchedData,
+          };
+        }
+        return { inSheet: false };
+      };
+
+      const newlyAddedDocs = newDocs
+        .filter((nd) => !existingDriveIds.has(nd.driveFileId) && (!isAutoSync || documentsRef.current.length === 0 || !dismissedIds.has(nd.driveFileId!)))
+        .map((nd) => {
+          const match = findSheetMatchForDriveFile({
+            id: nd.driveFileId!,
+            name: nd.fileName,
+            webViewLink: nd.driveLink,
+          });
+          if (match.inSheet) {
+            const data = match.matchedData;
+            const hasGenuineCompany = Boolean(
+              (data.supplierName && data.supplierName !== '—') ||
+              (data.payeeName && data.payeeName !== '—') ||
+              (data.payerName && data.payerName !== '—')
+            );
+            return {
+              ...nd,
+              status: hasGenuineCompany ? ('synced' as const) : ('ready_for_review' as const),
+              alreadyInSheet: true,
+              alreadyInSheetTab: match.tab,
+              syncedRowIndex: match.rowIndex,
+              alreadyInSheetReason: `Файл знайдено у вкладці "${match.tab}" Google Таблиці (рядок ${match.rowIndex}).`,
+              ocrResult: match.matchedData,
+              editedData: match.matchedData,
+            };
+          }
+          return nd;
+        });
 
       if (newlyAddedDocs.length > 0) {
         setDocuments((prev) => [...newlyAddedDocs, ...prev]);
 
-        // Auto-trigger OCR if autoOcrEnabled is true
-        if (autoOcrEnabled) {
-          notify(`Знайдено ${newlyAddedDocs.length} нових файлів. Запускаємо авто-розпізнавання AI...`, 'info');
+        // Auto-trigger OCR ONLY for docs that are NOT already in the sheet
+        const docsToOcr = newlyAddedDocs.filter((d) => d.status !== 'synced');
+        if (autoOcrEnabled && docsToOcr.length > 0) {
+          notify(`Знайдено ${docsToOcr.length} нових файлів. Запускаємо авто-розпізнавання AI...`, 'info');
           setTimeout(() => {
-            handleBatchProcess(newlyAddedDocs.map((d) => d.id));
+            handleBatchProcess(docsToOcr.map((d) => d.id));
           }, 300);
+        } else if (docsToOcr.length > 0) {
+          notify(`Знайдено ${docsToOcr.length} нових файлів у папці Google Drive.`, 'success');
         } else {
-          notify(`Знайдено ${newlyAddedDocs.length} нових файлів у папці Google Drive.`, 'success');
+          if (!isAutoSync) {
+            notify(`Зчитано ${newlyAddedDocs.length} файлів (усі вже внесено в таблицю).`, 'info');
+          }
         }
       } else {
         if (!isAutoSync) {
-          notify(`У папці ${files.length} файлів. Усі вже додані до списку.`, 'info');
+          notify(`У папці ${files.length} файлів. Усі вже додані або вилучені зі списку.`, 'info');
         }
       }
 
@@ -627,7 +909,7 @@ export default function App() {
   }, [autoSyncIntervalMinutes, authState.accessToken, driveFolderId, autoOcrEnabled]);
 
   // Sync a document to Google Sheets
-  const handleSyncDocument = async (docId: string, customOcr?: OCRResult): Promise<void> => {
+  const handleSyncDocument = async (docId: string, customOcr?: OCRResult, forceAppend = false): Promise<void> => {
     if (!authState.accessToken) {
       setIsAuthModalOpen(true);
       return;
@@ -691,23 +973,21 @@ export default function App() {
       freshPayments
     );
 
-    if (doubleCheck.alreadyInSheet) {
+    const rowPhysicallyExists = doubleCheck.rowIndex
+      ? doubleCheck.tabName === 'Платіжки'
+        ? freshPayments.some((p) => p.rowIndex === doubleCheck.rowIndex)
+        : freshInvoices.some((inv) => inv.rowIndex === doubleCheck.rowIndex)
+      : false;
+
+    if (doubleCheck.alreadyInSheet && rowPhysicallyExists && !forceAppend) {
       // PREVENT DUPLICATE ROW: do NOT call appendInvoice / appendPayment!
       // If user altered payment status or amount on invoice, update the existing row instead of duplicating
+      // If invoice already exists in the sheet, preserve its status as source of truth instead of overwriting
       if (dataToSync.documentType === 'invoice' && doubleCheck.rowIndex) {
-        if (dataToSync.paymentStatus || dataToSync.paidAmount !== undefined) {
-          try {
-            await GoogleSheetsService.updateInvoicePaymentInSheet(
-              sheetConfig.spreadsheetId,
-              authState.accessToken,
-              doubleCheck.rowIndex,
-              dataToSync.paymentStatus || 'Не оплачено',
-              dataToSync.paidAmount || 0,
-              sheetConfig.invoicesSheetName
-            );
-          } catch (e) {
-            console.warn('Could not update status of existing row:', e);
-          }
+        const existingRow = freshInvoices.find((inv) => inv.rowIndex === doubleCheck.rowIndex);
+        if (existingRow) {
+          dataToSync.paymentStatus = existingRow.paymentStatus;
+          dataToSync.paidAmount = existingRow.paidAmount;
         }
       }
 
@@ -727,7 +1007,8 @@ export default function App() {
                 authState.accessToken,
                 m.matchedRowIndex,
                 m.computedStatus,
-                m.paidAmount || 0
+                m.paidAmount || 0,
+                sheetConfig.invoicesSheetName
               );
             } catch (err) {
               console.warn('Could not update invoice for duplicate payment:', err);
@@ -773,12 +1054,15 @@ export default function App() {
           ocr: dataToSync,
           fileName: doc.fileName,
           driveLink: doc.driveLink,
+          paymentsTab: sheetConfig.paymentsSheetName,
         });
 
         // 2. Fetch fresh invoices directly from Google Sheets to ensure exact row index and status
         const freshInvoices = await GoogleSheetsService.loadExistingInvoices(
           sheetConfig.spreadsheetId,
-          authState.accessToken
+          authState.accessToken,
+          sheetConfig.invoicesSheetName,
+          sheetConfig.availableSheets
         );
 
         // 3. Match with fresh existing invoices and update status for ALL matched invoices on "Рахунки"
@@ -800,7 +1084,8 @@ export default function App() {
                 authState.accessToken,
                 m.matchedRowIndex,
                 m.computedStatus,
-                m.paidAmount || 0
+                m.paidAmount || 0,
+                sheetConfig.invoicesSheetName
               );
               updatedRowIndices.set(m.matchedRowIndex, { status: m.computedStatus, paid: m.paidAmount || 0 });
               updatedInvoiceNames.push(`№${m.invoiceNumber} -> "${m.computedStatus}" (${OCRService.formatCurrency(m.paidAmount || 0)})`);
@@ -883,7 +1168,14 @@ export default function App() {
           paidAmount: initialPaidAmount,
           fileName: doc.fileName,
           driveLink: doc.driveLink,
+          invoicesTab: sheetConfig.invoicesSheetName,
         });
+      }
+
+      if (doc.driveFileId) {
+        const dismissed = getDismissedDriveIds();
+        dismissed.add(doc.driveFileId);
+        saveDismissedDriveIds(dismissed);
       }
 
       setDocuments((prev) =>
@@ -1105,9 +1397,188 @@ export default function App() {
     }
   };
 
+  // Compact empty/blank gap rows in a sheet tab
+  const handleCompactEmptyRows = async (tabName: string) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
+      notify('Потрібно підключити Google Таблицю для цієї операції.', 'error');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    try {
+      notify(`Очищення пустих рядків у вкладці "${tabName}"...`, 'info');
+      const res = await GoogleSheetsService.compactEmptyRowsInTab(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        tabName
+      );
+
+      if (res.removedCount > 0) {
+        await refreshSheetData();
+        notify(
+          `✨ Успішно видалено ${res.removedCount} пустих рядків у вкладці "${tabName}". Дані підтягнуто вгору!`,
+          'success'
+        );
+      } else {
+        notify(`У вкладці "${tabName}" немає порожніх рядків між записами.`, 'info');
+      }
+    } catch (err: any) {
+      notify(err.message || 'Помилка видалення пустих рядків у Google Таблиці.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  const handleDeleteInvoiceRow = async (rowIndex: number) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
+    setIsLoadingSheet(true);
+    try {
+      notify(`Видалення рядка ${rowIndex} з вкладки "${sheetConfig.invoicesSheetName || 'Рахунки'}"...`, 'info');
+      await GoogleSheetsService.deleteRowsFromSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        sheetConfig.invoicesSheetName || 'Рахунки',
+        [rowIndex]
+      );
+      await refreshSheetData();
+      notify(`🧹 Рядок ${rowIndex} успішно видалено з Google Таблиці та вилучено з черги!`, 'success');
+    } catch (err: any) {
+      notify(err.message || 'Помилка видалення рядка з Google Таблиці.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  const handleDeletePaymentRow = async (rowIndex: number) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
+    setIsLoadingSheet(true);
+    try {
+      notify(`Видалення рядка ${rowIndex} з вкладки "${sheetConfig.paymentsSheetName || 'Платіжки'}"...`, 'info');
+      await GoogleSheetsService.deleteRowsFromSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        sheetConfig.paymentsSheetName || 'Платіжки',
+        [rowIndex]
+      );
+      await refreshSheetData();
+      notify(`🧹 Рядок ${rowIndex} успішно видалено з Google Таблиці та вилучено з черги!`, 'success');
+    } catch (err: any) {
+      notify(err.message || 'Помилка видалення рядка з Google Таблиці.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  const handleMoveInvoiceToPayments = async (inv: ExistingSheetRow) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
+    setIsLoadingSheet(true);
+    try {
+      notify(`Перенесення запису "${inv.supplier || ''}" у вкладку «Платіжки»...`, 'info');
+      const ocr: OCRResult = {
+        documentType: 'payment',
+        documentTypeUkrainian: 'Платіжна інструкція',
+        handwrittenOrderNumber: inv.orderNumber || '',
+        handwrittenConfidence: 'none',
+        paymentNumber: inv.invoiceNumber || '',
+        paymentDate: inv.invoiceDate || '',
+        payerName: inv.buyer || '',
+        payeeName: inv.supplier || '',
+        buyerName: inv.buyer || '',
+        supplierName: inv.supplier || '',
+        invoiceNumber: inv.invoiceNumber || '',
+        invoiceDate: inv.invoiceDate || '',
+        amountPaid: inv.amount || 0,
+        totalAmount: inv.amount || 0,
+        currency: inv.currency || 'UAH',
+        paymentPurpose: inv.notes || `Оплата згідно рахунку №${inv.invoiceNumber}`,
+        referencedInvoiceNumber: inv.invoiceNumber || '',
+        confidenceScore: 100,
+      };
+
+      await GoogleSheetsService.appendPayment(sheetConfig.spreadsheetId, authState.accessToken, {
+        ocr,
+        fileName: inv.fileName || '',
+        driveLink: inv.driveLink || '',
+        paymentsTab: sheetConfig.paymentsSheetName,
+      });
+
+      await GoogleSheetsService.deleteRowsFromSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        sheetConfig.invoicesSheetName || 'Рахунки',
+        [inv.rowIndex]
+      );
+
+      await refreshSheetData();
+      notify(`✅ Запис (${inv.supplier || ''}, ${inv.amount} грн) успішно перенесено у вкладку «Платіжки»!`, 'success');
+    } catch (err: any) {
+      notify(err.message || 'Помилка перенесення запису у вкладку Платіжки.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
+  const handleMovePaymentToInvoices = async (pay: ExistingPaymentRow) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
+    setIsLoadingSheet(true);
+    try {
+      notify(`Перенесення запису "${pay.payee || ''}" у вкладку «Рахунки»...`, 'info');
+      const ocr: OCRResult = {
+        documentType: 'invoice',
+        documentTypeUkrainian: 'Рахунок на оплату',
+        handwrittenOrderNumber: pay.orderNumber || '',
+        handwrittenConfidence: 'none',
+        invoiceNumber: pay.referencedInvoiceNumber || pay.paymentNumber || '',
+        invoiceDate: pay.paymentDate || '',
+        buyerName: pay.payer || '',
+        supplierName: pay.payee || '',
+        payerName: pay.payer || '',
+        payeeName: pay.payee || '',
+        totalAmount: pay.amountPaid || 0,
+        currency: pay.currency || 'UAH',
+        notes: pay.paymentPurpose || '',
+        confidenceScore: 100,
+      };
+
+      await GoogleSheetsService.appendInvoice(sheetConfig.spreadsheetId, authState.accessToken, {
+        ocr,
+        fileName: pay.fileName || '',
+        driveLink: pay.driveLink || '',
+        invoicesTab: sheetConfig.invoicesSheetName,
+      });
+
+      await GoogleSheetsService.deleteRowsFromSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        sheetConfig.paymentsSheetName || 'Платіжки',
+        [pay.rowIndex]
+      );
+
+      await refreshSheetData();
+      notify(`✅ Запис (${pay.payee || ''}, ${pay.amountPaid} грн) успішно перенесено у вкладку «Рахунки»!`, 'success');
+    } catch (err: any) {
+      notify(err.message || 'Помилка перенесення запису у вкладку Рахунки.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
   const handleSaveLocalData = (docId: string, updatedOcr: OCRResult) => {
+    let effectiveOcr = updatedOcr;
+    if (updatedOcr.documentType === 'payment' && !updatedOcr.handwrittenOrderNumber) {
+      const match = OCRService.matchPaymentWithInvoices(updatedOcr, existingInvoicesRef.current, documentsRef.current);
+      if (match.matchedOrderNumber) {
+        effectiveOcr = {
+          ...updatedOcr,
+          handwrittenOrderNumber: match.matchedOrderNumber,
+          referencedOrderNumber: match.matchedOrderNumber,
+          handwrittenConfidence: 'high',
+          matchedInvoiceNumber: match.matchedInvoiceNumber || updatedOcr.matchedInvoiceNumber,
+        };
+      }
+    }
     setDocuments((prev) =>
-      prev.map((d) => (d.id === docId ? { ...d, editedData: updatedOcr } : d))
+      prev.map((d) => (d.id === docId ? { ...d, editedData: effectiveOcr } : d))
     );
   };
 
@@ -1233,11 +1704,22 @@ export default function App() {
   };
 
   const handleRemoveDoc = (docId: string) => {
+    const doc = documents.find((d) => d.id === docId);
+    if (doc?.driveFileId) {
+      const dismissed = getDismissedDriveIds();
+      dismissed.add(doc.driveFileId);
+      saveDismissedDriveIds(dismissed);
+    }
     setDocuments((prev) => prev.filter((d) => d.id !== docId));
   };
 
   const handleClearAll = () => {
     if (window.confirm('Очистити всі документи зі списку?')) {
+      const dismissed = getDismissedDriveIds();
+      documents.forEach((d) => {
+        if (d.driveFileId) dismissed.add(d.driveFileId);
+      });
+      saveDismissedDriveIds(dismissed);
       setDocuments([]);
     }
   };
@@ -1404,8 +1886,13 @@ export default function App() {
               onUpdateInvoiceStatus={handleUpdateInvoiceStatus}
               onBatchReconcile={handleBatchReconcileInvoiceStatuses}
               onDeleteDuplicates={handleDeleteDuplicateRows}
+              onCompactEmptyRows={handleCompactEmptyRows}
               onChangePaymentsTab={handleChangePaymentsTab}
               onChangeInvoicesTab={handleChangeInvoicesTab}
+              onDeleteInvoiceRow={handleDeleteInvoiceRow}
+              onDeletePaymentRow={handleDeletePaymentRow}
+              onMoveInvoiceToPayments={handleMoveInvoiceToPayments}
+              onMovePaymentToInvoices={handleMovePaymentToInvoices}
             />
           </div>
         )}
