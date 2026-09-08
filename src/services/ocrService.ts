@@ -1177,6 +1177,8 @@ export class OCRService {
     matchReason?: string;
     supplier?: string;
     buyer?: string;
+    isClosedPair?: boolean;
+    isAlreadyClosed?: boolean;
   }> {
     const paymentAmount = paymentOcr.amountPaid || paymentOcr.totalAmount || 0;
     const refNumbers = this.extractAllInvoiceNumbers(
@@ -1201,6 +1203,8 @@ export class OCRService {
       matchReason?: string;
       supplier?: string;
       buyer?: string;
+      isClosedPair?: boolean;
+      isAlreadyClosed?: boolean;
     }> = [];
 
     const matchedRowIndices = new Set<number>();
@@ -1278,6 +1282,10 @@ export class OCRService {
 
         if (inv.rowIndex) matchedRowIndices.add(inv.rowIndex);
 
+        const isAlreadyClosed =
+          inv.paymentStatus === 'Оплачено' ||
+          (invAmount > 0 && (inv.paidAmount || 0) >= invAmount - 0.50);
+
         matches.push({
           invoiceNumber: inv.invoiceNumber,
           orderNumber: inv.orderNumber,
@@ -1289,6 +1297,8 @@ export class OCRService {
           matchReason: reason,
           supplier: inv.supplier,
           buyer: inv.buyer,
+          isAlreadyClosed,
+          isClosedPair: isAlreadyClosed,
         });
       }
     }
@@ -1398,6 +1408,10 @@ export class OCRService {
 
         matchedDocIds.add(doc.id);
 
+        const isAlreadyClosed =
+          ocr.paymentStatus === 'Оплачено' ||
+          (invAmount > 0 && ((doc.editedData?.amountPaid || ocr.amountPaid || 0) >= invAmount - 0.50));
+
         matches.push({
           invoiceNumber: ocr.invoiceNumber,
           orderNumber: ocr.handwrittenOrderNumber,
@@ -1409,6 +1423,8 @@ export class OCRService {
           matchReason: reason,
           supplier: ocr.supplierName,
           buyer: ocr.buyerName,
+          isAlreadyClosed,
+          isClosedPair: isAlreadyClosed,
         });
       }
     }
@@ -1432,35 +1448,52 @@ export class OCRService {
         const single = matches[0];
         const prevPaid = single.previousPaidAmount || 0;
 
-        if (paymentAmount > 0) {
+        // GOLDEN RULE: If invoice is already closed ("Оплачено" or prevPaid covers invoiceAmount):
+        // It is closed and deactivated! Do not accumulate payment or multiply amounts.
+        const isAlreadyClosed =
+          single.isAlreadyClosed ||
+          (single.invoiceAmount > 0 && prevPaid >= single.invoiceAmount - 0.50);
+
+        if (isAlreadyClosed) {
+          single.computedStatus = 'Оплачено';
+          single.paidAmount = single.invoiceAmount; // STRICT: capped at invoice amount
+          single.isClosedPair = true;
+          single.matchReason = `${single.matchReason || ''} (🔒 Пара закрита: статус «Оплачено», сума ${this.formatCurrency(single.invoiceAmount)}). Подальшу обробку деактивовано.`.trim();
+        } else if (paymentAmount > 0) {
           const newTotalPaid = prevPaid + paymentAmount;
 
           if (newTotalPaid >= (single.invoiceAmount - 0.50)) {
-            // Reached 100% full payment
+            // Reached 100% full payment: close the pair and strictly cap at invoice amount
             single.computedStatus = 'Оплачено';
-            single.paidAmount = Math.max(single.invoiceAmount, newTotalPaid);
+            single.paidAmount = single.invoiceAmount; // STRICT: NEVER exceed invoiceAmount!
+            single.isClosedPair = true;
             if (prevPaid > 0) {
-              single.matchReason = `${single.matchReason || ''} (Доплата до повного розрахунку: було ${prevPaid} грн + ${paymentAmount} грн = ${newTotalPaid} грн)`.trim();
+              single.matchReason = `${single.matchReason || ''} (Доплата до повного розрахунку: було ${prevPaid} грн + ${paymentAmount} грн = ${single.invoiceAmount} грн. Пара закрита.)`.trim();
+            } else {
+              single.matchReason = `${single.matchReason || ''} (Оплачено на 100%. Пара закрита.)`.trim();
             }
           } else {
             // Partial payment / Additional partial payment (доплата)
             single.computedStatus = 'Оплачено частково';
-            single.paidAmount = newTotalPaid;
+            single.paidAmount = Math.min(newTotalPaid, single.invoiceAmount);
+            single.isClosedPair = false;
             if (prevPaid > 0) {
-              single.matchReason = `${single.matchReason || ''} (Чергова доплата: було ${prevPaid} грн + нова доплата ${paymentAmount} грн = разом ${newTotalPaid} грн з ${single.invoiceAmount} грн)`.trim();
+              single.matchReason = `${single.matchReason || ''} (Чергова доплата: було ${prevPaid} грн + нова доплата ${paymentAmount} грн = разом ${single.paidAmount} грн з ${single.invoiceAmount} грн)`.trim();
             }
           }
         } else {
           single.computedStatus = 'Оплачено';
           single.paidAmount = single.invoiceAmount;
+          single.isClosedPair = true;
         }
       } else {
         // Multiple invoices in single payment order:
         // Бізнес-правило: якщо рахунок є в груповій платіжці, він автоматично вважається
-        // оплаченим на 100%, а сума оплати береться з суми самого рахунку.
+        // оплаченим на 100%, а сума оплати береться суворо з суми самого рахунку.
         for (const m of matches) {
           m.computedStatus = 'Оплачено';
           m.paidAmount = m.invoiceAmount;
+          m.isClosedPair = true;
         }
       }
     }
@@ -1487,6 +1520,7 @@ export class OCRService {
     matchReason?: string;
     matchedSupplier?: string;
     matchedBuyer?: string;
+    isClosedPair?: boolean;
     matchedInvoices?: Array<{
       invoiceNumber: string;
       orderNumber?: string;
@@ -1499,6 +1533,7 @@ export class OCRService {
       matchReason?: string;
       supplier?: string;
       buyer?: string;
+      isClosedPair?: boolean;
     }>;
   } {
     const paymentAmount = paymentOcr.amountPaid || paymentOcr.totalAmount || 0;
@@ -1533,6 +1568,7 @@ export class OCRService {
         : first.matchReason,
       matchedSupplier: supplierList || first.supplier,
       matchedBuyer: buyerList || first.buyer,
+      isClosedPair: first.isClosedPair,
       matchedInvoices: allMatches,
     };
   }
@@ -1553,6 +1589,7 @@ export class OCRService {
     computedStatus: InvoicePaymentStatus;
     matchedPaymentRows: ExistingPaymentRow[];
     matchReason?: string;
+    isClosedPair?: boolean;
   } {
     const rawInvNum = (invoiceOcr.invoiceNumber || '').trim();
     const cleanInvNum = this.normalizeInvoiceNumber(rawInvNum);
@@ -1743,26 +1780,34 @@ export class OCRService {
       computedStatus = 'Оплачено';
     }
 
+    // STRICT GOLDEN RULE: When invoice is fully paid (status is "Оплачено"),
+    // totalPaidAmount is strictly capped at invoiceAmount (100%).
+    const finalPaidAmount = computedStatus === 'Оплачено' && invAmount > 0 ? invAmount : effectivePaidAmount;
+
     const first = matchedPayments[0];
     const locationStr = first.rowIndex ? `рядок ${first.rowIndex} у вкладці "Платіжки"` : `файл ${first.fileName}`;
     const reason = `Знайдено платіжку №${first.paymentNumber || ''} на суму ${this.formatCurrency(first.amountPaid || totalPaid)} (${locationStr})`;
 
     return {
       matchedPaymentNumbers: payNumbers,
-      totalPaidAmount: effectivePaidAmount,
+      totalPaidAmount: finalPaidAmount,
       computedStatus,
       matchedPaymentRows: matchedPayments,
       matchReason: reason,
+      isClosedPair: computedStatus === 'Оплачено',
     };
   }
 
   /**
-   * Reconciles existing invoices with existing payments.
-   * Scans all invoices in "Рахунки" against all payments in "Платіжки".
-   * For invoices where status in the sheet is "Не оплачено" or "Оплачено частково",
-   * checks if a corresponding payment exists in "Платіжки" (e.g. invoice in row 20
-   * from "ТОВ КОМПАНІЯ ЛІНА ТД" on 177,72 грн matching payment in row 24).
-   * Returns all detected reconciliation matches with computed status, paid amount, and payment row index.
+   * Reconciles existing invoices with existing payments using closed-pair deactivation.
+   * Business Rule:
+   * "якщо є рахунок, є платіжка по ньому, всі дані співпадають і статус Оплачено,
+   * на цьому все, деактивуємо роботу з цією парою, вони закриті фактично"
+   *
+   * Pass 1: Identifies all invoices already marked "Оплачено" and pairs them with their payments.
+   *         These pairs are closed/deactivated: payments are marked as consumed and cannot be
+   *         reused, and the invoice paid amount is strictly capped at the invoice amount.
+   * Pass 2: Reconciles remaining open invoices against only unconsumed payments.
    */
   public static reconcileInvoicesWithPayments(
     existingInvoices: ExistingSheetRow[] = [],
@@ -1782,6 +1827,7 @@ export class OCRService {
     matchedPaymentAmount?: number;
     matchedPaymentPayee?: string;
     matchReason: string;
+    isClosedPair?: boolean;
   }> {
     const results: Array<{
       invoiceRowIndex: number;
@@ -1798,10 +1844,77 @@ export class OCRService {
       matchedPaymentAmount?: number;
       matchedPaymentPayee?: string;
       matchReason: string;
+      isClosedPair?: boolean;
     }> = [];
+
+    const consumedPaymentRowIndices = new Set<number>();
+    const consumedPaymentSemanticKeys = new Set<string>();
+
+    // Pass 1: Process invoices that ALREADY have status "Оплачено" in Google Sheets.
+    // They are closed pairs. Deactivate further accumulation, consume their payment, and repair any inflated paid amounts.
+    for (const inv of existingInvoices) {
+      if (!inv.rowIndex) continue;
+      if (inv.paymentStatus === 'Оплачено') {
+        const mockOcr: OCRResult = {
+          invoiceNumber: inv.invoiceNumber,
+          invoiceDate: inv.invoiceDate,
+          handwrittenOrderNumber: inv.orderNumber,
+          supplierName: inv.supplier,
+          buyerName: inv.buyer,
+          totalAmount: inv.amount,
+          currency: inv.currency || 'UAH',
+          documentType: 'invoice',
+          documentTypeUkrainian: 'Рахунок-фактура',
+          handwrittenConfidence: 'high',
+          confidenceScore: 1,
+          paymentStatus: inv.paymentStatus,
+        };
+
+        const match = this.matchInvoiceWithPayments(mockOcr, existingPayments);
+        const firstPay = match.matchedPaymentRows[0];
+
+        if (match.matchedPaymentRows.length > 0) {
+          for (const p of match.matchedPaymentRows) {
+            if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
+            const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+            consumedPaymentSemanticKeys.add(semKey);
+          }
+        }
+
+        results.push({
+          invoiceRowIndex: inv.rowIndex,
+          invoiceNumber: inv.invoiceNumber,
+          orderNumber: inv.orderNumber,
+          supplier: inv.supplier,
+          invoiceAmount: inv.amount,
+          currentStatus: inv.paymentStatus,
+          computedStatus: 'Оплачено',
+          paidAmount: inv.amount, // STRICT: capped at 100% of invoice amount
+          matchedPaymentRowIndex: firstPay?.rowIndex,
+          matchedPaymentNumber: firstPay?.paymentNumber,
+          matchedPaymentDate: firstPay?.paymentDate,
+          matchedPaymentAmount: firstPay?.amountPaid,
+          matchedPaymentPayee: firstPay?.payee,
+          matchReason: firstPay
+            ? `🔒 Пара закрита (деактивована): рахунок №${inv.invoiceNumber || ''} оплачено платіжкою №${firstPay.paymentNumber || ''} на суму ${this.formatCurrency(inv.amount)}`
+            : `🔒 Рахунок закрито (статус «Оплачено», сума ${this.formatCurrency(inv.amount)})`,
+          isClosedPair: true,
+        });
+      }
+    }
+
+    // Pass 2: Process remaining open invoices (status is "Не оплачено" or "Оплачено частково").
+    // Reconcile ONLY against available payments (excluding those already consumed by closed pairs).
+    const availablePayments = existingPayments.filter((p) => {
+      if (p.rowIndex && consumedPaymentRowIndices.has(p.rowIndex)) return false;
+      const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+      if (consumedPaymentSemanticKeys.has(semKey)) return false;
+      return true;
+    });
 
     for (const inv of existingInvoices) {
       if (!inv.rowIndex) continue;
+      if (inv.paymentStatus === 'Оплачено') continue; // already handled in Pass 1
 
       const mockOcr: OCRResult = {
         invoiceNumber: inv.invoiceNumber,
@@ -1818,10 +1931,20 @@ export class OCRService {
         paymentStatus: inv.paymentStatus,
       };
 
-      const match = this.matchInvoiceWithPayments(mockOcr, existingPayments);
+      const match = this.matchInvoiceWithPayments(mockOcr, availablePayments);
 
       if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
         const firstPay = match.matchedPaymentRows[0];
+
+        // If this payment completely pays this invoice, consume it so it won't be used again
+        if (match.computedStatus === 'Оплачено') {
+          for (const p of match.matchedPaymentRows) {
+            if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
+            const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+            consumedPaymentSemanticKeys.add(semKey);
+          }
+        }
+
         results.push({
           invoiceRowIndex: inv.rowIndex,
           invoiceNumber: inv.invoiceNumber,
@@ -1830,13 +1953,14 @@ export class OCRService {
           invoiceAmount: inv.amount,
           currentStatus: inv.paymentStatus,
           computedStatus: match.computedStatus,
-          paidAmount: match.totalPaidAmount || inv.amount,
+          paidAmount: match.computedStatus === 'Оплачено' ? inv.amount : Math.min(match.totalPaidAmount, inv.amount),
           matchedPaymentRowIndex: firstPay?.rowIndex,
           matchedPaymentNumber: firstPay?.paymentNumber,
           matchedPaymentDate: firstPay?.paymentDate,
           matchedPaymentAmount: firstPay?.amountPaid,
           matchedPaymentPayee: firstPay?.payee,
           matchReason: match.matchReason || `Знайдено платіжку на суму ${this.formatCurrency(match.totalPaidAmount)}`,
+          isClosedPair: match.computedStatus === 'Оплачено',
         });
       }
     }
@@ -2232,6 +2356,68 @@ export class OCRService {
     }
 
     return duplicates;
+  }
+
+  /**
+   * Find all invoices in "Рахунки" that have inflated or duplicate paid amounts (Column J > Column F).
+   * As per the business rule: when an invoice is fully paid and status is "Оплачено",
+   * the maximum paid amount is strictly capped at the invoice amount (100%).
+   * Any amount exceeding the invoice amount represents duplicate/triplicate payment accumulation.
+   */
+  public static findOverpaidInvoices(
+    existingInvoices: ExistingSheetRow[]
+  ): Array<{
+    rowIndex: number;
+    invoiceNumber: string;
+    orderNumber: string;
+    supplier: string;
+    invoiceAmount: number;
+    currentPaidAmount: number;
+    excessAmount: number;
+    correctPaidAmount: number;
+    paymentStatus: InvoicePaymentStatus;
+    multiplier: number;
+  }> {
+    const overpaid: Array<{
+      rowIndex: number;
+      invoiceNumber: string;
+      orderNumber: string;
+      supplier: string;
+      invoiceAmount: number;
+      currentPaidAmount: number;
+      excessAmount: number;
+      correctPaidAmount: number;
+      paymentStatus: InvoicePaymentStatus;
+      multiplier: number;
+    }> = [];
+
+    if (!existingInvoices || existingInvoices.length === 0) return overpaid;
+
+    for (const inv of existingInvoices) {
+      if (!inv.rowIndex || (inv.amount || 0) <= 0) continue;
+      const invAmount = inv.amount || 0;
+      const currentPaid = inv.paidAmount || 0;
+
+      // Detect inflated payments (e.g. 2x, 3x, 4x): paid amount is significantly higher than invoice amount
+      if (inv.paymentStatus === 'Оплачено' && currentPaid > invAmount + 0.50) {
+        const excess = currentPaid - invAmount;
+        const multiplier = Math.round((currentPaid / invAmount) * 10) / 10;
+        overpaid.push({
+          rowIndex: inv.rowIndex,
+          invoiceNumber: inv.invoiceNumber || 'б/н',
+          orderNumber: inv.orderNumber || 'б/н',
+          supplier: inv.supplier || '—',
+          invoiceAmount: invAmount,
+          currentPaidAmount: currentPaid,
+          excessAmount: excess,
+          correctPaidAmount: invAmount,
+          paymentStatus: inv.paymentStatus,
+          multiplier,
+        });
+      }
+    }
+
+    return overpaid;
   }
 }
 

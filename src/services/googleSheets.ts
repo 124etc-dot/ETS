@@ -1360,6 +1360,39 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Batch updates Column J (Сума оплати) in "Рахунки" for invoices with inflated or duplicate amounts,
+   * restoring them strictly to the invoice amount (100%) as per the closed-pair business rule.
+   */
+  public static async batchNormalizeOverpaidInvoices(
+    spreadsheetId: string,
+    accessToken: string,
+    items: Array<{ rowIndex: number; correctPaidAmount: number }>,
+    invoicesTab = 'Рахунки'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(invoicesTab) || items.length === 0) return;
+
+    await this.ensureTabExists(cleanId, accessToken, invoicesTab, this.INVOICE_HEADERS);
+
+    const updates = items.map((item) => ({
+      range: `'${invoicesTab}'!J${item.rowIndex}`,
+      values: [[item.correctPaidAmount]],
+    }));
+
+    await this.request<any>(
+      `${cleanId}/values:batchUpdate`,
+      accessToken,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: updates,
+        }),
+      }
+    );
+  }
+
+  /**
    * Update status column (H) for an existing invoice in "Рахунки"
    */
   public static async updateInvoiceStatusInSheet(

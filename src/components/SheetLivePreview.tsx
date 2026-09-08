@@ -21,7 +21,10 @@ import {
   Maximize2,
   Minimize2,
   Scissors,
-  ArrowRightLeft
+  ArrowRightLeft,
+  ShieldAlert,
+  CheckCheck,
+  Lock
 } from 'lucide-react';
 import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, DuplicateRowMatch } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -44,6 +47,7 @@ interface Props {
   onDeletePaymentRow?: (rowIndex: number) => Promise<void>;
   onMoveInvoiceToPayments?: (inv: ExistingSheetRow) => Promise<void>;
   onMovePaymentToInvoices?: (pay: ExistingPaymentRow) => Promise<void>;
+  onNormalizeOverpaidInvoices?: (items: Array<{ rowIndex: number; correctPaidAmount: number }>) => Promise<void>;
 }
 
 export const SheetLivePreview: React.FC<Props> = ({
@@ -63,6 +67,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   onDeletePaymentRow,
   onMoveInvoiceToPayments,
   onMovePaymentToInvoices,
+  onNormalizeOverpaidInvoices,
 }) => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ourCompanies' | 'suppliers'>('invoices');
   const [filterText, setFilterText] = useState('');
@@ -134,6 +139,52 @@ export const SheetLivePreview: React.FC<Props> = ({
     }
     return map;
   }, [duplicatePayments]);
+
+  // Real-time detection of inflated/duplicate payments (Column J > Column F)
+  const [isNormalizingOverpaid, setIsNormalizingOverpaid] = useState(false);
+  const overpaidInvoices = useMemo(
+    () => OCRService.findOverpaidInvoices(existingInvoices),
+    [existingInvoices]
+  );
+  const overpaidInvoicesMap = useMemo(() => {
+    const map = new Map<number, (typeof overpaidInvoices)[0]>();
+    for (const item of overpaidInvoices) {
+      map.set(item.rowIndex, item);
+    }
+    return map;
+  }, [overpaidInvoices]);
+
+  const handleNormalizeAllOverpaid = async () => {
+    if (!onNormalizeOverpaidInvoices || overpaidInvoices.length === 0) return;
+    const confirmed = window.confirm(
+      `Нормалізувати суми оплат для ${overpaidInvoices.length} рахунків у Google Таблиці?\n\nВідповідно до правила закритих пар: статус «Оплачено» встановлює суму оплати суворо рівною сумі рахунку (100%), усуваючи заводвоєння чи затроєння сум.`
+    );
+    if (!confirmed) return;
+
+    setIsNormalizingOverpaid(true);
+    try {
+      await onNormalizeOverpaidInvoices(
+        overpaidInvoices.map((o) => ({
+          rowIndex: o.rowIndex,
+          correctPaidAmount: o.correctPaidAmount,
+        }))
+      );
+    } finally {
+      setIsNormalizingOverpaid(false);
+    }
+  };
+
+  const handleNormalizeSingleOverpaid = async (item: (typeof overpaidInvoices)[0]) => {
+    if (!onNormalizeOverpaidInvoices) return;
+    setIsNormalizingOverpaid(true);
+    try {
+      await onNormalizeOverpaidInvoices([
+        { rowIndex: item.rowIndex, correctPaidAmount: item.correctPaidAmount },
+      ]);
+    } finally {
+      setIsNormalizingOverpaid(false);
+    }
+  };
 
   const handleDeleteAllDuplicates = async () => {
     if (!onDeleteDuplicates || allDuplicates.length === 0) return;
@@ -740,6 +791,49 @@ export const SheetLivePreview: React.FC<Props> = ({
             </div>
           )}
 
+          {/* Overpaid / Inflated Duplicate Payments Warning Banner */}
+          {overpaidInvoices.length > 0 && (
+            <div className="mx-4 my-2.5 p-3.5 bg-rose-50/95 border border-rose-300 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-start space-x-3">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-800 flex items-center justify-center shrink-0 mt-0.5 border border-rose-300">
+                  <ShieldAlert className="w-4 h-4 text-rose-700" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-rose-950 flex items-center gap-1.5 flex-wrap">
+                    <span>
+                      Виявлено заводвоєння / затроєння сум оплат для {overpaidInvoices.length}{' '}
+                      {overpaidInvoices.length === 1 ? 'рахунку' : overpaidInvoices.length < 5 ? 'рахунків' : 'рахунків'}!
+                    </span>
+                    <span className="text-[10px] bg-rose-200 text-rose-900 px-1.5 py-0.5 rounded font-mono font-bold">
+                      {overpaidInvoices.map((o) => `р. ${o.rowIndex} (${o.multiplier}x)`).slice(0, 4).join(', ')}
+                      {overpaidInvoices.length > 4 && ` + ще ${overpaidInvoices.length - 4}`}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-rose-900 mt-0.5">
+                    Правило закритих пар: якщо є рахунок, платіжка і статус «Оплачено», подальшу роботу з цією парою деактивовано, а сума оплати в колонці J повинна суворо дорівнювати сумі рахунку (100%).
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+                {onNormalizeOverpaidInvoices && (
+                  <button
+                    type="button"
+                    onClick={handleNormalizeAllOverpaid}
+                    disabled={isNormalizingOverpaid}
+                    className="px-3.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                  >
+                    {isNormalizingOverpaid ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCheck className="w-3.5 h-3.5" />
+                    )}
+                    <span>Виправити {overpaidInvoices.length} {overpaidInvoices.length === 1 ? 'суму' : 'сум'} (до 100%)</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Reconciliation Notice Banner: Invoices that have matching payments in "Платіжки" */}
           {pendingReconciliations.length > 0 && (
             <div className="mx-4 my-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
@@ -961,6 +1055,18 @@ export const SheetLivePreview: React.FC<Props> = ({
                             </div>
                           )}
 
+                          {inv.paymentStatus === 'Оплачено' && (
+                            <div className="mt-1 flex items-center justify-center">
+                              <span
+                                title="Пара закрита (деактивовано): рахунок оплачено, дані співпадають. Повторне нарахування оплат заблоковано."
+                                className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200 text-[9px] font-semibold"
+                              >
+                                <Lock className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>Пара закрита</span>
+                              </span>
+                            </div>
+                          )}
+
                           {recMatch && inv.paymentStatus !== 'Оплачено' && (
                             <div className="mt-1.5 flex flex-col items-center">
                               <span
@@ -986,27 +1092,59 @@ export const SheetLivePreview: React.FC<Props> = ({
                         <td className="p-2.5 text-slate-500 font-mono text-[11px] whitespace-nowrap">
                           {inv.uploadedAt || '—'}
                         </td>
-                        <td className="p-2.5 text-right font-mono font-bold bg-emerald-50/50 border-l border-emerald-100">
-                          {paidAmount > 0 ? (
-                            <div>
-                              <span className={inv.paymentStatus === 'Оплачено' ? 'text-emerald-950' : 'text-emerald-700'}>
-                                {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(paidAmount)}
-                              </span>
-                              {inv.paymentStatus === 'Оплачено частково' && remainingAmount > 0 && (
-                                <p className="text-[10px] text-amber-700 font-normal">
-                                  залишок: {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(remainingAmount)}
-                                </p>
-                              )}
-                              {recMatch && inv.paymentStatus !== 'Оплачено' && (
-                                <p className="text-[9px] text-emerald-600 font-medium">
-                                  знайдено в платіжках
-                                </p>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-slate-400 font-normal">0,00</span>
-                          )}
-                        </td>
+                        {overpaidInvoicesMap.has(inv.rowIndex) ? (
+                          <td className="p-2.5 text-right font-mono font-bold bg-rose-50/80 border-l border-rose-200">
+                            {(() => {
+                              const overpaid = overpaidInvoicesMap.get(inv.rowIndex)!;
+                              return (
+                                <div className="flex flex-col items-end">
+                                  <div className="flex items-center space-x-1 text-rose-700">
+                                    <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                                    <span>
+                                      {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(inv.paidAmount || 0)}
+                                    </span>
+                                  </div>
+                                  <span className="text-[9px] text-rose-600 font-semibold mt-0.5">
+                                    Заводвоєно ({overpaid.multiplier}x замість {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(overpaid.correctPaidAmount)})
+                                  </span>
+                                  {onNormalizeOverpaidInvoices && (
+                                    <button
+                                      type="button"
+                                      disabled={isNormalizingOverpaid}
+                                      onClick={() => handleNormalizeSingleOverpaid(overpaid)}
+                                      className="mt-1 px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+                                      title="Виправити суму оплати до 100% суми рахунку (закрити пару)"
+                                    >
+                                      Виправити (100%)
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </td>
+                        ) : (
+                          <td className="p-2.5 text-right font-mono font-bold bg-emerald-50/50 border-l border-emerald-100">
+                            {paidAmount > 0 ? (
+                              <div>
+                                <span className={inv.paymentStatus === 'Оплачено' ? 'text-emerald-950' : 'text-emerald-700'}>
+                                  {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(paidAmount)}
+                                </span>
+                                {inv.paymentStatus === 'Оплачено частково' && remainingAmount > 0 && (
+                                  <p className="text-[10px] text-amber-700 font-normal">
+                                    залишок: {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(remainingAmount)}
+                                  </p>
+                                )}
+                                {recMatch && inv.paymentStatus !== 'Оплачено' && (
+                                  <p className="text-[9px] text-emerald-600 font-medium">
+                                    знайдено в платіжках
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 font-normal">0,00</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

@@ -1404,6 +1404,52 @@ export default function App() {
     }
   };
 
+  // Normalize overpaid / duplicate payment amounts (Column J) in "Рахунки"
+  const handleNormalizeOverpaidInvoices = async (
+    items: Array<{ rowIndex: number; correctPaidAmount: number }>
+  ) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
+      setExistingInvoices((prev) =>
+        prev.map((inv) => {
+          const match = items.find((i) => i.rowIndex === inv.rowIndex);
+          if (match) {
+            return { ...inv, paidAmount: match.correctPaidAmount, paymentStatus: 'Оплачено' };
+          }
+          return inv;
+        })
+      );
+      notify(`Нормалізовано суми оплат для ${items.length} рахунків (закріплено 100% суми).`, 'success');
+      return;
+    }
+
+    setIsLoadingSheet(true);
+    try {
+      await GoogleSheetsService.batchNormalizeOverpaidInvoices(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        items,
+        sheetConfig.invoicesSheetName || 'Рахунки'
+      );
+      setExistingInvoices((prev) =>
+        prev.map((inv) => {
+          const match = items.find((i) => i.rowIndex === inv.rowIndex);
+          if (match) {
+            return { ...inv, paidAmount: match.correctPaidAmount, paymentStatus: 'Оплачено' };
+          }
+          return inv;
+        })
+      );
+      notify(
+        `Успішно усунено заводвоєння сум оплат для ${items.length} рахунків у Google Таблиці (пари закриті на 100%)!`,
+        'success'
+      );
+    } catch (err: any) {
+      notify(err.message || 'Помилка нормалізації сум оплат.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
   // Batch sync to Google Sheets
   const handleBatchSync = async (docIds: string[]) => {
     if (!authState.accessToken) {
@@ -2048,6 +2094,7 @@ export default function App() {
               onDeletePaymentRow={handleDeletePaymentRow}
               onMoveInvoiceToPayments={handleMoveInvoiceToPayments}
               onMovePaymentToInvoices={handleMovePaymentToInvoices}
+              onNormalizeOverpaidInvoices={handleNormalizeOverpaidInvoices}
             />
           </div>
         )}
