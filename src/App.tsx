@@ -213,6 +213,115 @@ export default function App() {
     );
   };
 
+  // Helper to ensure payment instructions are never misclassified as invoices
+  const autoCorrectPaymentClassification = (data: OCRResult | undefined, fileName: string): OCRResult | undefined => {
+    if (!data) return data;
+    const lowerFileName = (fileName || '').toLowerCase();
+    const lowerDocTitle = (data.documentTitle || '').toLowerCase();
+    const lowerDocTypeUkr = (data.documentTypeUkrainian || '').toLowerCase();
+    const lowerBankStamp = (data.bankExecutionStamp || '').toLowerCase();
+    const lowerNotes = (data.notes || '').toLowerCase();
+    const lowerPurpose = (data.paymentPurpose || '').toLowerCase();
+    const lowerRawText = (data.handwrittenRawText || '').toLowerCase();
+
+    const isBankPayment = (
+      data.documentType === 'payment' ||
+      lowerDocTitle.includes('платіж') ||
+      lowerDocTitle.includes('інструкц') ||
+      lowerDocTitle.includes('доручен') ||
+      lowerDocTitle.includes('квитанц') ||
+      lowerDocTitle.includes('виписк') ||
+      lowerDocTitle.includes('ордер') ||
+      lowerDocTitle.includes('чек') ||
+      lowerDocTypeUkr.includes('платіж') ||
+      lowerDocTypeUkr.includes('інструкц') ||
+      lowerDocTypeUkr.includes('доручен') ||
+      lowerDocTypeUkr.includes('квитанц') ||
+      lowerDocTypeUkr.includes('виписк') ||
+      lowerDocTypeUkr.includes('ордер') ||
+      lowerDocTypeUkr.includes('чек') ||
+      lowerFileName.includes('платіж') ||
+      lowerFileName.includes('платеж') ||
+      lowerFileName.includes('доручен') ||
+      lowerFileName.includes('інструкц') ||
+      lowerFileName.includes('квитанц') ||
+      lowerBankStamp.includes('банк') ||
+      lowerBankStamp.includes('виконан') ||
+      lowerBankStamp.includes('прийнято') ||
+      lowerBankStamp.includes('ibank') ||
+      lowerBankStamp.includes('проведено') ||
+      lowerBankStamp.includes('еп') ||
+      lowerBankStamp.includes('uetr') ||
+      lowerNotes.includes('платіжна інструкція') ||
+      lowerNotes.includes('платіжне доручення') ||
+      lowerNotes.includes('ibank2ua') ||
+      lowerNotes.includes('uetr') ||
+      lowerNotes.includes('надавач платіжних послуг') ||
+      lowerNotes.includes('дата виконання банк') ||
+      lowerRawText.includes('платіжна інструкція') ||
+      lowerRawText.includes('ibank2ua') ||
+      (Boolean(data.paymentPurpose) && (
+        lowerPurpose.includes('згідно рах') ||
+        lowerPurpose.includes('оплата за товар') ||
+        lowerPurpose.includes('оплата згідно') ||
+        lowerPurpose.includes('перерахування')
+      ))
+    );
+
+    if (isBankPayment) {
+      const updated = { ...data };
+      updated.documentType = 'payment';
+      if (!updated.documentTypeUkrainian || updated.documentTypeUkrainian.toLowerCase().includes('рахунок')) {
+        updated.documentTypeUkrainian = 'Платіжна інструкція';
+      }
+      updated.paymentStatus = 'Оплачено';
+
+      // Extract payment number from notes/text/file name (e.g. N 1216, N 1215)
+      if (!updated.paymentNumber) {
+        const pNumMatch = `${updated.notes || ''} ${updated.handwrittenRawText || ''} ${fileName || ''}`.match(/(?:платіжна інструкція|доручення|від)?\s*(?:N|№)\s*(\d{1,10})/i);
+        if (pNumMatch && pNumMatch[1]) {
+          updated.paymentNumber = pNumMatch[1].trim();
+        } else if (updated.invoiceNumber) {
+          updated.paymentNumber = updated.invoiceNumber;
+        }
+      }
+
+      // Extract referenced invoice from paymentPurpose or notes (e.g. "згідно рах. № 4104" or "згідно рахунку № 4373")
+      const fullText = `${updated.paymentPurpose || ''} ${updated.notes || ''}`;
+      const invMatch = fullText.match(/(?:згідно|по|за|рахун(?:ок|ку|ка)?|рах\.?)\s*(?:№|N)?\s*([A-Za-zА-Яа-я0-9\-_/]+)/i);
+      if (invMatch && invMatch[1]) {
+        const foundInv = invMatch[1].trim();
+        updated.referencedInvoiceNumber = foundInv;
+        updated.referencedInvoiceNumbers = [foundInv];
+        updated.invoiceNumber = foundInv;
+      }
+
+      // Amounts
+      if (updated.amountPaid > 0 && updated.totalAmount <= 0) {
+        updated.totalAmount = updated.amountPaid;
+      } else if (updated.totalAmount > 0 && updated.amountPaid <= 0) {
+        updated.amountPaid = updated.totalAmount;
+      }
+
+      // Dates
+      if (updated.paymentDate && !updated.invoiceDate) {
+        updated.invoiceDate = updated.paymentDate;
+      } else if (updated.invoiceDate && !updated.paymentDate) {
+        updated.paymentDate = updated.invoiceDate;
+      }
+
+      // Payer / Payee alignment
+      if (!updated.payerName && updated.buyerName) updated.payerName = updated.buyerName;
+      if (!updated.payeeName && updated.supplierName) updated.payeeName = updated.supplierName;
+      if (!updated.buyerName && updated.payerName) updated.buyerName = updated.payerName;
+      if (!updated.supplierName && updated.payeeName) updated.supplierName = updated.payeeName;
+
+      return updated;
+    }
+
+    return data;
+  };
+
   // Documents in queue with localStorage persistence
   const [documents, setDocuments] = useState<ProcessedDocument[]>(() => {
     if (typeof window !== 'undefined') {
@@ -228,10 +337,15 @@ export default function App() {
             const realDocs = parsed
               .filter((d: ProcessedDocument) => !d.id?.startsWith('sample_'))
               .map((d: ProcessedDocument) => {
-                if (d.status === 'processing') {
-                  return { ...d, status: 'pending' as const, errorMessage: undefined };
-                }
-                return d;
+                const fixedOcr = autoCorrectPaymentClassification(d.ocrResult, d.fileName);
+                const fixedEdited = autoCorrectPaymentClassification(d.editedData, d.fileName);
+                return {
+                  ...d,
+                  status: d.status === 'processing' ? ('pending' as const) : d.status,
+                  ocrResult: fixedOcr,
+                  editedData: fixedEdited,
+                  errorMessage: d.status === 'processing' ? undefined : d.errorMessage,
+                };
               });
             const dedupedDocs = deduplicateDocuments(realDocs).uniqueDocs;
             localStorage.setItem(DOCUMENTS_STORAGE_KEY, JSON.stringify(dedupedDocs));
@@ -712,7 +826,8 @@ export default function App() {
       
       const now = Date.now();
       const newDocs: ProcessedDocument[] = files.map((f, idx) => {
-        const cachedOcr = GoogleDriveService.extractOcrFromDriveProperties(f.appProperties);
+        const rawCachedOcr = GoogleDriveService.extractOcrFromDriveProperties(f.appProperties);
+        const cachedOcr = rawCachedOcr ? autoCorrectPaymentClassification(rawCachedOcr, f.name) : undefined;
         return {
           id: `drive_${f.id}`,
           source: 'drive',

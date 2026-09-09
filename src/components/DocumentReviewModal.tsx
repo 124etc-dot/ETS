@@ -225,6 +225,63 @@ export const DocumentReviewModal: React.FC<Props> = ({
     }
   };
 
+  const switchToPaymentType = () => {
+    setFormData((prev) => {
+      const updated = { ...prev };
+      updated.documentType = 'payment';
+      updated.documentTypeUkrainian = 'Платіжна інструкція';
+      updated.paymentStatus = 'Оплачено';
+
+      // Payer / Payee alignment
+      if (!updated.payerName && updated.buyerName) updated.payerName = updated.buyerName;
+      if (!updated.payeeName && updated.supplierName) updated.payeeName = updated.supplierName;
+      if (!updated.buyerName && updated.payerName) updated.buyerName = updated.payerName;
+      if (!updated.supplierName && updated.payeeName) updated.supplierName = updated.payeeName;
+
+      // Amounts
+      if (updated.amountPaid > 0 && updated.totalAmount <= 0) {
+        updated.totalAmount = updated.amountPaid;
+      } else if (updated.totalAmount > 0 && updated.amountPaid <= 0) {
+        updated.amountPaid = updated.totalAmount;
+      }
+
+      // Dates
+      if (updated.invoiceDate && !updated.paymentDate) {
+        updated.paymentDate = updated.invoiceDate;
+      }
+
+      // Payment Number extraction
+      const pNumMatch = `${updated.notes || ''} ${updated.handwrittenRawText || ''} ${doc?.fileName || ''}`.match(/(?:платіжна інструкція|доручення|від)?\s*(?:N|№)\s*(\d{1,10})/i);
+      if (pNumMatch && pNumMatch[1]) {
+        updated.paymentNumber = pNumMatch[1].trim();
+      } else if (!updated.paymentNumber && updated.invoiceNumber) {
+        updated.paymentNumber = updated.invoiceNumber;
+      }
+
+      // Referenced invoice extraction
+      const purposeText = `${updated.paymentPurpose || ''} ${updated.notes || ''}`;
+      const invMatch = purposeText.match(/(?:згідно|по|за|рахун(?:ок|ку|ка)?|рах\.?)\s*(?:№|N)?\s*([A-Za-zА-Яа-я0-9\-_/]+)/i);
+      if (invMatch && invMatch[1]) {
+        const foundInv = invMatch[1].trim();
+        updated.referencedInvoiceNumber = foundInv;
+        updated.referencedInvoiceNumbers = [foundInv];
+        updated.invoiceNumber = foundInv;
+      }
+
+      // Re-evaluate matching invoices
+      const allMatches = OCRService.matchPaymentWithAllInvoices(updated, existingInvoices, allDocuments);
+      if (allMatches.length > 0) {
+        updated.matchedInvoices = allMatches;
+        updated.paymentStatus = allMatches[0].computedStatus;
+        updated.matchedInvoiceNumber = allMatches.map((m) => m.invoiceNumber).filter(Boolean).join(', ');
+        updated.matchedInvoiceAmount = allMatches.reduce((acc, m) => acc + (m.invoiceAmount || 0), 0);
+        updated.matchedInvoiceRowIndex = allMatches[0].matchedRowIndex;
+      }
+
+      return updated;
+    });
+  };
+
   const getCleanFormData = (): OCRResult => {
     const clean: OCRResult = {
       ...formData,
@@ -879,6 +936,33 @@ export const DocumentReviewModal: React.FC<Props> = ({
               </div>
             )}
 
+            {/* Smart detection: If document was read as invoice but has payment signs */}
+            {!isPaymentDoc && (
+              (formData.notes && (formData.notes.toLowerCase().includes('платіжн') || formData.notes.toLowerCase().includes('ibank2ua') || formData.notes.toLowerCase().includes('надавач платіжних послуг') || formData.notes.toLowerCase().includes('uetr'))) ||
+              (formData.paymentPurpose && (formData.paymentPurpose.toLowerCase().includes('згідно') || formData.paymentPurpose.toLowerCase().includes('оплата'))) ||
+              (doc.fileName && (doc.fileName.toLowerCase().includes('платіж') || doc.fileName.toLowerCase().includes('платеж') || doc.fileName.toLowerCase().includes('доручен')))
+            ) && (
+              <div className="p-3 bg-blue-50 border border-blue-300 rounded-xl flex items-center justify-between gap-3 text-xs text-blue-950 shadow-xs">
+                <div className="flex items-start space-x-2">
+                  <CreditCard className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-bold text-blue-950">Схоже, цей документ є Платіжною інструкцією</strong>
+                    <p className="text-blue-800 text-[11px] mt-0.5">
+                      Виявлено банківські реквізити та призначення платежу. Натисніть кнопку, щоб перемкнути тип на «Платіжна інструкція».
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={switchToPaymentType}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs shadow-xs transition-colors shrink-0 flex items-center space-x-1 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Перемкнути на Платіжку</span>
+                </button>
+              </div>
+            )}
+
             {/* Document Type Switch & Status */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -889,13 +973,17 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   value={formData.documentType || 'invoice'}
                   onChange={(e) => {
                     const dt = e.target.value as any;
-                    handleChange('documentType', dt);
-                    handleChange(
-                      'documentTypeUkrainian',
-                      dt === 'payment' ? 'Платіжна інструкція' : 'Рахунок на оплату'
-                    );
-                    if (dt === 'invoice' && !formData.paymentStatus) {
-                      handleChange('paymentStatus', 'Не оплачено');
+                    if (dt === 'payment') {
+                      switchToPaymentType();
+                    } else {
+                      handleChange('documentType', dt);
+                      handleChange(
+                        'documentTypeUkrainian',
+                        dt === 'other' ? 'Інший документ' : 'Рахунок на оплату'
+                      );
+                      if (dt === 'invoice' && !formData.paymentStatus) {
+                        handleChange('paymentStatus', 'Не оплачено');
+                      }
                     }
                   }}
                   className="w-full text-xs font-medium p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -912,9 +1000,15 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </label>
                 <input
                   type="text"
-                  value={formData.invoiceNumber || ''}
-                  onChange={(e) => handleChange('invoiceNumber', e.target.value)}
-                  placeholder={isPaymentDoc ? "наприклад: 1042" : "наприклад СФ-000451"}
+                  value={isPaymentDoc ? (formData.paymentNumber || formData.invoiceNumber || '') : (formData.invoiceNumber || '')}
+                  onChange={(e) => {
+                    if (isPaymentDoc) {
+                      handleChange('paymentNumber', e.target.value);
+                    } else {
+                      handleChange('invoiceNumber', e.target.value);
+                    }
+                  }}
+                  placeholder={isPaymentDoc ? "наприклад: 1216" : "наприклад СФ-000451"}
                   className="w-full text-xs font-mono p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>

@@ -68,6 +68,8 @@ export interface OCRResult {
   paidAmount?: number; // Paid amount for invoices (Column J)
 
   // Additional
+  documentTitle?: string;
+  bankExecutionStamp?: string;
   lineItems?: ExtractedLineItem[];
   notes?: string;
   confidenceScore: number; // 0 to 100

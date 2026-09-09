@@ -159,6 +159,14 @@ const ocrResponseSchema: Schema = {
       type: Type.STRING,
       description: 'Ukrainian title of the document, e.g. "Рахунок на оплату" or "Платіжна інструкція"',
     },
+    documentTitle: {
+      type: Type.STRING,
+      description: 'Exact main title or header printed at top of document, e.g. "ПЛАТІЖНА ІНСТРУКЦІЯ В НАЦІОНАЛЬНІЙ ВАЛЮТІ", "РАХУНОК НА ОПЛАТУ №...", "АКТ"',
+    },
+    bankExecutionStamp: {
+      type: Type.STRING,
+      description: 'Bank processing/execution stamps or digital signature markers if present, e.g. "Дата виконання БАНК 09.09.2026", "iBank2UA ЕП Є КОРЕКТНИМ", "Проведено банком", "UETR"',
+    },
     handwrittenOrderNumber: {
       type: Type.STRING,
       description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26"). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
@@ -353,8 +361,13 @@ ${knownOrdersPromptList}
      * КРИТИЧНЕ ЗАСТЕРЕЖЕННЯ: Багато українських постачальників (наприклад, METALVIS / ПрАТ "СОЛДІ І КО", "Епіцентр", "АВ метал груп" тощо) друкують угорі або внизу рахунку блок «Зразок платіжного доручення / Реквізити для оплати» зі словами «Одержувач», «Кредит рах.», «Банк одержувача», «Призначення платежу: згідно рахунка №...».
        ЦЕ НЕ ПЛАТІЖКА! Це реквізити для оплати РАХУНКУ. Такий документ є СТРОГО "invoice" (Рахунок), І КАТЕГОРИЧНО НЕ "payment"!
    - "payment" (Платіжна інструкція, Платіжне доручення, Банківська виписка, Меморіальний ордер, Квитанція про оплату):
-     * Це офіційний документ, сформований БАНКОМ або інтернет-банкінгом (ПриватБанк, Райффайзен, Ощадбанк, Monobank тощо) про здійснене перерахування коштів!
-     * Ознаки банківської платіжки: статус або штамп банку «Проведено» / «Виконано» / «Прийнято банком», електронна банківська квитанція з печаткою або підписом банку.
+     * НАЙГОЛОВНІШЕ ПРАВИЛО: Якщо на документі вгорі або в шапці є заголовок "ПЛАТІЖНА ІНСТРУКЦІЯ" (наприклад "ПЛАТІЖНА ІНСТРУКЦІЯ В НАЦІОНАЛЬНІЙ ВАЛЮТІ"), "ПЛАТІЖНЕ ДОРУЧЕННЯ", "МЕМОPIAЛЬНИЙ ОРДЕР", "КВИТАНЦІЯ", "ЧЕК" — ЦЕ 100% "payment"! КАТЕГОРИЧНО НЕ "invoice"!
+     * ОБОВ'ЯЗКОВО вкажи documentTitle (точний заголовок документа вгорі, наприклад "ПЛАТІЖНА ІНСТРУКЦІЯ В НАЦІОНАЛЬНІЙ ВАЛЮТІ") та bankExecutionStamp (будь-які банківські штампи чи позначки виконання).
+     * Номер біля заголовка (наприклад "від 09 вересня 2026 р. N 1216", "N 1215", "№ 1216") — це СТРОГО paymentNumber ("1216", "1215")!
+     * Згадка рахунку в рядку "Призначення платежу" (наприклад: "Оплата за товар згідно рах. № 4104 від 09.09.26" або "Оплата згідно рахунку № 4373") — це СТРОГО referencedInvoiceNumber ("4104", "4373")!
+       ЗАПАМ'ЯТАЙ: Згадка рахунку в призначенні платежу означає, що цей платіжний документ ОПЛАЧУЄ даний рахунок, але сам документ залишається ПЛАТІЖНОЮ ІНСТРУКЦІЄЮ ("payment")! Ніколи не класифікуй такий документ як invoice!
+     * Банківські реквізити та штампи ("Платник", "Отримувач", "Надавач платіжних послуг", "UETR", "Дата прийняття до виконання", "Дата виконання БАНК", "iBank2UA", "ЕП Є КОРЕКТНИМ") — це 100% ознака банківської платіжки.
+     * documentType повертай "payment", documentTypeUkrainian — "Платіжна інструкція" (або "Платіжне доручення").
      * У банківській платіжці НІКОЛИ НЕМАЄ таблиці номенклатури товарів з кодами УКТЗЕД та кількістю штук!
    - "other": Інший тип документа (сертифікат якості, довіреність, договір).
 
@@ -547,32 +560,139 @@ ${knownOrdersPromptList}
 
   // Strict, robust documentType determination:
   const lowerFileName = (fileName || '').toLowerCase();
+  const lowerDocTitle = String(parsedResult.documentTitle || '').toLowerCase();
   const lowerDocTypeUkr = String(parsedResult.documentTypeUkrainian || '').toLowerCase();
+  const lowerBankStamp = String(parsedResult.bankExecutionStamp || '').toLowerCase();
   const lowerNotes = String(parsedResult.notes || '').toLowerCase();
+  const lowerPurpose = String(parsedResult.paymentPurpose || '').toLowerCase();
+  const lowerRawText = String(parsedResult.handwrittenRawText || '').toLowerCase();
 
-  const hasInvoiceMarkers = (
-    lowerDocTypeUkr.includes('рахунок') ||
-    lowerDocTypeUkr.includes('фактур') ||
-    lowerDocTypeUkr.includes('акт') ||
-    lowerDocTypeUkr.includes('накладна') ||
-    lowerFileName.includes('рахунок') ||
-    lowerFileName.includes('рахун') ||
-    lowerFileName.includes('invoice') ||
-    lowerFileName.includes('inv_') ||
-    lowerFileName.includes('sf-') ||
-    lowerFileName.includes('сф-') ||
-    Boolean(parsedResult.invoiceNumber && !parsedResult.paymentNumber) ||
-    Boolean(parsedResult.supplierName && parsedResult.buyerName && parsedResult.invoiceNumber) ||
-    lowerNotes.includes('рахунок') ||
-    lowerNotes.includes('invoice')
+  // Strong payment markers (NEVER classify as invoice if these match!):
+  const hasPaymentTitle = (
+    lowerDocTitle.includes('платіж') ||
+    lowerDocTitle.includes('інструкц') ||
+    lowerDocTitle.includes('доручен') ||
+    lowerDocTitle.includes('квитанц') ||
+    lowerDocTitle.includes('виписк') ||
+    lowerDocTitle.includes('ордер') ||
+    lowerDocTitle.includes('чек') ||
+    lowerDocTypeUkr.includes('платіж') ||
+    lowerDocTypeUkr.includes('інструкц') ||
+    lowerDocTypeUkr.includes('доручен') ||
+    lowerDocTypeUkr.includes('квитанц') ||
+    lowerDocTypeUkr.includes('виписк') ||
+    lowerDocTypeUkr.includes('ордер') ||
+    lowerDocTypeUkr.includes('чек')
   );
 
-  if (parsedResult.documentType === 'invoice' || hasInvoiceMarkers) {
+  const hasPaymentFileName = (
+    lowerFileName.includes('платіж') ||
+    lowerFileName.includes('платеж') ||
+    lowerFileName.includes('доручен') ||
+    lowerFileName.includes('інструкц') ||
+    lowerFileName.includes('квитанц') ||
+    lowerFileName.includes('виписк') ||
+    lowerFileName.includes('p24') ||
+    lowerFileName.includes('receipt') ||
+    lowerFileName.includes('payment')
+  );
+
+  const hasBankExecutionMarkers = (
+    lowerBankStamp.includes('банк') ||
+    lowerBankStamp.includes('виконан') ||
+    lowerBankStamp.includes('прийнято') ||
+    lowerBankStamp.includes('ibank') ||
+    lowerBankStamp.includes('проведено') ||
+    lowerBankStamp.includes('еп') ||
+    lowerBankStamp.includes('uetr') ||
+    lowerNotes.includes('платіжна інструкція') ||
+    lowerNotes.includes('платіжне доручення') ||
+    lowerNotes.includes('надавач платіжних послуг') ||
+    lowerNotes.includes('ibank2ua') ||
+    lowerNotes.includes('uetr') ||
+    lowerNotes.includes('дата виконання банк') ||
+    lowerNotes.includes('дата прийняття до виконання') ||
+    lowerNotes.includes('проведено банком') ||
+    lowerNotes.includes('прийнято банком') ||
+    lowerPurpose.includes('надавач платіжних послуг') ||
+    lowerRawText.includes('платіжна інструкція') ||
+    lowerRawText.includes('ibank2ua') ||
+    Boolean(parsedResult.paymentPurpose && (lowerNotes.includes('платник') || lowerNotes.includes('отримувач')))
+  );
+
+  // Purpose pattern typical of bank payment slips paying an invoice ("Оплата за товар згідно рах. №...")
+  const hasPaymentPurposePattern = (
+    Boolean(parsedResult.paymentPurpose) &&
+    (
+      lowerPurpose.includes('оплата за') ||
+      lowerPurpose.includes('оплата згідно') ||
+      lowerPurpose.includes('згідно рах') ||
+      lowerPurpose.includes('згідно рахунк') ||
+      lowerPurpose.includes('перерахування')
+    ) &&
+    (!parsedResult.lineItems || parsedResult.lineItems.length === 0)
+  );
+
+  const isPayment = (
+    parsedResult.documentType === 'payment' ||
+    hasPaymentTitle ||
+    hasPaymentFileName ||
+    hasBankExecutionMarkers ||
+    hasPaymentPurposePattern
+  );
+
+  if (isPayment) {
+    parsedResult.documentType = 'payment';
+    if (!parsedResult.documentTypeUkrainian || parsedResult.documentTypeUkrainian.toLowerCase().includes('рахунок')) {
+      parsedResult.documentTypeUkrainian = 'Платіжна інструкція';
+    }
+    parsedResult.paymentStatus = 'Оплачено';
+
+    // 1. Extract referenced invoice number from payment purpose if present (e.g. "згідно рах. № 4104")
+    if (parsedResult.paymentPurpose) {
+      const refMatches = parsedResult.paymentPurpose.matchAll(/(?:згідно|рах\.?|рахунк[уа]|рахунок|по\s+рах\.?)\s*(?:№|No|N|#)?\s*([A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]+)/gi);
+      const foundInvs: string[] = [];
+      for (const m of refMatches) {
+        const cleaned = m[1].replace(/^(№|No|N|#)\s*/i, '').trim();
+        if (cleaned && cleaned.length >= 1 && !/^(від|за|до|у|в|грн|пдв)$/i.test(cleaned)) {
+          foundInvs.push(cleaned);
+        }
+      }
+      if (foundInvs.length > 0) {
+        if (!parsedResult.referencedInvoiceNumbers || parsedResult.referencedInvoiceNumbers.length === 0) {
+          parsedResult.referencedInvoiceNumbers = Array.from(new Set(foundInvs));
+        }
+        if (!parsedResult.referencedInvoiceNumber) {
+          parsedResult.referencedInvoiceNumber = parsedResult.referencedInvoiceNumbers.join(', ');
+        }
+      }
+    }
+
+    // 2. Payment document number extraction:
+    // Look for "N 1216", "№ 1216", "N 1215" in title, notes, raw text, or filename
+    if (!parsedResult.paymentNumber) {
+      const allText = `${parsedResult.documentTitle || ''} ${parsedResult.notes || ''} ${parsedResult.handwrittenRawText || ''} ${fileName || ''}`;
+      const pNumMatch = allText.match(/(?:платіжна інструкція|доручення|від|[N№])\s*(?:N|№)?\s*(\d{1,10})/i);
+      if (pNumMatch && pNumMatch[1]) {
+        parsedResult.paymentNumber = pNumMatch[1].trim();
+      } else if (parsedResult.invoiceNumber && parsedResult.invoiceNumber !== parsedResult.referencedInvoiceNumber) {
+        // If invoiceNumber was filled by OCR with the payment slip number
+        parsedResult.paymentNumber = parsedResult.invoiceNumber;
+      }
+    }
+
+    // Ensure invoiceNumber on a payment does not mask paymentNumber
+    if (parsedResult.invoiceNumber === parsedResult.paymentNumber) {
+      parsedResult.invoiceNumber = parsedResult.referencedInvoiceNumber || undefined;
+    }
+  } else {
     parsedResult.documentType = 'invoice';
     if (!parsedResult.documentTypeUkrainian || parsedResult.documentTypeUkrainian.includes('Платіж') || parsedResult.documentTypeUkrainian.includes('інструкц')) {
       parsedResult.documentTypeUkrainian = 'Рахунок на оплату';
     }
-    parsedResult.paymentStatus = 'Не оплачено';
+    if (!parsedResult.paymentStatus) {
+      parsedResult.paymentStatus = 'Не оплачено';
+    }
 
     // Cross-fill from payment box if supplier/buyer were placed into payee/payer
     if (!parsedResult.supplierName && parsedResult.payeeName) {
@@ -738,6 +858,20 @@ ${knownOrdersPromptList}
     }
 
     parsedResult.paymentStatus = 'Оплачено';
+
+    // Ensure invoiceNumber points to referencedInvoiceNumber (for cross-matching) or is clean
+    if (parsedResult.referencedInvoiceNumber) {
+      parsedResult.invoiceNumber = parsedResult.referencedInvoiceNumber;
+    } else if (parsedResult.invoiceNumber === parsedResult.paymentNumber) {
+      parsedResult.invoiceNumber = '';
+    }
+
+    // Synchronize dates if one is missing
+    if (parsedResult.paymentDate && !parsedResult.invoiceDate) {
+      parsedResult.invoiceDate = parsedResult.paymentDate;
+    } else if (parsedResult.invoiceDate && !parsedResult.paymentDate) {
+      parsedResult.paymentDate = parsedResult.invoiceDate;
+    }
   } else if (parsedResult.documentType === 'invoice') {
     parsedResult.paymentStatus = 'Не оплачено';
   }
