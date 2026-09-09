@@ -662,19 +662,19 @@ export const BatchProcessingTable: React.FC<Props> = ({
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 <th className="p-3 w-10 text-center"></th>
-                <th className="p-3">Документ</th>
-                <th className="p-3 bg-amber-50/60 text-amber-900 border-x border-amber-200">
+                <th className="p-3 min-w-[170px]">Документ</th>
+                <th className="p-3 bg-amber-50/60 text-amber-900 border-x border-amber-200 min-w-[150px] whitespace-nowrap">
                   <span className="flex items-center space-x-1">
                     <PenTool className="w-3 h-3 text-amber-600" />
                     <span>Внутр. замовлення (Рукопис)</span>
                   </span>
                 </th>
-                <th className="p-3">Постачальник</th>
-                <th className="p-3">Наша компанія</th>
-                <th className="p-3">Рахунок / Дата</th>
-                <th className="p-3 text-right">Сума</th>
-                <th className="p-3 text-center">Статус</th>
-                <th className="p-3 text-right">Дії</th>
+                <th className="p-3 min-w-[130px]">Постачальник</th>
+                <th className="p-3 min-w-[120px]">Наша компанія</th>
+                <th className="p-3 min-w-[110px] whitespace-nowrap">Рахунок / Дата</th>
+                <th className="p-3 text-right min-w-[95px] whitespace-nowrap">Сума</th>
+                <th className="p-3 text-center min-w-[140px] whitespace-nowrap">Статус</th>
+                <th className="p-3 pr-4 text-right min-w-[120px] whitespace-nowrap">Дії</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -864,7 +864,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
                     </td>
 
                     {/* Status Badge */}
-                    <td className="p-3 text-center">
+                    <td className="p-3 text-center min-w-[140px] whitespace-nowrap">
                       {doc.status === 'pending' && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
                           <Clock className="w-3 h-3 mr-1 text-slate-400" />
@@ -923,11 +923,11 @@ export const BatchProcessingTable: React.FC<Props> = ({
                     </td>
 
                     {/* Actions */}
-                    <td className="p-3 text-right">
+                    <td className="p-3 pr-4 text-right min-w-[120px] whitespace-nowrap">
                       <div className="flex items-center justify-end space-x-1.5">
                         <button
                           onClick={() => onOpenReview(doc)}
-                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1"
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1 shrink-0"
                           title="Переглянути та перевірити"
                         >
                           <Eye className="w-3 h-3" />

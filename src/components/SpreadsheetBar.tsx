@@ -222,7 +222,7 @@ export const SpreadsheetBar: React.FC<Props> = ({
               value={sheetInput}
               onChange={(e) => setSheetInput(e.target.value)}
               placeholder="Посилання на Google Таблицю або Spreadsheet ID"
-              className="w-full text-xs font-mono pl-3 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-slate-800"
+              className="w-full text-xs font-mono pl-3 pr-28 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 text-slate-800"
             />
             {sheetConfig?.spreadsheetTitle && (
               <span className="absolute right-2.5 top-2 text-[10px] font-sans font-semibold text-emerald-800 bg-emerald-100/70 px-1.5 py-0.5 rounded">

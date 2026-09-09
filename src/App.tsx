@@ -1983,7 +1983,7 @@ export default function App() {
       )}
 
       {/* Main Container */}
-      <main className={`flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col min-h-0 ${activeTab === 'sheet' ? 'space-y-4' : 'space-y-6'}`}>
+      <main className={`flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-5 flex flex-col min-h-0 ${activeTab === 'sheet' ? 'space-y-4' : 'space-y-6'}`}>
         {/* Session Expired Banner */}
         {(!authState.isAuthenticated && authState.userEmail) && (
           <div className="bg-amber-50 border border-amber-300/80 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-200">
@@ -2113,7 +2113,7 @@ export default function App() {
 
       {/* App Footer */}
       <footer className="mt-auto border-t border-slate-200 bg-white py-3.5 px-4 sm:px-6 lg:px-8 text-xs text-slate-500 shadow-2xs">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
+        <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <div className="flex items-center space-x-2">
             <span className="font-bold text-slate-800 tracking-tight">ETS Invoice &amp; Payment</span>
             <span className="text-slate-300">•</span>

@@ -65,10 +65,10 @@ export const Header: React.FC<Props> = ({
   return (
     <>
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16 gap-4 sm:gap-6 lg:gap-8">
             {/* Logo & ETS Branding with Release Version */}
-            <div className="flex items-center space-x-2.5">
+            <div className="flex items-center space-x-2.5 shrink-0">
               <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 shadow-xs">
                 <span className="text-white font-extrabold text-[11px] tracking-tight">ETS</span>
               </div>
@@ -103,52 +103,52 @@ export const Header: React.FC<Props> = ({
               </div>
             </div>
 
-          {/* Center Navigation Tabs */}
-          <nav className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1 rounded-xl border border-slate-200">
-            <button
-              onClick={() => onSelectTab('process')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
-                activeTab === 'process'
-                  ? 'bg-white text-slate-900 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <FileText className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Черга обробки</span>
-              {totalPendingCount + totalReadyCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-indigo-600 text-white">
-                  {totalPendingCount + totalReadyCount}
-                </span>
-              )}
-            </button>
+            {/* Center Navigation Tabs */}
+            <nav className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+              <button
+                onClick={() => onSelectTab('process')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
+                  activeTab === 'process'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Черга обробки</span>
+                {totalPendingCount + totalReadyCount > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-indigo-600 text-white">
+                    {totalPendingCount + totalReadyCount}
+                  </span>
+                )}
+              </button>
 
-            <button
-              onClick={() => onSelectTab('sheet')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
-                activeTab === 'sheet'
-                  ? 'bg-white text-slate-900 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Google Таблиця</span>
-            </button>
+              <button
+                onClick={() => onSelectTab('sheet')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
+                  activeTab === 'sheet'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Google Таблиця</span>
+              </button>
 
-            <button
-              onClick={() => onSelectTab('companies')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
-                activeTab === 'companies'
-                  ? 'bg-white text-slate-900 shadow-xs font-bold'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-              }`}
-            >
-              <Building2 className="w-3.5 h-3.5 text-slate-600" />
-              <span>Компанії & Постачальники</span>
-            </button>
-          </nav>
+              <button
+                onClick={() => onSelectTab('companies')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
+                  activeTab === 'companies'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <Building2 className="w-3.5 h-3.5 text-slate-600" />
+                <span>Компанії & Постачальники</span>
+              </button>
+            </nav>
 
-          {/* Right: Status Pills & Auth Actions */}
-          <div className="flex items-center space-x-3">
+            {/* Right: Status Pills & Auth Actions - with increased left spacing */}
+            <div className="flex items-center space-x-3 shrink-0 ml-4 sm:ml-8 lg:ml-12">
             {/* Drive Connection Status Pill */}
             {authState.isAuthenticated ? (
               <div className="hidden lg:flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full border border-emerald-200 text-xs font-semibold">
