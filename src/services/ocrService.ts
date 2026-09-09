@@ -249,10 +249,18 @@ ${suppliersPromptList}
 ${knownOrdersPromptList}
 
 КРИТИЧНІ ПРАВИЛА РОЗПІЗНАВАННЯ:
-1. ТИП ДОКУМЕНТА:
-   - "invoice": Рахунок на оплату, Рахунок-фактура, Акт виконаних робіт, Видаткова накладна.
-   - "payment": Платіжна інструкція, Платіжне доручення, Банківська виписка, Меморіальний ордер, Квитанція про оплату.
-   - "other": Інший тип документа.
+1. ТИП ДОКУМЕНТА (invoice, payment, other) — СУВОРЕ РОЗМЕЖУВАННЯ:
+   - "invoice" (Рахунок на оплату, Рахунок-фактура, Акт виконаних робіт, Видаткова накладна):
+     * Якщо на документі є заголовок "Рахунок", "Рахунок на оплату", "Рахунок-фактура", "Invoice" — це СТРОГО "invoice"!
+     * Якщо є таблиця з переліком товарів або послуг (коди УКТЗЕД, номенклатура, одиниці виміру "шт", кількість, ціна, сума, ПДВ) — це 100% "invoice"!
+     * Якщо зазначено "Постачальник" (Продавець) та "Покупець" (Замовник) — це "invoice"!
+     * КРИТИЧНЕ ЗАСТЕРЕЖЕННЯ: Багато українських постачальників (наприклад, METALVIS / ПрАТ "СОЛДІ І КО", "Епіцентр", "АВ метал груп" тощо) друкують угорі або внизу рахунку блок «Зразок платіжного доручення / Реквізити для оплати» зі словами «Одержувач», «Кредит рах.», «Банк одержувача», «Призначення платежу: згідно рахунка №...».
+       ЦЕ НЕ ПЛАТІЖКА! Це реквізити для оплати РАХУНКУ. Такий документ є СТРОГО "invoice" (Рахунок), І КАТЕГОРИЧНО НЕ "payment"!
+   - "payment" (Платіжна інструкція, Платіжне доручення, Банківська виписка, Меморіальний ордер, Квитанція про оплату):
+     * Це офіційний документ, сформований БАНКОМ або інтернет-банкінгом (ПриватБанк, Райффайзен, Ощадбанк, Monobank тощо) про здійснене перерахування коштів!
+     * Ознаки банківської платіжки: статус або штамп банку «Проведено» / «Виконано» / «Прийнято банком», електронна банківська квитанція з печаткою або підписом банку.
+     * У банківській платіжці НІКОЛИ НЕМАЄ таблиці номенклатури товарів з кодами УКТЗЕД та кількістю штук!
+   - "other": Інший тип документа (сертифікат якості, довіреність, договір).
 
 2. КРИТИЧНО — ВНУТРІШНІЙ НОМЕР ЗАМОВЛЕННЯ (НАПИСАНИЙ ТІЛЬКИ ВІД РУКИ!):
    - Це найважливіше поле! У нашій компанії менеджер або бухгалтер пише номер внутрішнього замовлення ВІД РУКИ (ручкою, олівцем, маркером) будь-де на документі (у верхньому кутку, біля шапки, біля підпису, на полях або під назвою "Рахунок").
@@ -425,32 +433,72 @@ ${knownOrdersPromptList}
   parsedResult.totalAmount = parseAmountToNumber(parsedResult.totalAmount);
   parsedResult.amountPaid = parseAmountToNumber(parsedResult.amountPaid);
 
-  // Auto-detect payment if fileName, title, or fields indicate payment instruction / receipt
+  // Strict, robust documentType determination:
   const lowerFileName = (fileName || '').toLowerCase();
   const lowerDocTypeUkr = String(parsedResult.documentTypeUkrainian || '').toLowerCase();
-  const lowerPurpose = String(parsedResult.paymentPurpose || '').toLowerCase();
-  const hasPaymentIndicators = (
-    lowerFileName.includes('платіж') ||
-    lowerFileName.includes('платеж') ||
-    lowerFileName.includes('доручен') ||
-    lowerFileName.includes('інструкц') ||
-    lowerFileName.includes('квитанц') ||
-    lowerFileName.includes('виписк') ||
-    lowerFileName.includes('payment') ||
-    lowerFileName.includes('receipt') ||
-    lowerDocTypeUkr.includes('платіж') ||
-    lowerDocTypeUkr.includes('інструкц') ||
-    lowerDocTypeUkr.includes('доручен') ||
-    lowerDocTypeUkr.includes('квитанц') ||
-    lowerDocTypeUkr.includes('виписк') ||
-    Boolean(parsedResult.paymentNumber && !parsedResult.invoiceNumber) ||
-    Boolean(parsedResult.paymentPurpose && (lowerPurpose.includes('оплата за') || lowerPurpose.includes('згідно рахунк') || lowerPurpose.includes('без пдв') || lowerPurpose.includes('у т.ч. пдв')))
+  const lowerNotes = String(parsedResult.notes || '').toLowerCase();
+
+  // Strong invoice markers:
+  // Note: Ukrainian invoices frequently contain a sample payment slip block ("Одержувач", "Кредит рах.", "Призначення платежу: згідно рахунка...").
+  // This must NEVER cause an invoice to be misclassified as a payment!
+  const hasInvoiceMarkers = (
+    lowerDocTypeUkr.includes('рахунок') ||
+    lowerDocTypeUkr.includes('фактур') ||
+    lowerDocTypeUkr.includes('акт') ||
+    lowerDocTypeUkr.includes('накладна') ||
+    lowerFileName.includes('рахунок') ||
+    lowerFileName.includes('рахун') ||
+    lowerFileName.includes('invoice') ||
+    lowerFileName.includes('inv_') ||
+    lowerFileName.includes('sf-') ||
+    lowerFileName.includes('сф-') ||
+    Boolean(parsedResult.invoiceNumber && !parsedResult.paymentNumber) ||
+    Boolean(parsedResult.supplierName && parsedResult.buyerName && parsedResult.invoiceNumber) ||
+    lowerNotes.includes('рахунок') ||
+    lowerNotes.includes('invoice')
   );
 
-  if (hasPaymentIndicators && parsedResult.documentType !== 'payment') {
-    parsedResult.documentType = 'payment';
-    if (!parsedResult.documentTypeUkrainian || parsedResult.documentTypeUkrainian.includes('Рахунок')) {
-      parsedResult.documentTypeUkrainian = 'Платіжна інструкція';
+  if (parsedResult.documentType === 'invoice' || hasInvoiceMarkers) {
+    parsedResult.documentType = 'invoice';
+    if (!parsedResult.documentTypeUkrainian || parsedResult.documentTypeUkrainian.includes('Платіж') || parsedResult.documentTypeUkrainian.includes('інструкц')) {
+      parsedResult.documentTypeUkrainian = 'Рахунок на оплату';
+    }
+    parsedResult.paymentStatus = 'Не оплачено';
+
+    // If payee/payer were filled from the payment box instead of supplier/buyer, cross-fill:
+    if (!parsedResult.supplierName && parsedResult.payeeName) {
+      parsedResult.supplierName = parsedResult.payeeName;
+    }
+    if (!parsedResult.buyerName && parsedResult.payerName) {
+      parsedResult.buyerName = parsedResult.payerName;
+    }
+    if (!parsedResult.invoiceNumber && parsedResult.paymentNumber) {
+      parsedResult.invoiceNumber = parsedResult.paymentNumber;
+    }
+    parsedResult.paymentNumber = undefined;
+  } else {
+    // Only classify as payment if NOT an invoice and genuine payment instruction/receipt markers exist:
+    const hasGenuinePaymentIndicators = (
+      lowerFileName.includes('платіж') ||
+      lowerFileName.includes('платеж') ||
+      lowerFileName.includes('доручен') ||
+      lowerFileName.includes('інструкц') ||
+      lowerFileName.includes('квитанц') ||
+      lowerFileName.includes('виписк') ||
+      lowerFileName.includes('p24_') ||
+      lowerFileName.includes('receipt') ||
+      lowerDocTypeUkr.includes('платіж') ||
+      lowerDocTypeUkr.includes('інструкц') ||
+      lowerDocTypeUkr.includes('доручен') ||
+      lowerDocTypeUkr.includes('квитанц') ||
+      lowerDocTypeUkr.includes('виписк')
+    );
+
+    if (hasGenuinePaymentIndicators) {
+      parsedResult.documentType = 'payment';
+      if (!parsedResult.documentTypeUkrainian || parsedResult.documentTypeUkrainian.includes('Рахунок')) {
+        parsedResult.documentTypeUkrainian = 'Платіжна інструкція';
+      }
     }
   }
 
