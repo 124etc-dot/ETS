@@ -2603,9 +2603,22 @@ export class OCRService {
           isDuplicate = true;
           matchReason = `Повністю ідентичні дані рядків рахунку`;
         }
+        // Duplicate Case 5: Same supplier + same order number + amount match, where one has an invalid/placeholder/OCR error number (e.g. "рахунка" vs "227763")
+        else if (supMatch && orderNumMatch && amountMatch && (aIsPlaceholderInv || bIsPlaceholderInv)) {
+          isDuplicate = true;
+          const validNum = !bIsPlaceholderInv ? (b.invoiceNumber || '').trim() : (a.invoiceNumber || '').trim();
+          const wrongNum = aIsPlaceholderInv ? (a.invoiceNumber || '').trim() : (b.invoiceNumber || '').trim();
+          matchReason = `Задвоєння рахунку: замовлення ${b.orderNumber}, ${b.supplier}, сума ${this.formatCurrency(bAmount)}. Рядок ${a.rowIndex} містить помилкове розпізнавання ("${wrongNum || 'порожньо'}"), а рядок ${b.rowIndex} має точний номер №${validNum}`;
+        }
+        // Duplicate Case 6: Same supplier + same order number + amount match + same date
+        else if (supMatch && orderNumMatch && amountMatch && dateMatch) {
+          isDuplicate = true;
+          matchReason = `Задвоєння одного рахунку: однакові постачальник (${b.supplier}), замовлення (${b.orderNumber}), дата (${b.invoiceDate}) та сума (${this.formatCurrency(bAmount)})`;
+        }
 
         if (isDuplicate) {
           alreadyFlagged.add(b.rowIndex);
+          const needsMergeFix = aIsPlaceholderInv && !bIsPlaceholderInv && Boolean(b.invoiceNumber);
           duplicates.push({
             rowIndex: b.rowIndex,
             originalRowIndex: a.rowIndex,
@@ -2616,6 +2629,8 @@ export class OCRService {
             reason: matchReason,
             date: b.invoiceDate,
             orderNumber: b.orderNumber,
+            suggestedAction: needsMergeFix ? 'merge_fix_number' : 'delete',
+            suggestedCorrectInvoiceNumber: needsMergeFix ? (b.invoiceNumber || '').trim() : undefined,
           });
         }
       }

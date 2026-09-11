@@ -198,4 +198,6 @@ export interface DuplicateRowMatch {
   reason: string;
   date?: string;
   orderNumber?: string;
+  suggestedAction?: 'delete' | 'merge_fix_number';
+  suggestedCorrectInvoiceNumber?: string;
 }

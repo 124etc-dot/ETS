@@ -1541,6 +1541,87 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Converts 0-based column index to A1 column letter (0 -> A, 3 -> D, 26 -> AA)
+   */
+  public static columnIndexToLetter(colIndex: number): string {
+    let temp = colIndex;
+    let letter = '';
+    while (temp >= 0) {
+      letter = String.fromCharCode((temp % 26) + 65) + letter;
+      temp = Math.floor(temp / 26) - 1;
+    }
+    return letter;
+  }
+
+  /**
+   * Merges a duplicate invoice into an earlier row without shifting previous row indices:
+   * 1. Updates the invoice number in the original row (e.g. Row 34 gets № 227763)
+   * 2. Deletes the duplicate row (e.g. Row 45)
+   * Because the duplicate row is later (e.g. row 45 > row 34), deleting it causes ZERO index shifts
+   * for rows 1 to duplicateRowIndex - 1. All numbering and ordering remain 100% intact!
+   */
+  public static async mergeDuplicateInvoiceInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    originalRowIndex: number,
+    duplicateRowIndex: number,
+    correctInvoiceNumber: string,
+    invoicesTab = 'Рахунки'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(invoicesTab)) {
+      throw new Error(`Вкладка "${invoicesTab}" захищена від змін.`);
+    }
+
+    if (!originalRowIndex || originalRowIndex <= 1 || !duplicateRowIndex || duplicateRowIndex <= 1) {
+      throw new Error(`Некоректні номери рядків для об'єднання: оригінал ${originalRowIndex}, дубль ${duplicateRowIndex}`);
+    }
+
+    // 1. Detect dynamic column letter for Invoice Number
+    let invoiceColLetter = 'D'; // Standard fallback (A=Order, B=Supplier, C=Buyer, D=InvoiceNum)
+    try {
+      const headerRows = await this.request<any>(
+        `${cleanId}/values/'${invoicesTab.replace(/'/g, "''")}'!1:5`,
+        accessToken
+      );
+      if (headerRows && Array.isArray(headerRows.values)) {
+        for (const row of headerRows.values) {
+          if (!Array.isArray(row)) continue;
+          row.forEach((cellRaw, idx) => {
+            const cell = String(cellRaw || '').trim().toLowerCase();
+            if (
+              (cell.includes('номер') && (cell.includes('рахун') || cell.includes('інвойс'))) ||
+              ((cell.includes('рахун') || cell.includes('інвойс')) && !cell.includes('дата') && !cell.includes('сума') && !cell.includes('статус'))
+            ) {
+              invoiceColLetter = this.columnIndexToLetter(idx);
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not dynamically detect invoice number column, fallback to D:', err);
+    }
+
+    // 2. Update the original row with the correct invoice number
+    const safeTab = invoicesTab.replace(/'/g, "''");
+    await this.request<any>(
+      `${cleanId}/values/'${safeTab}'!${invoiceColLetter}${originalRowIndex}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          range: `'${safeTab}'!${invoiceColLetter}${originalRowIndex}`,
+          majorDimension: 'ROWS',
+          values: [[correctInvoiceNumber]],
+        }),
+      }
+    );
+
+    // 3. Delete the duplicate row
+    await this.deleteRowsFromSheet(cleanId, accessToken, invoicesTab, [duplicateRowIndex]);
+  }
+
+  /**
    * Append a Payment order to the "Платіжки" sheet tab.
    * STRICT GUARANTEE: Never touches or modifies "Лист1".
    */

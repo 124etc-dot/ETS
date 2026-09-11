@@ -2060,6 +2060,38 @@ export default function App() {
     }
   };
 
+  const handleMergeDuplicateInvoice = async (
+    originalRowIndex: number,
+    duplicateRowIndex: number,
+    correctInvoiceNumber: string
+  ) => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
+    setIsLoadingSheet(true);
+    try {
+      notify(
+        `Об'єднання: оновлення рядка ${originalRowIndex} номером №${correctInvoiceNumber} та видалення дублюючого рядка ${duplicateRowIndex}...`,
+        'info'
+      );
+      await GoogleSheetsService.mergeDuplicateInvoiceInSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        originalRowIndex,
+        duplicateRowIndex,
+        correctInvoiceNumber,
+        sheetConfig.invoicesSheetName || 'Рахунки'
+      );
+      await refreshSheetData();
+      notify(
+        `✨ Успішно! Номер №${correctInvoiceNumber} внесено в рядок ${originalRowIndex}, дублюючий рядок ${duplicateRowIndex} видалено. Вся нумерація рядків збереглася!`,
+        'success'
+      );
+    } catch (err: any) {
+      notify(err.message || 'Помилка об\'єднання дублікату в Google Таблиці.', 'error');
+    } finally {
+      setIsLoadingSheet(false);
+    }
+  };
+
   const handleMoveInvoiceToPayments = async (inv: ExistingSheetRow) => {
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
@@ -2579,6 +2611,7 @@ export default function App() {
               documents={documents}
               onReplaceInvoice={handleReplaceInvoice}
               onAddLocalDocument={handleAddSingleLocalDocument}
+              onMergeDuplicateInvoice={handleMergeDuplicateInvoice}
             />
           </div>
         )}

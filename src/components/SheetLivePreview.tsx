@@ -68,6 +68,7 @@ interface Props {
     }
   ) => Promise<void>;
   onAddLocalDocument?: (file: File) => Promise<ProcessedDocument | null>;
+  onMergeDuplicateInvoice?: (originalRowIndex: number, duplicateRowIndex: number, correctInvoiceNumber: string) => Promise<void>;
 }
 
 export const SheetLivePreview: React.FC<Props> = ({
@@ -91,6 +92,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   documents = [],
   onReplaceInvoice,
   onAddLocalDocument,
+  onMergeDuplicateInvoice,
 }) => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ourCompanies' | 'suppliers'>('invoices');
   const [filterText, setFilterText] = useState('');
@@ -789,6 +791,27 @@ export const SheetLivePreview: React.FC<Props> = ({
                 </div>
               </div>
               <div className="flex items-center space-x-2 shrink-0 self-start sm:self-center">
+                {onMergeDuplicateInvoice && duplicateInvoices.some((d) => d.suggestedAction === 'merge_fix_number') && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const mergeItem = duplicateInvoices.find((d) => d.suggestedAction === 'merge_fix_number' && d.suggestedCorrectInvoiceNumber);
+                      if (mergeItem) {
+                        await onMergeDuplicateInvoice(
+                          mergeItem.originalRowIndex,
+                          mergeItem.rowIndex,
+                          mergeItem.suggestedCorrectInvoiceNumber!
+                        );
+                      }
+                    }}
+                    disabled={isDeletingDuplicates}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                    title="Оновити правильний номер у вихідному рядку та видалити дубль без зміщення нумерації попередніх рядків"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    <span>Об'єднати та зберегти нумерацію</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowDuplicatesModal(true)}
@@ -949,15 +972,28 @@ export const SheetLivePreview: React.FC<Props> = ({
                           <div className="flex items-center space-x-1">
                             <span>{inv.rowIndex}</span>
                             {dupInvoice ? (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteSingleDuplicate(dupInvoice)}
-                                disabled={isDeletingDuplicates || actionInProgressRow === inv.rowIndex}
-                                title={`Дублікат рядка ${dupInvoice.originalRowIndex}. Натисніть, щоб видалити цей рядок з таблиці.`}
-                                className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <div className="flex items-center space-x-0.5">
+                                {dupInvoice.suggestedAction === 'merge_fix_number' && dupInvoice.suggestedCorrectInvoiceNumber && onMergeDuplicateInvoice && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onMergeDuplicateInvoice(dupInvoice.originalRowIndex, dupInvoice.rowIndex, dupInvoice.suggestedCorrectInvoiceNumber!)}
+                                    disabled={isDeletingDuplicates || actionInProgressRow === inv.rowIndex}
+                                    title={`Записати правильний номер №${dupInvoice.suggestedCorrectInvoiceNumber} у рядок ${dupInvoice.originalRowIndex} та видалити цей дубль. Вся нумерація збережеться!`}
+                                    className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 rounded cursor-pointer transition-colors"
+                                  >
+                                    <CheckCheck className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSingleDuplicate(dupInvoice)}
+                                  disabled={isDeletingDuplicates || actionInProgressRow === inv.rowIndex}
+                                  title={`Дублікат рядка ${dupInvoice.originalRowIndex}. Натисніть, щоб видалити цей рядок з таблиці.`}
+                                  className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-100 rounded cursor-pointer transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             ) : (
                               onDeleteInvoiceRow && (
                                 <button
@@ -1742,7 +1778,25 @@ export const SheetLivePreview: React.FC<Props> = ({
                           </div>
                         </div>
 
-                        <div className="shrink-0 self-end sm:self-center">
+                        <div className="shrink-0 self-end sm:self-center flex items-center space-x-2">
+                          {item.suggestedAction === 'merge_fix_number' && item.suggestedCorrectInvoiceNumber && onMergeDuplicateInvoice && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await onMergeDuplicateInvoice(
+                                  item.originalRowIndex,
+                                  item.rowIndex,
+                                  item.suggestedCorrectInvoiceNumber!
+                                );
+                              }}
+                              disabled={isDeletingDuplicates}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                              title={`Записати точний номер №${item.suggestedCorrectInvoiceNumber} у вихідний рядок ${item.originalRowIndex} та видалити дублюючий рядок ${item.rowIndex}. Номери рядків не зміняться!`}
+                            >
+                              <CheckCheck className="w-3.5 h-3.5" />
+                              <span>Об'єднати у р. {item.originalRowIndex} (зберегти нумерацію)</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleDeleteSingleDuplicate(item)}
