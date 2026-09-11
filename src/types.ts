@@ -103,6 +103,16 @@ export interface ProcessedDocument {
   alreadyInSheetTab?: string;
   matchedInvoiceId?: string; // For payments linked to an invoice
   matchedInvoiceNumber?: string;
+  replacedRowIndex?: number; // Row index in "Рахунки" that this invoice replaced
+  replacedPreviousInvoice?: {
+    invoiceNumber?: string;
+    amount?: number;
+    supplier?: string;
+    date?: string;
+  };
+  isReplaced?: boolean; // True if this document was superseded/replaced by a newer invoice
+  replacedByDocId?: string;
+  replacedByInvoiceNumber?: string;
 }
 
 export interface GoogleDriveFile {

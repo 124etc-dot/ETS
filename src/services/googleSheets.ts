@@ -76,7 +76,18 @@ export class GoogleSheetsService {
       throw new Error(errorMsg);
     }
 
-    return res.json();
+    if (res.status === 204 || res.headers.get('content-length') === '0') {
+      return {} as T;
+    }
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      return {} as T;
+    }
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return {} as T;
+    }
   }
 
   /**
@@ -1281,39 +1292,163 @@ export class GoogleSheetsService {
       const targetRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
       const range = `'${safeTab}'!A${targetRow}:J${targetRow}`;
 
-      const res = await this.request<any>(
-        `${cleanId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`,
+      await this.request<any>(
+        `${cleanId}/values:batchUpdate`,
         accessToken,
         {
-          method: 'PUT',
+          method: 'POST',
           body: JSON.stringify({
-            values: [row],
+            valueInputOption: 'USER_ENTERED',
+            data: [
+              {
+                range,
+                values: [row],
+              },
+            ],
           }),
         }
       );
 
-      const updatedRange = res.updatedRange || range;
-      return { updatedRange };
+      return { updatedRange: range };
     } catch (err: any) {
       if (err?.message && err.message.includes('Unable to parse range')) {
         // Fallback: force create tab and retry once
         await this.ensureTabExists(cleanId, accessToken, tabName, this.INVOICE_HEADERS);
         const retryRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
         const retryRange = `'${safeTab}'!A${retryRow}:J${retryRow}`;
-        const res = await this.request<any>(
-          `${cleanId}/values/${encodeURIComponent(retryRange)}?valueInputOption=USER_ENTERED`,
+        await this.request<any>(
+          `${cleanId}/values:batchUpdate`,
           accessToken,
           {
-            method: 'PUT',
+            method: 'POST',
             body: JSON.stringify({
-              values: [row],
+              valueInputOption: 'USER_ENTERED',
+              data: [
+                {
+                  range: retryRange,
+                  values: [row],
+                },
+              ],
             }),
           }
         );
-        return { updatedRange: res.updatedRange || retryRange };
+        return { updatedRange: retryRange };
       }
       throw err;
     }
+  }
+
+  /**
+   * Replaces an existing unpaid invoice row in-place in "Рахунки"
+   * (e.g. supplier issued a revised invoice due to out-of-stock items, price changes, etc.)
+   */
+  public static async replaceInvoiceInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    data: {
+      ocr: OCRResult;
+      fileName?: string;
+      driveLink?: string;
+      invoicesTab?: string;
+      previousInvoiceInfo?: {
+        invoiceNumber?: string;
+        amount?: number;
+        supplier?: string;
+        date?: string;
+      };
+      note?: string;
+    }
+  ): Promise<{ updatedRange: string }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    const tabName = data.invoicesTab || 'Рахунки';
+
+    if (this.isProtectedTab(tabName)) {
+      throw new Error(`Внесення даних у "${tabName}" заблоковано для збереження існуючих даних.`);
+    }
+
+    if (!rowIndex || rowIndex <= 1) {
+      throw new Error(`Невірний номер рядка для заміни: ${rowIndex}`);
+    }
+
+    const orderNum = OCRService.normalizeOrderNumber(data.ocr.handwrittenOrderNumber || '');
+    const supplier = OCRService.normalizeCompanyName(data.ocr.supplierName || '');
+    const buyer = OCRService.normalizeCompanyName(data.ocr.buyerName || '');
+
+    const now = new Date();
+    const formattedTimestamp = now.toLocaleString('uk-UA', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    const prevNote = data.previousInvoiceInfo?.invoiceNumber
+      ? `заміна №${data.previousInvoiceInfo.invoiceNumber}`
+      : 'заміна рахунку';
+    const finalTimestamp = `${formattedTimestamp} (${prevNote})`;
+
+    const status: InvoicePaymentStatus = 'Не оплачено';
+    const paidAmount = 0;
+
+    // Exactly 10 columns: A to J
+    const row = [
+      orderNum,                           // A: Номер замовлення (xxx-xx)
+      supplier,                           // B: Постачальник
+      buyer,                              // C: Платник
+      String(data.ocr.invoiceNumber || ''), // D: Номер рахунку
+      String(data.ocr.invoiceDate || ''),   // E: Дата рахунку
+      Number(data.ocr.totalAmount) || 0,    // F: Сума
+      String(data.ocr.currency || 'UAH'),   // G: Валюта
+      status,                             // H: Статус ("Не оплачено")
+      finalTimestamp,                     // I: Час завантаження / заміни
+      paidAmount,                         // J: Сума оплати (0)
+    ];
+
+    const safeTab = tabName.replace(/'/g, "''");
+    const range = `'${safeTab}'!A${rowIndex}:J${rowIndex}`;
+
+    try {
+      await this.request<any>(
+        `${cleanId}/values:batchUpdate`,
+        accessToken,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            valueInputOption: 'USER_ENTERED',
+            data: [
+              {
+                range,
+                values: [row],
+              },
+            ],
+          }),
+        }
+      );
+    } catch (batchErr: any) {
+      console.warn(`Initial batchUpdate for range ${range} failed, trying alternative range notation:`, batchErr);
+      const fallbackRange = `${tabName}!A${rowIndex}:J${rowIndex}`;
+      await this.request<any>(
+        `${cleanId}/values:batchUpdate`,
+        accessToken,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            valueInputOption: 'USER_ENTERED',
+            data: [
+              {
+                range: fallbackRange,
+                values: [row],
+              },
+            ],
+          }),
+        }
+      );
+    }
+
+    return { updatedRange: range };
   }
 
   /**

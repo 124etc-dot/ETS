@@ -45,6 +45,20 @@ interface Props {
   onNextDoc?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
+  onReplaceInvoice?: (
+    targetRowIndex: number,
+    docId: string,
+    customOcr: OCRResult,
+    previousInvoiceInfo?: {
+      invoiceNumber?: string;
+      amount?: number;
+      supplier?: string;
+      date?: string;
+    },
+    options?: {
+      trashOldDriveFile?: boolean;
+    }
+  ) => Promise<void>;
 }
 
 export const DocumentReviewModal: React.FC<Props> = ({
@@ -64,6 +78,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
   onNextDoc,
   hasPrev,
   hasNext,
+  onReplaceInvoice,
 }) => {
   const [formData, setFormData] = useState<OCRResult>({
     documentType: 'invoice',
@@ -84,8 +99,14 @@ export const DocumentReviewModal: React.FC<Props> = ({
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [showServerHelp, setShowServerHelp] = useState(false);
+  const [isReplaceMode, setIsReplaceMode] = useState(false);
+  const [selectedReplaceRowIndex, setSelectedReplaceRowIndex] = useState<number | null>(null);
+  const [isReplacing, setIsReplacing] = useState(false);
 
   useEffect(() => {
+    setIsReplaceMode(false);
+    setSelectedReplaceRowIndex(null);
+    setIsReplacing(false);
     if (doc) {
       const raw = doc.editedData || doc.ocrResult || {};
       const current: OCRResult = {
@@ -135,8 +156,6 @@ export const DocumentReviewModal: React.FC<Props> = ({
       setSavedSuccess(false);
     }
   }, [doc?.id, doc?.editedData, doc?.ocrResult, doc?.status]);
-
-  if (!isOpen || !doc) return null;
 
   const isPaymentDoc = formData.documentType === 'payment';
 
@@ -225,6 +244,34 @@ export const DocumentReviewModal: React.FC<Props> = ({
     }
   };
 
+  const switchToInvoiceType = () => {
+    setFormData((prev) => {
+      const updated = { ...prev };
+      updated.documentType = 'invoice';
+      updated.documentTypeUkrainian = 'Рахунок на оплату';
+      updated.paymentStatus = 'Не оплачено';
+
+      // Restore clean invoice number if contaminated with placeholder like "рахунка"
+      const rawOcr = doc?.ocrResult || {};
+      const origInvNum = OCRService.sanitizeInvoiceNumber(rawOcr.invoiceNumber) ||
+        OCRService.sanitizeInvoiceNumber(updated.invoiceNumber) ||
+        OCRService.sanitizeInvoiceNumber(updated.paymentNumber) ||
+        '';
+      updated.invoiceNumber = origInvNum;
+
+      // Clear payment-specific cross-reference
+      updated.referencedInvoiceNumber = '';
+      updated.referencedInvoiceNumbers = [];
+      updated.paymentNumber = '';
+      updated.matchedInvoices = undefined;
+      updated.matchedInvoiceNumber = undefined;
+      updated.matchedInvoiceAmount = undefined;
+      updated.matchedInvoiceRowIndex = undefined;
+
+      return updated;
+    });
+  };
+
   const switchToPaymentType = () => {
     setFormData((prev) => {
       const updated = { ...prev };
@@ -254,18 +301,23 @@ export const DocumentReviewModal: React.FC<Props> = ({
       const pNumMatch = `${updated.notes || ''} ${updated.handwrittenRawText || ''} ${doc?.fileName || ''}`.match(/(?:платіжна інструкція|доручення|від)?\s*(?:N|№)\s*(\d{1,10})/i);
       if (pNumMatch && pNumMatch[1]) {
         updated.paymentNumber = pNumMatch[1].trim();
-      } else if (!updated.paymentNumber && updated.invoiceNumber) {
+      } else if (!updated.paymentNumber && updated.invoiceNumber && !OCRService.isPlaceholderNumber(updated.invoiceNumber)) {
         updated.paymentNumber = updated.invoiceNumber;
       }
 
-      // Referenced invoice extraction
+      // Referenced invoice extraction using OCRService.extractAllInvoiceNumbers
       const purposeText = `${updated.paymentPurpose || ''} ${updated.notes || ''}`;
-      const invMatch = purposeText.match(/(?:згідно|по|за|рахун(?:ок|ку|ка)?|рах\.?)\s*(?:№|N)?\s*([A-Za-zА-Яа-я0-9\-_/]+)/i);
-      if (invMatch && invMatch[1]) {
-        const foundInv = invMatch[1].trim();
-        updated.referencedInvoiceNumber = foundInv;
-        updated.referencedInvoiceNumbers = [foundInv];
-        updated.invoiceNumber = foundInv;
+      const foundInvs = OCRService.extractAllInvoiceNumbers(
+        updated.referencedInvoiceNumber,
+        updated.referencedInvoiceNumbers,
+        purposeText
+      );
+      if (foundInvs.length > 0) {
+        updated.referencedInvoiceNumber = foundInvs.join(', ');
+        updated.referencedInvoiceNumbers = foundInvs;
+        updated.invoiceNumber = foundInvs[0];
+      } else if (OCRService.isPlaceholderNumber(updated.invoiceNumber)) {
+        updated.invoiceNumber = '';
       }
 
       // Re-evaluate matching invoices
@@ -350,10 +402,28 @@ export const DocumentReviewModal: React.FC<Props> = ({
     (c) => c.toLowerCase().trim() === (effectiveSupplier || '').toLowerCase().trim()
   );
 
-  const cleanOrderCode = (formData.handwrittenOrderNumber || '').replace(/[№#\s]/g, '').trim();
+  const cleanOrderCode = OCRService.normalizeOrderNumber(formData.handwrittenOrderNumber || '');
+  
+  // Real known orders from existing invoices plus predefined orders
+  const availableOrderSuggestions = React.useMemo(() => {
+    const list = new Set<string>();
+    if (Array.isArray(existingInvoices)) {
+      existingInvoices.forEach((inv) => {
+        const norm = OCRService.normalizeOrderNumber(inv.orderNumber || '');
+        if (norm && /^\d{1,6}-\d{2}$/.test(norm)) {
+          list.add(norm);
+        }
+      });
+    }
+    KNOWN_PROJECT_ORDERS.forEach((o) => {
+      list.add(o.code);
+    });
+    return Array.from(list).slice(0, 8);
+  }, [existingInvoices]);
+
   const matchedProjectOrder = KNOWN_PROJECT_ORDERS.find(
     (o) => o.code === cleanOrderCode || cleanOrderCode.startsWith(o.code) || o.code.replace(/[№\s-]/g, '') === cleanOrderCode.replace(/-/g, '')
-  );
+  ) || (cleanOrderCode ? { code: cleanOrderCode, title: `Замовлення ${cleanOrderCode}`, status: 'Активне' } : null);
 
   // Find matched invoices for payment
   const paymentMatches = isPaymentDoc
@@ -378,6 +448,81 @@ export const DocumentReviewModal: React.FC<Props> = ({
       return cleanM === cleanRN || cleanM.includes(cleanRN) || cleanRN.includes(cleanM);
     })
   );
+
+  // Candidate unpaid invoices for replacement (invoices tab only, status "Не оплачено")
+  const unpaidInvoices = !isPaymentDoc
+    ? existingInvoices.filter((inv) => inv.paymentStatus === 'Не оплачено')
+    : [];
+
+  const replacementCandidate = (() => {
+    if (isPaymentDoc || unpaidInvoices.length === 0) return null;
+    const cleanOrder = OCRService.normalizeOrderNumber(formData.handwrittenOrderNumber || '').toLowerCase();
+    const cleanSupplier = OCRService.normalizeCompanyName(formData.supplierName || '');
+
+    // Match 1: Exact or normalized order number match
+    if (cleanOrder) {
+      const matchByOrder = unpaidInvoices.find(
+        (inv) => OCRService.normalizeOrderNumber(inv.orderNumber || '').toLowerCase() === cleanOrder
+      );
+      if (matchByOrder) return matchByOrder;
+    }
+
+    // Match 2: Company name match if supplier is non-empty
+    if (cleanSupplier) {
+      const matchBySupplier = unpaidInvoices.find(
+        (inv) => OCRService.isCompanyNameMatch(cleanSupplier, inv.supplier)
+      );
+      if (matchBySupplier) return matchBySupplier;
+    }
+
+    return null;
+  })();
+
+  const handleExecuteReplace = async () => {
+    if (!selectedReplaceRowIndex || !onReplaceInvoice || !doc) return;
+    const cleanData = getCleanFormData();
+    if ((cleanData.totalAmount || 0) <= 0) {
+      alert('Увага: Сума рахунку не може бути 0 грн.');
+      return;
+    }
+    const targetInvoice = existingInvoices.find((i) => i.rowIndex === selectedReplaceRowIndex);
+    const confirmMsg = `Замінити неоплачений рахунок у рядку ${selectedReplaceRowIndex} (${targetInvoice?.supplier || ''} №${targetInvoice?.invoiceNumber || '—'} на ${targetInvoice?.amount} грн) цим новим документом (№${cleanData.invoiceNumber || '—'} на ${cleanData.totalAmount} грн)?\n\nРядок буде перезаписано на тому ж місці в таблиці.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    let trashOldDriveFile = false;
+    if (targetInvoice && (targetInvoice.driveLink || targetInvoice.fileName)) {
+      trashOldDriveFile = window.confirm(
+        `Перемістити старий файл попереднього рахунку (${targetInvoice.fileName || `№${targetInvoice.invoiceNumber}`}) у кошик (Trash) на Google Диску?`
+      );
+    }
+
+    setIsReplacing(true);
+    try {
+      await onReplaceInvoice(
+        selectedReplaceRowIndex,
+        doc.id,
+        cleanData,
+        targetInvoice
+          ? {
+              invoiceNumber: targetInvoice.invoiceNumber,
+              amount: targetInvoice.amount,
+              supplier: targetInvoice.supplier,
+              date: targetInvoice.invoiceDate,
+            }
+          : undefined,
+        {
+          trashOldDriveFile,
+        }
+      );
+      onClose();
+    } catch (err: any) {
+      alert(`Помилка заміни рахунку: ${err.message || err}`);
+    } finally {
+      setIsReplacing(false);
+    }
+  };
+
+  if (!isOpen || !doc) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 animate-in fade-in">
@@ -916,6 +1061,25 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   />
                 </div>
 
+                {/* Quick select pills from active orders */}
+                {availableOrderSuggestions.length > 0 && !formData.handwrittenOrderNumber && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-[10px] font-semibold text-amber-900">Швидкий вибір:</span>
+                    {availableOrderSuggestions.map((ord) => (
+                      <button
+                        key={ord}
+                        type="button"
+                        onClick={() => {
+                          handleChange('handwrittenOrderNumber', ord);
+                        }}
+                        className="text-[10px] font-mono font-bold bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300 px-1.5 py-0.5 rounded transition-colors shadow-2xs"
+                      >
+                        {ord}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Matched project title from Master Table */}
                 {matchedProjectOrder && (
                   <div className="mt-2 p-2 bg-amber-100/80 border border-amber-300 rounded-lg flex items-center justify-between text-xs text-amber-950 font-semibold">
@@ -936,11 +1100,10 @@ export const DocumentReviewModal: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Smart detection: If document was read as invoice but has payment signs */}
-            {!isPaymentDoc && (
-              (formData.notes && (formData.notes.toLowerCase().includes('платіжн') || formData.notes.toLowerCase().includes('ibank2ua') || formData.notes.toLowerCase().includes('надавач платіжних послуг') || formData.notes.toLowerCase().includes('uetr'))) ||
-              (formData.paymentPurpose && (formData.paymentPurpose.toLowerCase().includes('згідно') || formData.paymentPurpose.toLowerCase().includes('оплата'))) ||
-              (doc.fileName && (doc.fileName.toLowerCase().includes('платіж') || doc.fileName.toLowerCase().includes('платеж') || doc.fileName.toLowerCase().includes('доручен')))
+            {/* Smart detection: If document was read as invoice but has genuine payment signs */}
+            {!isPaymentDoc && !formData.lineItems?.length && (
+              (formData.notes && (formData.notes.toLowerCase().includes('платіжн') || formData.notes.toLowerCase().includes('ibank2ua') || formData.notes.toLowerCase().includes('надавач платіжних послуг') || formData.notes.toLowerCase().includes('проведено банком') || formData.notes.toLowerCase().includes('прийнято банком'))) ||
+              (doc.fileName && (doc.fileName.toLowerCase().includes('платіж') || doc.fileName.toLowerCase().includes('платеж') || doc.fileName.toLowerCase().includes('доручен') || doc.fileName.toLowerCase().includes('p24') || doc.fileName.toLowerCase().includes('квитанц')))
             ) && (
               <div className="p-3 bg-blue-50 border border-blue-300 rounded-xl flex items-center justify-between gap-3 text-xs text-blue-950 shadow-xs">
                 <div className="flex items-start space-x-2">
@@ -948,7 +1111,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   <div>
                     <strong className="block font-bold text-blue-950">Схоже, цей документ є Платіжною інструкцією</strong>
                     <p className="text-blue-800 text-[11px] mt-0.5">
-                      Виявлено банківські реквізити та призначення платежу. Натисніть кнопку, щоб перемкнути тип на «Платіжна інструкція».
+                      Виявлено банківські реквізити платіжного документа. Натисніть кнопку, щоб перемкнути тип на «Платіжна інструкція».
                     </p>
                   </div>
                 </div>
@@ -975,13 +1138,15 @@ export const DocumentReviewModal: React.FC<Props> = ({
                     const dt = e.target.value as any;
                     if (dt === 'payment') {
                       switchToPaymentType();
+                    } else if (dt === 'invoice') {
+                      switchToInvoiceType();
                     } else {
                       handleChange('documentType', dt);
                       handleChange(
                         'documentTypeUkrainian',
                         dt === 'other' ? 'Інший документ' : 'Рахунок на оплату'
                       );
-                      if (dt === 'invoice' && !formData.paymentStatus) {
+                      if (!formData.paymentStatus) {
                         handleChange('paymentStatus', 'Не оплачено');
                       }
                     }
@@ -1272,6 +1437,76 @@ export const DocumentReviewModal: React.FC<Props> = ({
               </div>
             )}
 
+            {/* Replacement Candidate Banner (when matching unpaid invoice exists in Sheet) */}
+            {replacementCandidate && !isReplaceMode && doc.status !== 'synced' && onReplaceInvoice && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-amber-950 shadow-2xs">
+                <div className="flex items-start space-x-2.5">
+                  <RefreshCw className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block text-amber-900">
+                      Знайдено попередній неоплачений рахунок у рядку {replacementCandidate.rowIndex}:
+                    </span>
+                    <span className="text-[11px] text-amber-800 block">
+                      №{replacementCandidate.invoiceNumber || '—'} від {replacementCandidate.invoiceDate || '—'} на {OCRService.formatCurrency(replacementCandidate.amount)} ({replacementCandidate.supplier}).
+                      Якщо це скоригований рахунок на заміну, ви можете перезаписати цей рядок.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedReplaceRowIndex(replacementCandidate.rowIndex);
+                    setIsReplaceMode(true);
+                  }}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shrink-0 transition-colors shadow-2xs cursor-pointer flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Замінити рядок {replacementCandidate.rowIndex}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Replace Mode Selector (when user actively chose to replace an existing row) */}
+            {isReplaceMode && onReplaceInvoice && (
+              <div className="bg-amber-50/90 border-2 border-amber-400 rounded-xl p-3 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-amber-950 flex items-center space-x-1.5">
+                    <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Режим заміни: оберіть рядок для перезапису</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsReplaceMode(false);
+                      setSelectedReplaceRowIndex(null);
+                    }}
+                    className="text-[11px] text-slate-500 hover:text-slate-700 underline cursor-pointer"
+                  >
+                    Скасувати заміну (внести як новий рядок)
+                  </button>
+                </div>
+
+                <select
+                  value={selectedReplaceRowIndex || ''}
+                  onChange={(e) => setSelectedReplaceRowIndex(Number(e.target.value))}
+                  className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-medium font-mono text-slate-800 outline-hidden"
+                >
+                  <option value="">-- Оберіть неоплачений рахунок із таблиці --</option>
+                  {unpaidInvoices.map((inv) => (
+                    <option key={inv.rowIndex} value={inv.rowIndex}>
+                      Рядок {inv.rowIndex}: Замовл. {inv.orderNumber || '—'} | №{inv.invoiceNumber || '—'} | {inv.supplier} | {OCRService.formatCurrency(inv.amount)} ({inv.invoiceDate || '—'})
+                    </option>
+                  ))}
+                </select>
+
+                {selectedReplaceRowIndex && (
+                  <p className="text-[11px] text-amber-800">
+                    ℹ️ Рядок {selectedReplaceRowIndex} буде перезаписано реквізитами цього документа (№{formData.invoiceNumber || '—'}, {OCRService.formatCurrency(formData.totalAmount || 0)}). Історія заміни зафіксується в таблиці.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Footer Action Buttons */}
             <div className="pt-3 mt-auto border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
               <button
@@ -1305,18 +1540,58 @@ export const DocumentReviewModal: React.FC<Props> = ({
                     <span>{isSyncing ? 'Запис...' : 'Внести все одно (новий рядок)'}</span>
                   </button>
                 </div>
+              ) : isReplaceMode && selectedReplaceRowIndex ? (
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsReplaceMode(false);
+                      setSelectedReplaceRowIndex(null);
+                    }}
+                    className="px-3 py-2 text-xs text-slate-500 hover:text-slate-700"
+                  >
+                    Назад
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteReplace}
+                    disabled={isReplacing}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>
+                      {isReplacing ? 'Заміна рахунку...' : `Замінити рядок ${selectedReplaceRowIndex}`}
+                    </span>
+                  </button>
+                </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => handleSync(doc.alreadyInSheet ? true : false)}
-                  disabled={isSyncing}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
-                >
-                  <FileSpreadsheet className="w-4 h-4" />
-                  <span>
-                    {isSyncing ? 'Запис у таблицю...' : doc.alreadyInSheet ? 'Занести в Google Таблицю (все одно як новий рядок)' : 'Занести в Google Таблицю'}
-                  </span>
-                </button>
+                <div className="flex items-center space-x-2">
+                  {onReplaceInvoice && unpaidInvoices.length > 0 && !isPaymentDoc && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedReplaceRowIndex(replacementCandidate?.rowIndex || unpaidInvoices[0]?.rowIndex || null);
+                        setIsReplaceMode(true);
+                      }}
+                      className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-xs font-semibold transition-colors flex items-center space-x-1.5 cursor-pointer"
+                      title="Замінити існуючий неоплачений рядок цим оновленим рахунком"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Замінити рядок...</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleSync(doc.alreadyInSheet ? true : false)}
+                    disabled={isSyncing}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" />
+                    <span>
+                      {isSyncing ? 'Запис у таблицю...' : doc.alreadyInSheet ? 'Занести в Google Таблицю (все одно як новий рядок)' : 'Занести в Google Таблицю'}
+                    </span>
+                  </button>
+                </div>
               )}
             </div>
           </div>

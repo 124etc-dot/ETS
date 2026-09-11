@@ -365,6 +365,44 @@ export default function App() {
     documentsRef.current = documents;
   }, [documents]);
 
+  // Dynamically collect real project orders from active Google Sheet invoices and loaded documents
+  const dynamicKnownOrders = React.useMemo(() => {
+    const ordersMap = new Map<string, string>();
+    
+    // Add from existing sheet rows
+    if (Array.isArray(existingInvoices)) {
+      existingInvoices.forEach((inv) => {
+        const ord = OCRService.normalizeOrderNumber(inv.orderNumber || '');
+        if (ord && /^\d{1,6}-\d{2}$/.test(ord)) {
+          if (!ordersMap.has(ord)) {
+            ordersMap.set(ord, inv.supplier || '');
+          }
+        }
+      });
+    }
+
+    // Add from loaded documents
+    if (Array.isArray(documents)) {
+      documents.forEach((doc) => {
+        const ord = OCRService.normalizeOrderNumber(doc.ocrData?.handwrittenOrderNumber || '');
+        if (ord && /^\d{1,6}-\d{2}$/.test(ord)) {
+          if (!ordersMap.has(ord)) {
+            ordersMap.set(ord, doc.ocrData?.supplierName || '');
+          }
+        }
+      });
+    }
+
+    // Only fallback to sample orders if no real orders exist in sheet or documents
+    if (ordersMap.size === 0) {
+      KNOWN_PROJECT_ORDERS.forEach((o) => {
+        ordersMap.set(o.code, o.title);
+      });
+    }
+
+    return Array.from(ordersMap.entries()).map(([code, title]) => ({ code, title }));
+  }, [existingInvoices, documents]);
+
   // Save documents to localStorage whenever they change
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -668,7 +706,7 @@ export default function App() {
           fileName: doc.fileName,
           ourCompanies: companyLists.ourCompanies,
           suppliers: companyLists.suppliers,
-          knownOrders: KNOWN_PROJECT_ORDERS,
+          knownOrders: dynamicKnownOrders,
         });
 
         return { ocrResult, base64Payload, mimeType };
@@ -1459,6 +1497,200 @@ export default function App() {
     }
   };
 
+  // Replace an unpaid invoice row in-place with an updated document
+  const handleReplaceInvoice = async (
+    targetRowIndex: number,
+    newOcr: OCRResult,
+    sourceDoc?: ProcessedDocument,
+    previousInvoiceInfo?: {
+      invoiceNumber?: string;
+      amount?: number;
+      supplier?: string;
+      date?: string;
+    },
+    options?: {
+      trashOldDriveFile?: boolean;
+    }
+  ) => {
+    const targetInvoice = existingInvoices.find((i) => i.rowIndex === targetRowIndex);
+    const prevInfo = {
+      invoiceNumber: previousInvoiceInfo?.invoiceNumber || targetInvoice?.invoiceNumber,
+      amount: previousInvoiceInfo?.amount ?? targetInvoice?.amount,
+      supplier: previousInvoiceInfo?.supplier || targetInvoice?.supplier,
+      date: previousInvoiceInfo?.date || targetInvoice?.invoiceDate,
+    };
+
+    // If source document is from local upload and not yet in Google Drive, ensure background upload
+    if (sourceDoc && !sourceDoc.driveFileId && authState.accessToken) {
+      handleUploadDocToDrive(sourceDoc.id, sourceDoc).catch((err) => {
+        console.warn('Background Drive upload for replacement doc error:', err);
+      });
+    }
+
+    // Move old file to Google Drive trash if user requested
+    let trashedFileName = '';
+    if (options?.trashOldDriveFile && authState.accessToken) {
+      const oldDoc = documentsRef.current.find(
+        (d) =>
+          d.syncedRowIndex === targetRowIndex ||
+          (targetInvoice?.driveLink && d.driveLink === targetInvoice.driveLink) ||
+          (targetInvoice?.fileName && d.fileName === targetInvoice.fileName) ||
+          (targetInvoice?.invoiceNumber && (d.ocrResult?.invoiceNumber === targetInvoice.invoiceNumber || d.editedData?.invoiceNumber === targetInvoice.invoiceNumber))
+      );
+      const oldFileId =
+        oldDoc?.driveFileId ||
+        (targetInvoice?.driveLink ? GoogleDriveService.extractFileId(targetInvoice.driveLink) : '');
+      const oldFileName = oldDoc?.fileName || targetInvoice?.fileName || '';
+
+      if (oldFileId) {
+        try {
+          await GoogleDriveService.trashFile(oldFileId, authState.accessToken);
+          trashedFileName = oldFileName || `№${prevInfo.invoiceNumber || targetInvoice?.invoiceNumber || ''}`;
+        } catch (trashErr: any) {
+          console.warn('Could not trash old file from Google Drive:', trashErr);
+          notify(`Не вдалося перемістити старий файл на Диску в кошик: ${trashErr.message || trashErr}`, 'error');
+        }
+      }
+    }
+
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
+      // Local/offline state update
+      setExistingInvoices((prev) =>
+        prev.map((inv) => {
+          if (inv.rowIndex !== targetRowIndex) return inv;
+          return {
+            ...inv,
+            orderNumber: newOcr.handwrittenOrderNumber || inv.orderNumber,
+            invoiceNumber: newOcr.invoiceNumber || inv.invoiceNumber,
+            invoiceDate: newOcr.invoiceDate || inv.invoiceDate,
+            amount: newOcr.totalAmount || inv.amount,
+            supplier: newOcr.supplierName || inv.supplier,
+            payer: newOcr.buyerName || inv.payer,
+            paymentStatus: 'Не оплачено',
+            paidAmount: 0,
+            replacedAt: new Date().toISOString(),
+            replacedPreviousInvoice: prevInfo,
+          };
+        })
+      );
+
+      if (sourceDoc) {
+        setDocuments((prev) =>
+          prev.map((d) => {
+            if (d.id === sourceDoc.id) {
+              return {
+                ...d,
+                status: 'synced',
+                syncedRowIndex: targetRowIndex,
+                syncedAt: new Date().toISOString(),
+                syncedSheetTab: sheetConfig?.invoicesSheetName || 'Рахунки',
+                alreadyInSheet: true,
+                replacedRowIndex: targetRowIndex,
+                replacedPreviousInvoice: prevInfo,
+                editedData: newOcr,
+              };
+            }
+            if (d.syncedRowIndex === targetRowIndex && d.id !== sourceDoc.id) {
+              return {
+                ...d,
+                isReplaced: true,
+                replacedByInvoiceNumber: newOcr.invoiceNumber,
+              };
+            }
+            return d;
+          })
+        );
+      }
+
+      notify(`Рахунок у рядку ${targetRowIndex} успішно замінено (локальний режим).`, 'success');
+      return;
+    }
+
+    try {
+      notify(`Заміна рахунку в рядку ${targetRowIndex} у Google Таблиці...`, 'info');
+      await GoogleSheetsService.replaceInvoiceInSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        targetRowIndex,
+        {
+          ocr: newOcr,
+          fileName: sourceDoc?.fileName,
+          driveLink: sourceDoc?.driveLink,
+          invoicesTab: sheetConfig.invoicesSheetName,
+          previousInvoiceInfo: prevInfo,
+        }
+      );
+
+      // Update local existingInvoices immediately so UI reflects the replacement without delay
+      setExistingInvoices((prev) =>
+        prev.map((inv) => {
+          if (inv.rowIndex !== targetRowIndex) return inv;
+          return {
+            ...inv,
+            orderNumber: newOcr.handwrittenOrderNumber || inv.orderNumber,
+            invoiceNumber: newOcr.invoiceNumber || inv.invoiceNumber,
+            invoiceDate: newOcr.invoiceDate || inv.invoiceDate,
+            amount: newOcr.totalAmount || inv.amount,
+            supplier: newOcr.supplierName || inv.supplier,
+            buyer: newOcr.buyerName || inv.buyer,
+            paymentStatus: 'Не оплачено',
+            paidAmount: 0,
+            replacedAt: new Date().toISOString(),
+            replacedPreviousInvoice: prevInfo,
+          };
+        })
+      );
+
+      // Refresh sheets data from server in background
+      try {
+        await refreshSheetData();
+      } catch (refErr) {
+        console.warn('Could not refresh sheet data immediately after replacement:', refErr);
+      }
+
+      // Update local documents list
+      if (sourceDoc) {
+        setDocuments((prev) =>
+          prev.map((d) => {
+            if (d.id === sourceDoc.id) {
+              return {
+                ...d,
+                status: 'synced',
+                syncedRowIndex: targetRowIndex,
+                syncedAt: new Date().toISOString(),
+                syncedSheetTab: sheetConfig.invoicesSheetName || 'Рахунки',
+                alreadyInSheet: true,
+                replacedRowIndex: targetRowIndex,
+                replacedPreviousInvoice: prevInfo,
+                editedData: newOcr,
+              };
+            }
+            if (d.syncedRowIndex === targetRowIndex && d.id !== sourceDoc.id) {
+              return {
+                ...d,
+                isReplaced: true,
+                replacedByInvoiceNumber: newOcr.invoiceNumber,
+              };
+            }
+            return d;
+          })
+        );
+      }
+
+      const trashNotice = trashedFileName
+        ? ` 🗑️ Старий файл «${trashedFileName}» переміщено в кошик на Google Диску.`
+        : '';
+
+      notify(
+        `✅ Рахунок у рядку ${targetRowIndex} успішно замінено новими даними (№${newOcr.invoiceNumber || '—'}, ${newOcr.totalAmount} грн)!${trashNotice}`,
+        'success'
+      );
+    } catch (err: any) {
+      notify(err.message || 'Помилка заміни рахунку в Google Таблиці.', 'error');
+      throw err;
+    }
+  };
+
   // Batch reconcile statuses from SheetLivePreview
   const handleBatchReconcileInvoiceStatuses = async (
     matches: Array<{
@@ -2008,6 +2240,35 @@ export default function App() {
     }
   };
 
+  const handleAddSingleLocalDocument = async (file: File): Promise<ProcessedDocument | null> => {
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const newDoc: ProcessedDocument = {
+        id: `local_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        source: 'upload',
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+        previewDataUrl: dataUrl,
+        blob: file,
+        status: 'pending',
+        createdAt: Date.now(),
+      };
+
+      handleAddLocalDocuments([newDoc]);
+      return newDoc;
+    } catch (err) {
+      console.error('Failed to create document from file:', err);
+      return null;
+    }
+  };
+
   const handleDeduplicateDocuments = () => {
     const { uniqueDocs, removedCount } = deduplicateDocuments(documents);
     if (removedCount > 0) {
@@ -2210,6 +2471,9 @@ export default function App() {
               onMoveInvoiceToPayments={handleMoveInvoiceToPayments}
               onMovePaymentToInvoices={handleMovePaymentToInvoices}
               onNormalizeOverpaidInvoices={handleNormalizeOverpaidInvoices}
+              documents={documents}
+              onReplaceInvoice={handleReplaceInvoice}
+              onAddLocalDocument={handleAddSingleLocalDocument}
             />
           </div>
         )}
@@ -2263,6 +2527,10 @@ export default function App() {
         onNextDoc={handleNextReviewDoc}
         hasPrev={reviewDocIndex > 0}
         hasNext={reviewDocIndex < documents.length - 1}
+        onReplaceInvoice={async (targetRowIndex, docId, cleanData, prevInfo, options) => {
+          const doc = documents.find((d) => d.id === docId);
+          await handleReplaceInvoice(targetRowIndex, cleanData, doc, prevInfo, options);
+        }}
       />
 
       {/* Modal: Google Auth Connect */}

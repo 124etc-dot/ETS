@@ -817,7 +817,15 @@ export const BatchProcessingTable: React.FC<Props> = ({
                           <span className="text-slate-300">—</span>
                         )
                       ) : doc.status === 'ready_for_review' ? (
-                        <span className="text-[11px] text-slate-500 italic" title="AI просканував документ, але рукописного номера замовлення не виявлено">Не виявлено</span>
+                        <button
+                          type="button"
+                          onClick={() => onOpenReview(doc)}
+                          className="text-[11px] text-amber-800 bg-amber-100/70 hover:bg-amber-200/90 border border-amber-300/80 px-2 py-0.5 rounded font-medium transition-all inline-flex items-center gap-1 group shadow-2xs"
+                          title="Рукописного номера не виявлено. Натисніть, щоб відкрити перегляд документа або обрати номер"
+                        >
+                          <span className="italic">Не виявлено</span>
+                          <span className="text-[10px] text-amber-600 group-hover:scale-110 transition-transform">✏️</span>
+                        </button>
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}
@@ -902,9 +910,24 @@ export const BatchProcessingTable: React.FC<Props> = ({
                             <CheckCircle2 className="w-3 h-3 mr-1 text-emerald-600" />
                             Внесено в таблицю
                           </span>
-                          {doc.syncedRowIndex && (
+                          {doc.replacedRowIndex ? (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-100 text-amber-900 border border-amber-300 mt-0.5 cursor-help"
+                              title={`Замінив попередній рахунок №${doc.replacedPreviousInvoice?.invoiceNumber || '—'} у рядку ${doc.replacedRowIndex}`}
+                            >
+                              рядок {doc.replacedRowIndex} (Заміна)
+                            </span>
+                          ) : doc.syncedRowIndex ? (
                             <span className="text-[9px] text-emerald-700 font-mono mt-0.5">
                               рядок {doc.syncedRowIndex}
+                            </span>
+                          ) : null}
+                          {doc.isReplaced && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 mt-0.5 cursor-help"
+                              title={`Цей документ було замінено новішим рахунком (№${doc.replacedByInvoiceNumber || '—'})`}
+                            >
+                              Замінено новішим
                             </span>
                           )}
                         </div>

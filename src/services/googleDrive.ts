@@ -56,7 +56,18 @@ export class GoogleDriveService {
       throw new Error(errorMsg);
     }
 
-    return res.json();
+    if (res.status === 204 || res.headers.get('content-length') === '0') {
+      return {} as T;
+    }
+    const text = await res.text();
+    if (!text || !text.trim()) {
+      return {} as T;
+    }
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return {} as T;
+    }
   }
 
   /**
@@ -75,6 +86,63 @@ export class GoogleDriveService {
       return uMatch[1];
     }
     return trimmed;
+  }
+
+  /**
+   * Extract File ID from Google Drive URL or return string as is if already an ID
+   */
+  public static extractFileId(input: string): string {
+    if (!input) return '';
+    const trimmed = input.trim();
+    // E.g. https://drive.google.com/file/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ/view
+    const matchFile = trimmed.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (matchFile && matchFile[1]) {
+      return matchFile[1];
+    }
+    // E.g. https://drive.google.com/open?id=1aBcDeFgHiJkLmNoPqRsTuVwXyZ or id=...
+    const matchIdParam = trimmed.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (matchIdParam && matchIdParam[1]) {
+      return matchIdParam[1];
+    }
+    // If it's a bare alphanumeric string with dashes/underscores of typical drive id length (at least 15 chars)
+    if (/^[a-zA-Z0-9_-]{15,}$/.test(trimmed)) {
+      return trimmed;
+    }
+    return '';
+  }
+
+  /**
+   * Move a file to Google Drive trash (safest option, reversible in Drive UI)
+   */
+  public static async trashFile(fileId: string, accessToken: string): Promise<void> {
+    const cleanId = this.extractFileId(fileId);
+    if (!cleanId) return;
+    await this.request<any>(
+      `files/${cleanId}`,
+      accessToken,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ trashed: true }),
+      }
+    );
+  }
+
+  /**
+   * Permanently delete a file from Google Drive
+   */
+  public static async deleteFilePermanently(fileId: string, accessToken: string): Promise<void> {
+    const cleanId = this.extractFileId(fileId);
+    if (!cleanId) return;
+    await this.request<any>(
+      `files/${cleanId}`,
+      accessToken,
+      {
+        method: 'DELETE',
+      }
+    );
   }
 
   /**

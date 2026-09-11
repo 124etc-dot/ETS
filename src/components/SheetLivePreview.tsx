@@ -26,9 +26,10 @@ import {
   CheckCheck,
   Lock
 } from 'lucide-react';
-import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, DuplicateRowMatch } from '../types';
+import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, DuplicateRowMatch, ProcessedDocument, OCRResult } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
 import { OCRService } from '../services/ocrService';
+import { ReplaceInvoiceModal } from './ReplaceInvoiceModal';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -48,6 +49,22 @@ interface Props {
   onMoveInvoiceToPayments?: (inv: ExistingSheetRow) => Promise<void>;
   onMovePaymentToInvoices?: (pay: ExistingPaymentRow) => Promise<void>;
   onNormalizeOverpaidInvoices?: (items: Array<{ rowIndex: number; correctPaidAmount: number }>) => Promise<void>;
+  documents?: ProcessedDocument[];
+  onReplaceInvoice?: (
+    targetRowIndex: number,
+    newOcr: OCRResult,
+    sourceDoc?: ProcessedDocument,
+    previousInvoiceInfo?: {
+      invoiceNumber?: string;
+      amount?: number;
+      supplier?: string;
+      date?: string;
+    },
+    options?: {
+      trashOldDriveFile?: boolean;
+    }
+  ) => Promise<void>;
+  onAddLocalDocument?: (file: File) => Promise<ProcessedDocument | null>;
 }
 
 export const SheetLivePreview: React.FC<Props> = ({
@@ -68,6 +85,9 @@ export const SheetLivePreview: React.FC<Props> = ({
   onMoveInvoiceToPayments,
   onMovePaymentToInvoices,
   onNormalizeOverpaidInvoices,
+  documents = [],
+  onReplaceInvoice,
+  onAddLocalDocument,
 }) => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ourCompanies' | 'suppliers'>('invoices');
   const [filterText, setFilterText] = useState('');
@@ -79,6 +99,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
   const [actionInProgressRow, setActionInProgressRow] = useState<number | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
+  const [replacingInvoice, setReplacingInvoice] = useState<ExistingSheetRow | null>(null);
 
   const maxInvoiceRow = useMemo(() => {
     return existingInvoices.reduce((max, inv) => Math.max(max, inv.rowIndex), 0);
@@ -983,6 +1004,18 @@ export const SheetLivePreview: React.FC<Props> = ({
                                 <ArrowRightLeft className="w-3.5 h-3.5" />
                               </button>
                             )}
+
+                            {onReplaceInvoice && inv.paymentStatus === 'Не оплачено' && (
+                              <button
+                                type="button"
+                                disabled={actionInProgressRow === inv.rowIndex}
+                                onClick={() => setReplacingInvoice(inv)}
+                                title={`Замінити неоплачений рахунок у рядку ${inv.rowIndex} (наприклад, постачальник надав альтернативу чи скоригований рахунок)`}
+                                className="p-1 text-slate-300 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                         <td className="p-2.5 bg-amber-50/40 border-x border-amber-100/80 font-mono font-bold text-amber-950">
@@ -1064,6 +1097,20 @@ export const SheetLivePreview: React.FC<Props> = ({
                                 <Lock className="w-2.5 h-2.5 text-emerald-600" />
                                 <span>Пара закрита</span>
                               </span>
+                            </div>
+                          )}
+
+                          {onReplaceInvoice && inv.paymentStatus === 'Не оплачено' && (
+                            <div className="mt-1 flex items-center justify-center">
+                              <button
+                                type="button"
+                                onClick={() => setReplacingInvoice(inv)}
+                                className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-[10px] font-medium transition-colors cursor-pointer"
+                                title={`Замінити неоплачений рахунок у рядку ${inv.rowIndex} новими реквізитами або новим файлом`}
+                              >
+                                <RefreshCw className="w-2.5 h-2.5 text-amber-700" />
+                                <span>Замінити рахунок</span>
+                              </button>
                             </div>
                           )}
 
@@ -1739,6 +1786,23 @@ export const SheetLivePreview: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal for replacing an unpaid invoice in-place */}
+      {replacingInvoice && (
+        <ReplaceInvoiceModal
+          isOpen={Boolean(replacingInvoice)}
+          onClose={() => setReplacingInvoice(null)}
+          targetInvoice={replacingInvoice}
+          documents={documents}
+          companyLists={companyLists}
+          onConfirmReplace={async (targetRowIndex, newOcr, sourceDoc, prevInfo, options) => {
+            if (onReplaceInvoice) {
+              await onReplaceInvoice(targetRowIndex, newOcr, sourceDoc, prevInfo, options);
+            }
+          }}
+          onAddLocalDocument={onAddLocalDocument}
+        />
       )}
     </div>
   );

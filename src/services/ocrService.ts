@@ -125,7 +125,7 @@ const ocrResponseSchema: Schema = {
     },
     invoiceNumber: {
       type: Type.STRING,
-      description: 'Invoice number (Номер рахунку, e.g. "СФ-000452", "125")',
+      description: 'Invoice number (Номер рахунку, e.g. "227763", "СФ-000452", "125"). NEVER return words like "рахунок", "рахунка", "рахунку", "інвойс", "згідно" - extract ONLY the alphanumeric number or code itself.',
     },
     invoiceDate: {
       type: Type.STRING,
@@ -207,6 +207,7 @@ async function executeClientSideGeminiOcr(params: {
   suppliers: string[];
   knownOrders?: any[];
   apiKey: string;
+  docTypeHint?: 'auto' | 'invoice' | 'payment';
 }): Promise<OCRResult> {
   const {
     fileData,
@@ -216,6 +217,7 @@ async function executeClientSideGeminiOcr(params: {
     suppliers,
     knownOrders,
     apiKey,
+    docTypeHint,
   } = params;
 
   // Safely strip ANY data URL prefix regardless of attributes (e.g. data:...;charset=...;base64,)
@@ -244,7 +246,13 @@ async function executeClientSideGeminiOcr(params: {
     : '';
 
   const knownOrdersPromptList = Array.isArray(knownOrders) && knownOrders.length > 0
-    ? `\nДОВІДНИК АКТИВНИХ ВНУТРІШНІХ ЗАМОВЛЕНЬ (для точної перевірки рукописного номера):\n${knownOrders.map((o: any) => `- Код: ${typeof o === 'string' ? o : o.code + ' (' + o.title + ')'}`).join('\n')}`
+    ? `\nДОВІДНИК АКТИВНИХ ВНУТРІШНІХ ЗАМОВЛЕНЬ:\n${knownOrders.map((o: any) => `- Код: ${typeof o === 'string' ? o : o.code + (o.title ? ' (' + o.title + ')' : '')}`).join('\n')}\n(УВАГА: Цей довідник надано ВИКЛЮЧНО як допоміжний орієнтир для уточнення неоднозначних рукописних цифр на документі! КАТЕГОРИЧНО ЗАБОРОНЕНО вигадувати або підставляти номер з довідника, якщо таких цифр насправді немає на зображенні документа!)`
+    : '';
+
+  const docTypeHintInstruction = docTypeHint === 'invoice'
+    ? '\nВКАЗІВКА ВІД КОРИСТУВАЧА: Цей файл є РАХУНКОМ НА ОПЛАТУ (invoice). Обов\'язково встанови documentType="invoice", documentTypeUkrainian="Рахунок на оплату". Визнач точний числовий номер рахунку (invoiceNumber), дату (invoiceDate), постачальника (supplierName), покупця (buyerName) та суму (totalAmount).\n'
+    : docTypeHint === 'payment'
+    ? '\nВКАЗІВКА ВІД КОРИСТУВАЧА: Цей файл є ПЛАТІЖНИМ ДОКУМЕНТОМ (payment). Обов\'язково встанови documentType="payment".\n'
     : '';
 
   const systemPrompt = `Ти високоточний експертний модуль автоматичного розпізнавання (OCR) первинних фінансових документів (Рахунків на оплату, Банківських платіжок/квитанцій, чеків, скріншотів мобільного банкінгу) для українського та міжнародного бізнесу.
@@ -255,6 +263,7 @@ async function executeClientSideGeminiOcr(params: {
 ${ourCompaniesPromptList}
 ${suppliersPromptList}
 ${knownOrdersPromptList}
+${docTypeHintInstruction}
 
 КРИТИЧНІ ПРАВИЛА РОЗПІЗНАВАННЯ:
 1. ТИП ДОКУМЕНТА (invoice, payment, other) — СУВОРЕ РОЗМЕЖУВАННЯ:
@@ -275,14 +284,26 @@ ${knownOrdersPromptList}
      * У банківській платіжці НІКОЛИ НЕМАЄ таблиці номенклатури товарів з кодами УКТЗЕД та кількістю штук!
    - "other": Інший тип документа (сертифікат якості, довіреність, договір).
 
-2. КРИТИЧНО — ВНУТРІШНІЙ НОМЕР ЗАМОВЛЕННЯ (НАПИСАНИЙ ТІЛЬКИ ВІД РУКИ!):
-   - Це найважливіше поле! У нашій компанії менеджер або бухгалтер пише номер внутрішнього замовлення ВІД РУКИ (ручкою, олівцем, маркером) будь-де на документі (у верхньому кутку, біля шапки, біля підпису, на полях або під назвою "Рахунок").
-   - Формат внутрішнього номера: "ххх-хх" БЕЗ СИМВОЛУ "№"! Де "ххх" — це номер замовлення (від 1 до 6 цифр, наприклад 142, 089, 228, 45, 123, 1890), а "хх" — це дві цифри року (наприклад "26" для 2026 року, "25" для 2025 тощо).
-   - Приклади того, що може бути написано від руки: "№142-26", "№ 45-26", "142-26", "089-26", "№ 7-26", "зам. 312-26", "228-26".
-   - У полі "handwrittenOrderNumber" обов'язково стандартизуй до формату "ххх-хх" (ТІЛЬКИ цифри та дефіс, БЕЗ знаку №, наприклад "142-26", "089-26", "45-26").
-   - У полі "handwrittenRawText" вкажи точний текст, як він написаний рукою.
-   - У полі "handwrittenLocation" вкажи точне місце, де знайдено рукописний напис.
-   - У полі "handwrittenConfidence" вкажи 'high' (якщо чітко видно), 'medium' (якщо є сумніви в окремих цифрах), 'low' (якщо ледь розбірливо), або 'none' (якщо жодного рукописного напису немає).
+2. КРИТИЧНО — ВНУТРІШНІЙ НОМЕР ЗАМОВЛЕННЯ (НАПИСАНИЙ ВІД РУКИ, ШТАМПОМ ЧИ РУЧКОЮ):
+   - Це ключове поле для обліку! У нашій компанії менеджер або бухгалтер на кожному рахунку пише номер внутрішнього замовлення РУЧКОЮ (синьою, чорною, фіолетовою, червоною), ОЛІВЦЕМ або МАРКЕРОМ.
+   - ДЕ ШУКАТИ (оглянь кожен куток і край аркуша!):
+     1. Верхній правий кут (найчастіше місце напису!)
+     2. Верхній лівий кут або в шапці постачальника поруч з логотипом
+     3. Безпосередньо біля, над або під заголовком "Рахунок на оплату", "Рахунок-фактура", "СФ"
+     4. На бічних полях (margins) ліворуч або праворуч (навіть якщо напис повернений вертикально!)
+     5. Внизу аркуша — біля підписів, печаток або загальної суми до сплати
+   - ВАРІАНТИ НАПИСАННЯ ТА СТАНДАРТИЗАЦІЯ ДО ФОРМАТУ "ххх-хх":
+     * Повний номер з роком: "142-26", "232-26", "089-26", "229-26", "216-26", "207-26", "45-26" -> "ххх-хх"
+     * Номер через скісну риску або крапку: "232/26", "142/26", "232.26" -> стандартизуй до "232-26"
+     * Номер з префіксами: "№ 232-26", "№142-26", "зам. 232-26", "з. 232-26", "З-232-26" -> видали букви та №, поверни "232-26"
+     * ТІЛЬКИ НОМЕР БЕЗ РОКУ (дуже часто менеджери пишуть просто число!): "232", "142", "45", "108", "89", або число в кружечку чи рамочці. Якщо зазначено лише номер без року — ОБОВ'ЯЗКОВО додай поточний рік "-26" (наприклад, з "232" сформуй "232-26")!
+   - У полі "handwrittenOrderNumber": повертай строго стандартизований формат "ххх-хх" (без №, без літер, наприклад "232-26", "089-26").
+   - У полі "handwrittenRawText": вкажи точний текст, як він реально написаний (наприклад "№ 232/26", "232", "зам 45-26").
+   - У полі "handwrittenLocation": вкажи місце знаходження (наприклад "Верхній правий кут", "На правому полі", "Біля шапки").
+   - У полі "handwrittenConfidence": 'high' (якщо чітко видно), 'medium' (якщо є незначні сумніви), 'low' (якщо ледь розбірливо), або 'none' (якщо напису немає взагалі).
+   - АНТИ-ГАЛЮЦИНАЦІЯ:
+     * Для платіжок ("payment"): банківські квитанції та платіжки зазвичай НЕ мають рукописного номера. Для платіжок бери номер замовлення ТІЛЬКИ якщо він явно написаний у "Призначенні платежу" (наприклад "замовлення 229-26") або дописаний від руки на паперовій квитанції!
+     * НІКОЛИ не вигадуй номер замовлення і не обирай навмання з довідника (наприклад "083-26"), якщо його немає на зображенні! Якщо напису немає — повертай порожній рядок "".
 
 3. НАЗВА КОМПАНІЇ ПОСТАЧАЛЬНИКА (supplierName) ТА ПОКУПЦЯ (buyerName):
    - СТРОГИЙ СТАНДАРТИЗОВАНИЙ ФОРМАТ: "ТОВ НАЗВА КОМПАНІЇ", ВСІ БУКВИ ВЕЛИКІ, БЕЗ ЛАПОК!
@@ -292,8 +313,11 @@ ${knownOrdersPromptList}
      ВАЖЛИВО: Назва постачальника НЕ МОЖЕ співпадати з назвою наших компаній!
    - buyerName: Це компанія-платник або одержувач товару/послуги. Знайди точний збіг зі СПИСКУ НАШИХ КОМПАНІЙ і приведи до формату "ТОВ НАЗВА" великими буквами без лапок.
 
-4. НОМЕР ТА ДАТА РАХУНКУ:
-   - invoiceNumber: Номер рахунку (наприклад "СФ-000124", "452-М").
+4. НОМЕР ТА ДАТА РАХУНКУ (invoiceNumber, invoiceDate):
+   - invoiceNumber: Номер рахунку (наприклад "СФ-000124", "452-М", "227763", "125").
+     * КАТЕГОРИЧНО ЗАБОРОНЕНО повертати слова "рахунок", "рахунка", "рахунку", "рахунком", "інвойс", "invoice", "згідно", "номер", "б/н"!
+     * Якщо на документі написано "Рахунок на оплату № 227763" чи "Призначення платежу: згідно рахунка № 227763", номером є ВИКЛЮЧНО число/код "227763"!
+     * Якщо перед номером стоїть префікс "№", "No", "N", "номер", "рах." — обов'язково відкинь цей префікс і повертай тільки сам номер.
    - invoiceDate: Дата виставлення у форматі РРРР-ММ-ДД (YYYY-MM-DD).
 
 5. СУМА ТА ВАЛЮТА (АПРІОРНЕ ПРАВИЛО: СУМА ДОКУМЕНТА ЗАВЖДИ > 0):
@@ -426,6 +450,11 @@ ${knownOrdersPromptList}
   // 1. Strictly format handwritten order number as xxx-xx without №
   if (parsedResult.handwrittenOrderNumber) {
     parsedResult.handwrittenOrderNumber = OCRService.normalizeOrderNumber(parsedResult.handwrittenOrderNumber);
+  } else if (parsedResult.handwrittenRawText) {
+    const candidate = OCRService.normalizeOrderNumber(parsedResult.handwrittenRawText);
+    if (/^\d{1,6}-\d{2}$/.test(candidate)) {
+      parsedResult.handwrittenOrderNumber = candidate;
+    }
   }
 
   // 2. Strictly format all company names to "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES)
@@ -485,27 +514,20 @@ ${knownOrdersPromptList}
     lowerFileName.includes('payment')
   );
 
-  const hasBankExecutionMarkers = (
-    lowerBankStamp.includes('банк') ||
-    lowerBankStamp.includes('виконан') ||
-    lowerBankStamp.includes('прийнято') ||
-    lowerBankStamp.includes('ibank') ||
-    lowerBankStamp.includes('проведено') ||
-    lowerBankStamp.includes('еп') ||
-    lowerBankStamp.includes('uetr') ||
-    lowerNotes.includes('платіжна інструкція') ||
-    lowerNotes.includes('платіжне доручення') ||
-    lowerNotes.includes('надавач платіжних послуг') ||
-    lowerNotes.includes('ibank2ua') ||
-    lowerNotes.includes('uetr') ||
-    lowerNotes.includes('дата виконання банк') ||
-    lowerNotes.includes('дата прийняття до виконання') ||
+  // Genuine bank execution stamp - must be explicit stamp like "проведено банком", NOT merely words "банк" or "платник"!
+  const hasBankExecutionStamp = (
+    lowerBankStamp.includes('проведено банком') ||
+    lowerBankStamp.includes('прийнято банком') ||
+    lowerBankStamp.includes('дата прийняття до виконання') ||
+    lowerBankStamp.includes('дата виконання') ||
     lowerNotes.includes('проведено банком') ||
     lowerNotes.includes('прийнято банком') ||
-    lowerPurpose.includes('надавач платіжних послуг') ||
-    lowerRawText.includes('платіжна інструкція') ||
-    lowerRawText.includes('ibank2ua') ||
-    Boolean(parsedResult.paymentPurpose && (lowerNotes.includes('платник') || lowerNotes.includes('отримувач')))
+    lowerNotes.includes('дата прийняття до виконання') ||
+    lowerNotes.includes('платіжна інструкція') ||
+    lowerNotes.includes('платіжне доручення') ||
+    lowerRawText.includes('проведено банком') ||
+    lowerRawText.includes('прийнято банком') ||
+    lowerRawText.includes('платіжна інструкція')
   );
 
   // Purpose pattern typical of bank payment slips paying an invoice ("Оплата за товар згідно рах. №...")
@@ -514,20 +536,41 @@ ${knownOrdersPromptList}
     (
       lowerPurpose.includes('оплата за') ||
       lowerPurpose.includes('оплата згідно') ||
-      lowerPurpose.includes('згідно рах') ||
-      lowerPurpose.includes('згідно рахунк') ||
       lowerPurpose.includes('перерахування')
     ) &&
     (!parsedResult.lineItems || parsedResult.lineItems.length === 0)
   );
 
-  const isPayment = (
-    parsedResult.documentType === 'payment' ||
-    hasPaymentTitle ||
-    hasPaymentFileName ||
-    hasBankExecutionMarkers ||
-    hasPaymentPurposePattern
+  const isExplicitInvoice = (
+    docTypeHint === 'invoice' ||
+    parsedResult.documentType === 'invoice' ||
+    lowerDocTitle.includes('рахунок') ||
+    lowerDocTypeUkr.includes('рахунок') ||
+    lowerDocTitle.includes('invoice') ||
+    lowerDocTypeUkr.includes('invoice') ||
+    lowerDocTitle.includes('счет') ||
+    lowerDocTypeUkr.includes('счет') ||
+    Boolean(parsedResult.lineItems && parsedResult.lineItems.length > 0)
   );
+
+  let isPayment = false;
+  if (docTypeHint === 'invoice') {
+    isPayment = false;
+  } else if (docTypeHint === 'payment') {
+    isPayment = true;
+  } else if (hasPaymentTitle || hasPaymentFileName) {
+    isPayment = true;
+  } else if (isExplicitInvoice) {
+    // If the document explicitly identifies as an invoice or has goods line items,
+    // it can only be considered a payment if there is an unequivocal bank execution stamp AND no line items.
+    isPayment = Boolean(hasBankExecutionStamp && (!parsedResult.lineItems || parsedResult.lineItems.length === 0));
+  } else {
+    isPayment = Boolean(
+      parsedResult.documentType === 'payment' ||
+      hasBankExecutionStamp ||
+      hasPaymentPurposePattern
+    );
+  }
 
   if (isPayment) {
     parsedResult.documentType = 'payment';
@@ -538,21 +581,14 @@ ${knownOrdersPromptList}
 
     // 1. Extract referenced invoice number from payment purpose if present (e.g. "згідно рах. № 4104")
     if (parsedResult.paymentPurpose) {
-      const refMatches = parsedResult.paymentPurpose.matchAll(/(?:згідно|рах\.?|рахунк[уа]|рахунок|по\s+рах\.?)\s*(?:№|No|N|#)?\s*([A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]+)/gi);
-      const foundInvs: string[] = [];
-      for (const m of refMatches) {
-        const cleaned = m[1].replace(/^(№|No|N|#)\s*/i, '').trim();
-        if (cleaned && cleaned.length >= 1 && !/^(від|за|до|у|в|грн|пдв)$/i.test(cleaned)) {
-          foundInvs.push(cleaned);
-        }
-      }
-      if (foundInvs.length > 0) {
-        if (!parsedResult.referencedInvoiceNumbers || parsedResult.referencedInvoiceNumbers.length === 0) {
-          parsedResult.referencedInvoiceNumbers = Array.from(new Set(foundInvs));
-        }
-        if (!parsedResult.referencedInvoiceNumber) {
-          parsedResult.referencedInvoiceNumber = parsedResult.referencedInvoiceNumbers.join(', ');
-        }
+      const extractedInvs = OCRService.extractAllInvoiceNumbers(
+        parsedResult.referencedInvoiceNumber,
+        parsedResult.referencedInvoiceNumbers,
+        parsedResult.paymentPurpose
+      );
+      if (extractedInvs.length > 0) {
+        parsedResult.referencedInvoiceNumbers = extractedInvs;
+        parsedResult.referencedInvoiceNumber = extractedInvs.join(', ');
       }
     }
 
@@ -779,6 +815,73 @@ ${knownOrdersPromptList}
     }
   }
 
+  // 4. Targeted Handwritten Order Number Rescue if missing on an invoice
+  if (parsedResult.documentType === 'invoice' && !parsedResult.handwrittenOrderNumber) {
+    try {
+      console.log(`[Client OCR Rescue] Invoice is missing handwritten order number. Running targeted visual scan with Gemini...`);
+      const rescueOrderPrompt = `КРИТИЧНЕ ЗАВДАННЯ ДЛЯ ЗОБРАЖЕННЯ РАХУНКУ:
+У первинному аналізі номер замовлення не виявлено. Але на рахунках у нашій компанії менеджер обов'язково пише номер замовлення ВІД РУКИ (ручкою — синьою, фіолетовою чи чорною, олівцем, або маркером).
+
+Уважно оглянь кожен міліметр документа:
+1. Верхній правий кут (найчастіше місце написання!)
+2. Верхній лівий кут, поруч з логотипом чи реквізитами постачальника
+3. На полях (бічних відступах зліва або справа, текст може бути написаний вертикально!)
+4. Безпосередньо біля або над назвою документа: "Рахунок на оплату", "Рахунок-фактура", "СФ-..."
+5. Внизу документа — біля загальної суми, печатки або підпису
+
+Як може виглядати номер:
+- "142-26", "232-26", "083-26", "229-26", "216-26", "207-26", "45-26", "108-26"
+- Або з префіксом чи символом: "№ 232-26", "№142-26", "зам. 232", "з. 232-26", "З-232"
+- Або через косу риску чи крапку: "232/26", "142/26", "232.26"
+- Або просто число без року (наприклад "232", "142", "45", "108", або обведене в кружечок) -> у цьому випадку стандартизуй до формату з поточним роком: "232-26"!
+
+Поверни JSON строго такого формату:
+{
+  "found": true,
+  "orderNumber": "232-26",
+  "rawText": "№ 232-26",
+  "location": "Верхній правий кут",
+  "confidence": "high"
+}`;
+
+      const rescueResponse = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: [
+          {
+            inlineData: {
+              mimeType: finalMimeType,
+              data: cleanBase64,
+            },
+          },
+          { text: rescueOrderPrompt },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      let rText = rescueResponse.text || '';
+      rText = rText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+      if (rText) {
+        const parsedRescue = JSON.parse(rText);
+        if (parsedRescue.found && (parsedRescue.orderNumber || parsedRescue.rawText)) {
+          const rawNum = parsedRescue.orderNumber || parsedRescue.rawText;
+          const normalized = OCRService.normalizeOrderNumber(rawNum);
+          if (normalized) {
+            parsedResult.handwrittenOrderNumber = normalized;
+            parsedResult.handwrittenRawText = parsedRescue.rawText || rawNum;
+            parsedResult.handwrittenLocation = parsedRescue.location || 'Знайдено при повторному скануванні';
+            parsedResult.handwrittenConfidence = parsedRescue.confidence || 'medium';
+            console.log(`[Client OCR Rescue] Successfully rescued handwritten order number: ${normalized}`);
+          }
+        }
+      }
+    } catch (orderRescueErr) {
+      console.warn('[Client OCR] Targeted order number rescue warning:', orderRescueErr);
+    }
+  }
+
   // Validation warnings
   const warnings: string[] = [];
   const effectiveAmount = parsedResult.documentType === 'payment'
@@ -801,6 +904,13 @@ ${knownOrdersPromptList}
 
   if (!parsedResult.handwrittenOrderNumber || parsedResult.handwrittenConfidence === 'none') {
     warnings.push('Рукописний номер замовлення (ххх-хх) не знайдено на документі або він нерозбірливий. Будь ласка, перевірте документ вручну.');
+  }
+
+  if (parsedResult.invoiceNumber) {
+    parsedResult.invoiceNumber = OCRService.sanitizeInvoiceNumber(parsedResult.invoiceNumber);
+  }
+  if (parsedResult.referencedInvoiceNumber) {
+    parsedResult.referencedInvoiceNumber = OCRService.sanitizeInvoiceNumber(parsedResult.referencedInvoiceNumber);
   }
 
   parsedResult.validationWarnings = warnings;
@@ -1188,24 +1298,110 @@ export class OCRService {
     if (!input) return '';
     let val = input.trim();
     
-    // Remove leading symbols and keywords: №, No, N, #, зам, замовлення
-    val = val.replace(/^(№|No|N|#|зам\.?|замовлення)\s*/i, '');
+    // Remove leading symbols and keywords: №, No, N, #, зам, замовлення, код, з., з-
+    val = val.replace(/^(?:№|No|N|#|зам\.?|замовлення|замовл\.?|код|з\.?|з-)\s*/i, '');
     val = val.replace(/[№#]/g, '');
     val = val.replace(/\s+/g, '');
     
-    // Check if it already has dash (e.g. 142-26)
-    if (val.includes('-')) {
+    // If format is like "232/26" or "232.26"
+    val = val.replace(/^(\d+)[/.](\d{2})$/, '$1-$2');
+
+    // Check if it already has dash (e.g. 142-26, 232-26)
+    if (/^\d{1,6}-\d{2}$/.test(val)) {
       return val;
     }
 
-    // If e.g. 12326 where last 2 digits is year
-    if (/^\d{3,6}$/.test(val) && val.length >= 4) {
+    // If pure digits without year (e.g. "232" or "108" or "45") - in business year 2026, normalize to "232-26"
+    if (/^\d{1,4}$/.test(val)) {
+      return `${val}-26`;
+    }
+
+    // If 4-6 digits without dash ending in 26, 25, or 24 (e.g. "23226" -> "232-26")
+    if (/^\d{3,6}$/.test(val) && (val.endsWith('26') || val.endsWith('25') || val.endsWith('24'))) {
       const order = val.slice(0, -2);
       const year = val.slice(-2);
       return `${order}-${year}`;
     }
 
     return val;
+  }
+
+  /**
+   * Universal stop-words and invalid labels that should NEVER be treated as an invoice number
+   */
+  public static readonly INVALID_INVOICE_WORDS = new Set([
+    'рахунок', 'рахунка', 'рахунку', 'рахунком', 'рахунки', 'рахунків', 'рахунками',
+    'рах', 'рах.', 'счет', 'счета', 'счету', 'счетом', 'інвойс', 'інвойса', 'інвойсу',
+    'invoice', 'inv', 'inv.', 'номер', 'номеру', 'номером',
+    'платіжка', 'платіж', 'платіжне', 'доручення', 'інструкція', 'квитанція', 'чек',
+    'згідно', 'згідноз', 'по', 'за', 'від', 'до', 'та', 'і', 'з', 'у', 'в',
+    'оплата', 'товар', 'товари', 'послуги', 'на', 'пдв', 'грн', 'коп',
+    'б/н', 'бн', 'б.н.', 'б/н.', 'без', 'безномера', 'без_номера', 'без-номера',
+    'n/a', 'na', 'none', 'null', 'undefined', '-', '--', '—', '0', '00', '000'
+  ]);
+
+  /**
+   * Sanitizes an invoice number string.
+   * Strips prefix labels ("рахунок на оплату", "згідно рахунка №", "№", etc.).
+   * If the string is solely a stop-word like "рахунка" or "рахунок", returns "".
+   */
+  public static sanitizeInvoiceNumber(input?: string): string {
+    if (!input) return '';
+    let val = String(input).trim();
+    if (!val) return '';
+
+    // Remove common prefixes
+    val = val.replace(/^(?:оплата\s+(?:за\s+товари?\s+)?згідно(?:\s+з)?|згідно(?:\s+з)?|по|за)\s+/i, '');
+    val = val.replace(/^(?:рахунок\s+на\s+оплату|рахунок[-_\s]*фактура|рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[-_\s]*фактура|счет[а-я]*|invoice|інвойс[а-я]*)\s*/i, '');
+    val = val.replace(/^(?:номер|№|no|n|#)\s*[:.]?\s*/i, '');
+    val = val.replace(/^[№#:]\s*/, '');
+    val = val.trim();
+
+    // Secondary pass in case of stacked prefixes like "згідно рахунка № 227763"
+    val = val.replace(/^(?:рахунок\s+на\s+оплату|рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|invoice|інвойс[а-я]*)\s*/i, '');
+    val = val.replace(/^(?:номер|№|no|n|#)\s*[:.]?\s*/i, '');
+    val = val.replace(/^[№#:]\s*/, '');
+    val = val.trim();
+
+    const lower = val.toLowerCase().replace(/\s+/g, '');
+    if (OCRService.INVALID_INVOICE_WORDS.has(lower) || OCRService.isPlaceholderNumber(val)) {
+      return '';
+    }
+
+    return val;
+  }
+
+  /**
+   * Reliably extracts the actual invoice number from payment purpose or notes text,
+   * completely avoiding false captures of Ukrainian words like "рахунка", "згідно", etc.
+   * E.g. "Оплата згідно рахунка № 227763 від 09.09.2026" -> "227763"
+   */
+  public static extractInvoiceNumberFromText(text?: string): string {
+    if (!text) return '';
+    const cleanText = String(text);
+
+    // 1. Look for explicit prefix followed by number:
+    // e.g. "рахунка № 227763", "рах. №4104", "рахунку 4373", "СФ-0042", "інвойс № 125"
+    const patterns = [
+      /(?:рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|інвойс[а-я]*|invoice)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№|No|N|#|:)\s*([A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]{1,30})/gi,
+      /(?:рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|інвойс[а-я]*|invoice)\s+(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?([0-9][A-Za-z0-9\-_/]{0,29})/gi,
+      /(?:№|No|#)\s*([0-9][A-Za-z0-9\-_/]{1,29})/gi,
+      /\b(СФ[-_]?[0-9]{1,10})\b/gi,
+    ];
+
+    for (const regex of patterns) {
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(cleanText)) !== null) {
+        if (match[1]) {
+          const candidate = OCRService.sanitizeInvoiceNumber(match[1]);
+          if (candidate && !OCRService.isPlaceholderNumber(candidate)) {
+            return candidate;
+          }
+        }
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -1216,30 +1412,29 @@ export class OCRService {
   public static normalizeInvoiceNumber(input: string): string {
     if (!input) return '';
     let val = String(input).trim().toLowerCase();
-    // Remove "№", "no", "n", "#", "рах.", "рахунок", "сф-", "сф", "інвойс"
-    val = val.replace(/^(?:№|no|n|#|рах\.?|рахунок|сф[-_]?|інвойс)\s*/i, '');
+    // Remove "№", "no", "n", "#", "рах.", "рахунок", "рахунка", "сф-", "сф", "інвойс"
+    val = val.replace(/^(?:№|no|n|#|рах\.?|рахун(?:ок|ка|ку|ком|ки|ків)|сф[-_]?|інвойс[а-я]*|счет[а-я]*)\s*/i, '');
     val = val.replace(/[№#]/g, '');
     val = val.replace(/\s+/g, '');
     // Strip leading zeroes if it's purely digits (e.g. 000452 -> 452)
     val = val.replace(/^0+(\d+)/, '$1');
+    if (OCRService.INVALID_INVOICE_WORDS.has(val)) {
+      return '';
+    }
     return val;
   }
 
   /**
-   * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none")
+   * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none", "рахунка")
    */
   public static isPlaceholderNumber(num?: string): boolean {
     if (!num) return true;
     const s = num.trim().toLowerCase();
-    if (s.length < 2) return true;
+    if (s.length < 1) return true;
+    if (s.length < 2 && !/\d/.test(s)) return true;
     // Date strings like 2026-08-25 or 25.08.2026
     if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
-    const placeholders = new Set([
-      'б/н', 'бн', 'б.н.', 'б/н.', 'безномера', 'без_номера', 'без-номера',
-      'n/a', 'na', 'none', 'null', '-', '--', '—', '0', '00', '000',
-      'рахунок', 'інвойс', 'счет'
-    ]);
-    return placeholders.has(s);
+    return OCRService.INVALID_INVOICE_WORDS.has(s);
   }
 
   /**
@@ -1254,18 +1449,21 @@ export class OCRService {
 
     if (Array.isArray(referencedInvoiceNumbers)) {
       referencedInvoiceNumbers.forEach((n) => {
-        if (n && typeof n === 'string' && n.trim()) {
-          found.add(n.trim());
+        if (n && typeof n === 'string') {
+          const sanitized = OCRService.sanitizeInvoiceNumber(n);
+          if (sanitized && !OCRService.isPlaceholderNumber(sanitized)) {
+            found.add(sanitized);
+          }
         }
       });
     }
 
     if (referencedInvoiceNumber) {
-      // Split by commas, semicolons, slashes, whitespace
-      const tokens = String(referencedInvoiceNumber).split(/[,;+/&|\s]+/);
+      // Split by commas, semicolons, whitespace (keep slashes inside invoice numbers!)
+      const tokens = String(referencedInvoiceNumber).split(/[,;+&|\s]+/);
       tokens.forEach((t) => {
-        const clean = t.replace(/^(?:№|No|N|#|рах\.?|рахунок|сф[-_]?|інвойс)\s*/i, '').trim();
-        if (clean.length >= 1 && !/^(від|от|року|р|грн|коп|без|пдв|до|та|і)$/i.test(clean)) {
+        const clean = OCRService.sanitizeInvoiceNumber(t);
+        if (clean.length >= 1 && !OCRService.isPlaceholderNumber(clean)) {
           found.add(clean);
         }
       });
@@ -1273,14 +1471,14 @@ export class OCRService {
 
     if (paymentPurpose) {
       // Check for invoice keywords: рахунок, рах, СФ, інвойс
-      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?)\s*[:№#]?\s*([A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+(?:\s*(?:,|і|та|також|;|\/)\s*(?:№|No|#)?\s*[A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+)*)/gi;
+      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок|а)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?)\s*[:№#]?\s*([A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+(?:\s*(?:,|і|та|також|;)\s*(?:№|No|#)?\s*[A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+)*)/gi;
       let match: RegExpExecArray | null;
       while ((match = generalInvRegex.exec(paymentPurpose)) !== null) {
         if (match[1]) {
-          const tokens = match[1].split(/[\s,;+/&|]+|(?:та|і|також)/i);
+          const tokens = match[1].split(/[\s,;+&|]+|(?:та|і|також)/i);
           tokens.forEach((t) => {
-            const cleaned = t.replace(/^(?:№|No|N|#|від|от|\.|\,)\s*/i, '').trim();
-            if (cleaned.length >= 1 && !/^(від|от|року|р|грн|коп|без|пдв|до)$/i.test(cleaned)) {
+            const cleaned = OCRService.sanitizeInvoiceNumber(t);
+            if (cleaned.length >= 1 && !OCRService.isPlaceholderNumber(cleaned)) {
               found.add(cleaned);
             }
           });
@@ -1292,10 +1490,10 @@ export class OCRService {
       let nakedMatch: RegExpExecArray | null;
       while ((nakedMatch = nakedNumRegex.exec(paymentPurpose)) !== null) {
         if (nakedMatch[1]) {
-          const cleaned = nakedMatch[1].replace(/^(?:від|от|\.|\,)\s*/i, '').trim();
+          const cleaned = OCRService.sanitizeInvoiceNumber(nakedMatch[1]);
           if (
             cleaned.length >= 1 &&
-            !/^(від|от|року|р|грн|коп|без|пдв|до)$/i.test(cleaned) &&
+            !OCRService.isPlaceholderNumber(cleaned) &&
             !/^\d{2}\.\d{2}\.\d{4}$/.test(cleaned)
           ) {
             found.add(cleaned);
@@ -2203,6 +2401,19 @@ export class OCRService {
       }
     } else {
       // Invoices
+      if ((docOcr as any)?.replacedRowIndex) {
+        const repRowIndex = (docOcr as any).replacedRowIndex;
+        const repInv = existingInvoices.find((i) => i.rowIndex === repRowIndex);
+        if (repInv) {
+          return {
+            alreadyInSheet: true,
+            rowIndex: repRowIndex,
+            tabName: 'Рахунки',
+            reason: `Рахунок внесено (заміна рядка ${repRowIndex})`,
+          };
+        }
+      }
+
       const rawInvNum = (docOcr.invoiceNumber || '').trim();
       const cleanInvNum = this.normalizeInvoiceNumber(rawInvNum);
       const isCleanInvPlaceholder = isPlaceholderNumber(cleanInvNum);
