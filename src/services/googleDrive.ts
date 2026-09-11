@@ -117,17 +117,22 @@ export class GoogleDriveService {
   public static async trashFile(fileId: string, accessToken: string): Promise<void> {
     const cleanId = this.extractFileId(fileId);
     if (!cleanId) return;
-    await this.request<any>(
-      `files/${cleanId}`,
-      accessToken,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ trashed: true }),
-      }
-    );
+    try {
+      await this.request<any>(
+        `files/${cleanId}?supportsAllDrives=true`,
+        accessToken,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ trashed: true }),
+        }
+      );
+    } catch (err: any) {
+      console.warn(`trashFile with PATCH failed (${err.message}), trying deleteFilePermanently as fallback...`);
+      await this.deleteFilePermanently(cleanId, accessToken);
+    }
   }
 
   /**
@@ -137,12 +142,93 @@ export class GoogleDriveService {
     const cleanId = this.extractFileId(fileId);
     if (!cleanId) return;
     await this.request<any>(
-      `files/${cleanId}`,
+      `files/${cleanId}?supportsAllDrives=true`,
       accessToken,
       {
         method: 'DELETE',
       }
     );
+  }
+
+  /**
+   * Search for an invoice file in the folder by invoice number, order number, supplier, or file name
+   */
+  public static async findFileInFolder(
+    folderId: string,
+    accessToken: string,
+    query: {
+      invoiceNumber?: string;
+      orderNumber?: string;
+      supplier?: string;
+      fileName?: string;
+    }
+  ): Promise<GoogleDriveFile | null> {
+    const cleanFolderId = this.extractFolderId(folderId);
+    if (!cleanFolderId) return null;
+
+    try {
+      const files = await this.listFilesInFolder(cleanFolderId, accessToken);
+      if (!files || files.length === 0) return null;
+
+      const cleanInvNum = query.invoiceNumber
+        ? query.invoiceNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase()
+        : '';
+      const cleanOrderNum = query.orderNumber
+        ? query.orderNumber.trim().toLowerCase()
+        : '';
+      const cleanFileName = query.fileName
+        ? query.fileName.trim().toLowerCase()
+        : '';
+
+      // 1. Direct file name match
+      if (cleanFileName) {
+        const directMatch = files.find((f) => f.name.toLowerCase() === cleanFileName);
+        if (directMatch) return directMatch;
+      }
+
+      // 2. Check cached OCR in appProperties
+      for (const f of files) {
+        if (f.appProperties) {
+          const ocr = this.extractOcrFromDriveProperties(f.appProperties);
+          if (ocr) {
+            if (cleanInvNum && ocr.invoiceNumber) {
+              const ocrCleanInv = ocr.invoiceNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
+              if (ocrCleanInv && (ocrCleanInv === cleanInvNum || ocrCleanInv.includes(cleanInvNum) || cleanInvNum.includes(ocrCleanInv))) {
+                return f;
+              }
+            }
+            if (cleanOrderNum && ocr.handwrittenOrderNumber) {
+              if (ocr.handwrittenOrderNumber.toLowerCase() === cleanOrderNum) {
+                return f;
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Match file name containing the invoice number (minimum 2 chars)
+      if (cleanInvNum && cleanInvNum.length >= 2) {
+        const byName = files.find((f) => {
+          const fn = f.name.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
+          return fn.includes(cleanInvNum);
+        });
+        if (byName) return byName;
+      }
+
+      // 4. Match file name containing order number (e.g. "142-26")
+      if (cleanOrderNum && cleanOrderNum.length >= 4) {
+        const byOrder = files.find((f) => {
+          const fn = f.name.toLowerCase();
+          return fn.includes(cleanOrderNum);
+        });
+        if (byOrder) return byOrder;
+      }
+
+      return null;
+    } catch (err) {
+      console.warn('findFileInFolder error:', err);
+      return null;
+    }
   }
 
   /**
@@ -189,7 +275,7 @@ export class GoogleDriveService {
     
     const fields = 'files(id,name,mimeType,size,thumbnailLink,webContentLink,webViewLink,createdTime,modifiedTime,appProperties,properties)';
     const data = await this.request<any>(
-      `files?q=${encodeURIComponent(q)}&pageSize=100&orderBy=modifiedTime desc&fields=${encodeURIComponent(fields)}`,
+      `files?q=${encodeURIComponent(q)}&pageSize=100&orderBy=modifiedTime desc&fields=${encodeURIComponent(fields)}&supportsAllDrives=true&includeItemsFromAllDrives=true`,
       accessToken
     );
 

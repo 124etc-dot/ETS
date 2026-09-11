@@ -54,9 +54,12 @@ interface Props {
       amount?: number;
       supplier?: string;
       date?: string;
+      orderNumber?: string;
     },
     options?: {
       trashOldDriveFile?: boolean;
+      oldFileId?: string;
+      oldFileName?: string;
     }
   ) => Promise<void>;
 }
@@ -490,9 +493,9 @@ export const DocumentReviewModal: React.FC<Props> = ({
     if (!window.confirm(confirmMsg)) return;
 
     let trashOldDriveFile = false;
-    if (targetInvoice && (targetInvoice.driveLink || targetInvoice.fileName)) {
+    if (isDriveConnected) {
       trashOldDriveFile = window.confirm(
-        `Перемістити старий файл попереднього рахунку (${targetInvoice.fileName || `№${targetInvoice.invoiceNumber}`}) у кошик (Trash) на Google Диску?`
+        `Перемістити старий файл попереднього рахунку (${targetInvoice?.fileName || `№${targetInvoice?.invoiceNumber || '—'}`}) у кошик на Google Диску, щоб він не з'являвся при повторному зчитуванні?\n\n[OK] — Так, видалити старий файл з Диску (рекомендовано)\n[Скасувати] — Залишити старий файл на Диску`
       );
     }
 
@@ -508,6 +511,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
               amount: targetInvoice.amount,
               supplier: targetInvoice.supplier,
               date: targetInvoice.invoiceDate,
+              orderNumber: targetInvoice.orderNumber,
             }
           : undefined,
         {

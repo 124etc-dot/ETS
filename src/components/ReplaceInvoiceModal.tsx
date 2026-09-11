@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { ExistingSheetRow, ProcessedDocument, OCRResult, SheetCompanyLists } from '../types';
 import { OCRService } from '../services/ocrService';
+import { GoogleDriveService } from '../services/googleDrive';
 
 interface Props {
   isOpen: boolean;
@@ -36,9 +37,12 @@ interface Props {
       amount?: number;
       supplier?: string;
       date?: string;
+      orderNumber?: string;
     },
     options?: {
       trashOldDriveFile?: boolean;
+      oldFileId?: string;
+      oldFileName?: string;
     }
   ) => Promise<void>;
   onAddLocalDocument?: (file: File) => Promise<ProcessedDocument | null>;
@@ -110,19 +114,50 @@ export const ReplaceInvoiceModal: React.FC<Props> = ({
     }
   }, [targetInvoice, companyLists]);
 
-  // Detect if previous invoice has a known Drive file
+  // Detect if previous invoice has a known Drive file with fuzzy matching
   const previousDriveFile = useMemo(() => {
     if (!targetInvoice) return null;
-    const matchingDoc = documents.find(
-      (d) =>
-        (d.syncedRowIndex === targetInvoice.rowIndex) ||
-        (d.driveLink && targetInvoice.driveLink && d.driveLink === targetInvoice.driveLink) ||
-        (d.fileName && targetInvoice.fileName && d.fileName === targetInvoice.fileName)
-    );
+    const cleanTargetInv = OCRService.sanitizeInvoiceNumber(targetInvoice.invoiceNumber || '');
+    const cleanTargetOrder = OCRService.normalizeOrderNumber(targetInvoice.orderNumber || '');
+
+    const matchingDoc = documents.find((d) => {
+      // Direct row index match
+      if (d.syncedRowIndex && d.syncedRowIndex === targetInvoice.rowIndex) return true;
+      // Drive link match
+      if (d.driveLink && targetInvoice.driveLink && d.driveLink === targetInvoice.driveLink) return true;
+      if (targetInvoice.driveLink && d.driveFileId && targetInvoice.driveLink.includes(d.driveFileId)) return true;
+      // Exact file name match
+      if (d.fileName && targetInvoice.fileName && d.fileName === targetInvoice.fileName) return true;
+
+      // Invoice number match via OCR
+      const docInvNum = d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '';
+      if (cleanTargetInv && docInvNum && OCRService.isInvoiceNumberMatch(docInvNum, targetInvoice.invoiceNumber)) {
+        return true;
+      }
+
+      // File name containing clean target invoice number
+      if (cleanTargetInv && cleanTargetInv.length >= 2 && d.fileName) {
+        const fnClean = OCRService.sanitizeInvoiceNumber(d.fileName);
+        if (fnClean.includes(cleanTargetInv)) return true;
+      }
+
+      // Order number and supplier match
+      const docOrder = OCRService.normalizeOrderNumber(d.ocrResult?.handwrittenOrderNumber || d.editedData?.handwrittenOrderNumber || '');
+      const docSupplier = d.ocrResult?.supplierName || d.editedData?.supplierName || '';
+      if (cleanTargetOrder && docOrder === cleanTargetOrder && targetInvoice.supplier && OCRService.isCompanyNameMatch(docSupplier, targetInvoice.supplier)) {
+        return true;
+      }
+
+      return false;
+    });
+
     const fileName = matchingDoc?.fileName || targetInvoice.fileName || '';
+    const driveFileId = matchingDoc?.driveFileId || (targetInvoice.driveLink ? GoogleDriveService.extractFileId(targetInvoice.driveLink) : '');
+
     return {
       fileName,
-      hasDriveLink: Boolean(targetInvoice.driveLink || matchingDoc?.driveLink || matchingDoc?.driveFileId),
+      driveFileId,
+      hasDriveLink: Boolean(driveFileId || targetInvoice.driveLink || matchingDoc?.driveLink),
     };
   }, [targetInvoice, documents]);
 
@@ -265,9 +300,12 @@ export const ReplaceInvoiceModal: React.FC<Props> = ({
           amount: targetInvoice.amount,
           supplier: targetInvoice.supplier,
           date: targetInvoice.invoiceDate,
+          orderNumber: targetInvoice.orderNumber,
         },
         {
           trashOldDriveFile,
+          oldFileId: previousDriveFile?.driveFileId,
+          oldFileName: previousDriveFile?.fileName,
         }
       );
       onClose();

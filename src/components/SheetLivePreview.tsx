@@ -59,9 +59,12 @@ interface Props {
       amount?: number;
       supplier?: string;
       date?: string;
+      orderNumber?: string;
     },
     options?: {
       trashOldDriveFile?: boolean;
+      oldFileId?: string;
+      oldFileName?: string;
     }
   ) => Promise<void>;
   onAddLocalDocument?: (file: File) => Promise<ProcessedDocument | null>;

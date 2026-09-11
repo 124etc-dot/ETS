@@ -971,12 +971,26 @@ export default function App() {
             matchedData,
           };
         }
-        const iMatch = currentInvoices.find(
-          (inv) =>
-            (inv.supplier || inv.buyer || inv.amount || inv.invoiceNumber) &&
-            ((inv.driveLink && f.webViewLink && inv.driveLink.includes(f.id)) ||
-              (inv.fileName && inv.fileName.trim().length > 3 && cleanName.length > 3 && inv.fileName.toLowerCase().trim() === cleanName))
-        );
+        const iMatch = currentInvoices.find((inv) => {
+          if (!inv.supplier && !inv.buyer && !inv.amount && !inv.invoiceNumber) return false;
+          // 1. Direct drive link or file name match
+          if (inv.driveLink && f.webViewLink && inv.driveLink.includes(f.id)) return true;
+          if (inv.fileName && inv.fileName.trim().length > 3 && cleanName.length > 3 && inv.fileName.toLowerCase().trim() === cleanName) return true;
+
+          // 2. Invoice number inside file name
+          const cleanInv = OCRService.sanitizeInvoiceNumber(inv.invoiceNumber || '');
+          if (cleanInv && cleanInv.length >= 2) {
+            const cleanFn = OCRService.sanitizeInvoiceNumber(cleanName);
+            if (cleanFn.includes(cleanInv)) {
+              const cleanOrder = OCRService.normalizeOrderNumber(inv.orderNumber || '');
+              if (cleanOrder && cleanName.includes(cleanOrder.toLowerCase())) return true;
+              if (inv.supplier && cleanName.includes(inv.supplier.slice(0, 4).toLowerCase())) return true;
+              return true;
+            }
+          }
+
+          return false;
+        });
         if (iMatch) {
           const matchedData: OCRResult = {
             documentType: 'invoice',
@@ -1014,8 +1028,8 @@ export default function App() {
 
       const newlyAddedDocs = newDocs
         .filter((nd) => {
-          // 1. Skip if already dismissed by user
-          if (isAutoSync && documentsRef.current.length > 0 && dismissedIds.has(nd.driveFileId!)) {
+          // 1. Skip if already dismissed or trashed by user
+          if (nd.driveFileId && dismissedIds.has(nd.driveFileId)) {
             return false;
           }
           // 2. Skip if driveFileId already exists in queue
@@ -1507,9 +1521,12 @@ export default function App() {
       amount?: number;
       supplier?: string;
       date?: string;
+      orderNumber?: string;
     },
     options?: {
       trashOldDriveFile?: boolean;
+      oldFileId?: string;
+      oldFileName?: string;
     }
   ) => {
     const targetInvoice = existingInvoices.find((i) => i.rowIndex === targetRowIndex);
@@ -1518,6 +1535,7 @@ export default function App() {
       amount: previousInvoiceInfo?.amount ?? targetInvoice?.amount,
       supplier: previousInvoiceInfo?.supplier || targetInvoice?.supplier,
       date: previousInvoiceInfo?.date || targetInvoice?.invoiceDate,
+      orderNumber: previousInvoiceInfo?.orderNumber || targetInvoice?.orderNumber,
     };
 
     // If source document is from local upload and not yet in Google Drive, ensure background upload
@@ -1530,26 +1548,113 @@ export default function App() {
     // Move old file to Google Drive trash if user requested
     let trashedFileName = '';
     if (options?.trashOldDriveFile && authState.accessToken) {
-      const oldDoc = documentsRef.current.find(
-        (d) =>
-          d.syncedRowIndex === targetRowIndex ||
-          (targetInvoice?.driveLink && d.driveLink === targetInvoice.driveLink) ||
-          (targetInvoice?.fileName && d.fileName === targetInvoice.fileName) ||
-          (targetInvoice?.invoiceNumber && (d.ocrResult?.invoiceNumber === targetInvoice.invoiceNumber || d.editedData?.invoiceNumber === targetInvoice.invoiceNumber))
-      );
-      const oldFileId =
-        oldDoc?.driveFileId ||
-        (targetInvoice?.driveLink ? GoogleDriveService.extractFileId(targetInvoice.driveLink) : '');
-      const oldFileName = oldDoc?.fileName || targetInvoice?.fileName || '';
+      let oldFileId = options.oldFileId ? GoogleDriveService.extractFileId(options.oldFileId) : '';
+      let oldFileName = options.oldFileName || '';
+
+      const targetInvNumClean = OCRService.sanitizeInvoiceNumber(prevInfo.invoiceNumber || targetInvoice?.invoiceNumber || '');
+      const targetOrderClean = OCRService.normalizeOrderNumber(prevInfo.orderNumber || targetInvoice?.orderNumber || '');
+
+      const matchedOldDoc = documentsRef.current.find((d) => {
+        if (sourceDoc && d.id === sourceDoc.id) return false;
+
+        // 1. Direct row index match
+        if (d.syncedRowIndex && d.syncedRowIndex === targetRowIndex) return true;
+
+        // 2. Drive file ID or drive link match
+        if (oldFileId && d.driveFileId === oldFileId) return true;
+        if (targetInvoice?.driveLink && d.driveLink && d.driveLink.includes(GoogleDriveService.extractFileId(targetInvoice.driveLink))) return true;
+        if (targetInvoice?.fileName && d.fileName && d.fileName.toLowerCase().trim() === targetInvoice.fileName.toLowerCase().trim()) return true;
+
+        // 3. Invoice number match
+        const dInv = d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '';
+        if (targetInvNumClean && dInv && OCRService.isInvoiceNumberMatch(dInv, prevInfo.invoiceNumber || targetInvoice?.invoiceNumber || '')) {
+          return true;
+        }
+
+        // 4. File name contains clean invoice number
+        if (targetInvNumClean && targetInvNumClean.length >= 2 && d.fileName) {
+          const fnClean = OCRService.sanitizeInvoiceNumber(d.fileName);
+          if (fnClean.includes(targetInvNumClean)) return true;
+        }
+
+        // 5. Order number + supplier match
+        const dOrder = OCRService.normalizeOrderNumber(d.ocrResult?.handwrittenOrderNumber || d.editedData?.handwrittenOrderNumber || '');
+        const dSupplier = d.ocrResult?.supplierName || d.editedData?.supplierName || '';
+        if (targetOrderClean && dOrder === targetOrderClean && prevInfo.supplier && OCRService.isCompanyNameMatch(dSupplier, prevInfo.supplier)) {
+          return true;
+        }
+
+        return false;
+      });
+
+      if (matchedOldDoc) {
+        if (!oldFileId && matchedOldDoc.driveFileId) {
+          oldFileId = matchedOldDoc.driveFileId;
+        }
+        if (!oldFileName && matchedOldDoc.fileName) {
+          oldFileName = matchedOldDoc.fileName;
+        }
+      }
+
+      if (!oldFileId && targetInvoice?.driveLink) {
+        oldFileId = GoogleDriveService.extractFileId(targetInvoice.driveLink);
+        oldFileName = targetInvoice.fileName || '';
+      }
+
+      // If still not found, search Google Drive folder directly!
+      if (!oldFileId && driveFolderId && authState.accessToken) {
+        try {
+          const driveMatch = await GoogleDriveService.findFileInFolder(
+            driveFolderId,
+            authState.accessToken,
+            {
+              invoiceNumber: prevInfo.invoiceNumber || targetInvoice?.invoiceNumber,
+              orderNumber: prevInfo.orderNumber || targetInvoice?.orderNumber,
+              supplier: prevInfo.supplier || targetInvoice?.supplier,
+              fileName: targetInvoice?.fileName,
+            }
+          );
+          if (driveMatch) {
+            oldFileId = driveMatch.id;
+            oldFileName = driveMatch.name;
+          }
+        } catch (searchErr) {
+          console.warn('Could not search Drive folder for old invoice file:', searchErr);
+        }
+      }
 
       if (oldFileId) {
         try {
           await GoogleDriveService.trashFile(oldFileId, authState.accessToken);
           trashedFileName = oldFileName || `№${prevInfo.invoiceNumber || targetInvoice?.invoiceNumber || ''}`;
+
+          // IMPORTANT: Remember this file ID in dismissed drive IDs so it never re-appears when fetching files!
+          const dismissed = getDismissedDriveIds();
+          dismissed.add(oldFileId);
+          saveDismissedDriveIds(dismissed);
+
+          // Remove the old document from local queue/documents state
+          setDocuments((prev) =>
+            prev.filter(
+              (d) =>
+                d.driveFileId !== oldFileId &&
+                !(matchedOldDoc && d.id === matchedOldDoc.id) &&
+                !(d.syncedRowIndex === targetRowIndex && (!sourceDoc || d.id !== sourceDoc.id))
+            )
+          );
         } catch (trashErr: any) {
           console.warn('Could not trash old file from Google Drive:', trashErr);
           notify(`Не вдалося перемістити старий файл на Диску в кошик: ${trashErr.message || trashErr}`, 'error');
         }
+      } else {
+        console.warn('Old file for invoice replacement could not be located on Google Drive:', {
+          targetInvoice,
+          prevInfo,
+        });
+        notify(
+          `Попередній файл рахунку №${prevInfo.invoiceNumber || '—'} не знайдено на Google Диску (можливо, він уже видалений або назва суттєво відрізняється).`,
+          'info'
+        );
       }
     }
 

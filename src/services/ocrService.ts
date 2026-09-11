@@ -1425,6 +1425,19 @@ export class OCRService {
   }
 
   /**
+   * Compare two invoice numbers for equality, ignoring prefix (СФ-, №, 000) and case
+   */
+  public static isInvoiceNumberMatch(a?: string, b?: string): boolean {
+    if (!a || !b) return false;
+    const cleanA = this.normalizeInvoiceNumber(a);
+    const cleanB = this.normalizeInvoiceNumber(b);
+    if (!cleanA || !cleanB) return false;
+    if (cleanA === cleanB) return true;
+    if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
+    return false;
+  }
+
+  /**
    * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none", "рахунка")
    */
   public static isPlaceholderNumber(num?: string): boolean {
