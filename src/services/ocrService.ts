@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument, DuplicateRowMatch } from '../types';
+import { DEFAULT_OUR_COMPANIES, KNOWN_PROJECT_ORDERS } from '../data/sampleDocuments';
 
 // WARNING: Client-side Gemini API key usage requested by user for fully autonomous Vercel SPA deployment.
 // Key is retrieved from import.meta.env.VITE_GEMINI_API_KEY or localStorage.
@@ -117,7 +118,7 @@ const ocrResponseSchema: Schema = {
     },
     buyerName: {
       type: Type.STRING,
-      description: 'Buyer / Our company name in strict format: "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES). Matches one of the companies in our companies list.',
+      description: 'Buyer / Our company name in strict format: "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES). Extract from "Покупець", "Платник" (if "той самий", take from "Покупець" or "Одержувач"), "Замовник", "Одержувач", "Вантажоодержувач", delivery block, or handwritten text/stamps. Prioritize matching our companies list (e.g. ТОВ ШОП ІНТЕРІОР, ТОВ ПРЕСТИЖБУД, ТОВ ГОЛДЕН ПОІНТ, ТОВ БУДМОНТАЖ-2026). Never leave empty if any buyer company is present.',
     },
     buyerTaxId: {
       type: Type.STRING,
@@ -307,11 +308,22 @@ ${docTypeHintInstruction}
 
 3. НАЗВА КОМПАНІЇ ПОСТАЧАЛЬНИКА (supplierName) ТА ПОКУПЦЯ (buyerName):
    - СТРОГИЙ СТАНДАРТИЗОВАНИЙ ФОРМАТ: "ТОВ НАЗВА КОМПАНІЇ", ВСІ БУКВИ ВЕЛИКІ, БЕЗ ЛАПОК!
-   - Приклади: "ТОВ ЛЕГНОПРОМ", "ТОВ ЕПІЦЕНТР К", "ТОВ ШОП ІНТЕРІОР", "ФОП ШЕВЧЕНКО І.В.".
+   - Приклади: "ТОВ ШОП ІНТЕРІОР", "ТОВ ЛЕГНОПРОМ", "ТОВ ЕПІЦЕНТР К", "ФОП ШЕВЧЕНКО І.В.".
    - КАТЕГОРИЧНО ЗАБОРОНЕНО ставити будь-які лапки (", ', «, ») чи залишати маленькі букви!
    - supplierName: Це компанія, яка виставила рахунок (продавець / постачальник / виконавець).
      ВАЖЛИВО: Назва постачальника НЕ МОЖЕ співпадати з назвою наших компаній!
-   - buyerName: Це компанія-платник або одержувач товару/послуги. Знайди точний збіг зі СПИСКУ НАШИХ КОМПАНІЙ і приведи до формату "ТОВ НАЗВА" великими буквами без лапок.
+   
+   - buyerName (НАША КОМПАНІЯ — ПОКУПЕЦЬ / ПЛАТНИК):
+     * ДЕ ШУКАТИ В РАХУНКАХ:
+       1. Рядок "Покупець:" (найчастіше розташований під або праворуч від "Постачальник:").
+       2. Рядок "Платник:"
+          КРИТИЧНО ДЛЯ РАХУНКІВ (як у ПрАТ "СОЛДІ І КО" / METALVIS, Епіцентр тощо): якщо в рядку "Платник" написано "той самий", "той же" або стоїть прочерк — це означає, що платником є компанія з рядка "Покупець"! ОБОВ'ЯЗКОВО візьми назву з рядка "Покупець"!
+       3. Рядки "Замовник:", "Одержувач:", "Вантажоодержувач:".
+       4. У блоці реквізитів для оплати вгорі або внизу рахунку ("Платник: ...").
+     * ЗІСТАВЛЕННЯ ЗІ СПИСКОМ НАШИХ КОМПАНІЙ:
+       - Навіть якщо на рахунку надруковано повну форму "Товариство з обмеженою відповідальністю «Шоп Інтеріор»" або "ТзОВ Шоп Інтеріор" чи назва без лапок — зістав її з компанією зі СПИСКУ НАШИХ КОМПАНІЙ і поверни стандартизований варіант: "ТОВ ШОП ІНТЕРІОР"!
+       - Якщо компанії немає в списку, все одно поверни точну назву покупця з рахунку у форматі "ТОВ НАЗВА" чи "ФОП ПРІЗВИЩЕ І.Б." великими літерами.
+       - КАТЕГОРИЧНО ЗАБОРОНЕНО залишати поле buyerName порожнім або ставити "той самий", якщо в рахунку зазначено покупця!
 
 4. НОМЕР ТА ДАТА РАХУНКУ (invoiceNumber, invoiceDate):
    - invoiceNumber: Номер рахунку (наприклад "СФ-000124", "452-М", "227763", "125").
@@ -766,6 +778,60 @@ ${docTypeHintInstruction}
     parsedResult.paymentStatus = 'Оплачено';
   } else if (parsedResult.documentType === 'invoice') {
     parsedResult.paymentStatus = 'Не оплачено';
+
+    // Cross-fill from payment fields if Gemini placed buyer/supplier in payer/payee
+    if (!parsedResult.buyerName && parsedResult.payerName) {
+      parsedResult.buyerName = parsedResult.payerName;
+    }
+    if (!parsedResult.supplierName && parsedResult.payeeName) {
+      parsedResult.supplierName = parsedResult.payeeName;
+    }
+
+    // Ensure buyerName is valid and not a placeholder or supplier
+    if (OCRService.isInvalidBuyerName(parsedResult.buyerName, parsedResult.supplierName)) {
+      parsedResult.buyerName = '';
+    }
+
+    // Try finding buyer from notes, raw text, filename, or description if empty
+    if (!parsedResult.buyerName) {
+      const fullText = `${parsedResult.notes || ''} ${parsedResult.handwrittenRawText || ''} ${fileName || ''}`;
+      for (const ourComp of ourCompanies) {
+        if (ourComp && OCRService.isCompanyNameMatch(fullText, ourComp)) {
+          parsedResult.buyerName = OCRService.normalizeCompanyName(ourComp);
+          break;
+        }
+      }
+    }
+
+    // Canonical match against ourCompanies
+    if (parsedResult.buyerName && ourCompanies.length > 0) {
+      const match = ourCompanies.find((c: string) => OCRService.isCompanyNameMatch(c, parsedResult.buyerName!));
+      if (match) {
+        parsedResult.buyerName = OCRService.normalizeCompanyName(match);
+      }
+    }
+
+    // If still empty, check if handwrittenOrderNumber maps to any known project order
+    if (!parsedResult.buyerName && parsedResult.handwrittenOrderNumber) {
+      const cleanNum = OCRService.normalizeOrderNumber(parsedResult.handwrittenOrderNumber);
+      const orderConfig = KNOWN_PROJECT_ORDERS.find(
+        (o) => o.code === cleanNum || o.invoiceCode?.includes(cleanNum)
+      );
+      if (orderConfig?.invoiceCode?.startsWith('ШІ-') || orderConfig?.title?.toLowerCase().includes('шоп')) {
+        parsedResult.buyerName = 'ТОВ ШОП ІНТЕРІОР';
+      } else if (orderConfig?.invoiceCode?.startsWith('ПШ-') || orderConfig?.title?.toLowerCase().includes('престиж')) {
+        parsedResult.buyerName = 'ТОВ ПРЕСТИЖБУД';
+      } else if (orderConfig?.invoiceCode?.startsWith('ГП-')) {
+        parsedResult.buyerName = 'ТОВ ГОЛДЕН ПОІНТ';
+      } else if (orderConfig?.invoiceCode?.startsWith('УП-')) {
+        parsedResult.buyerName = 'ТОВ УКРПРОМБУД';
+      }
+    }
+
+    // Default to our sole company if only 1 exists and buyer is empty
+    if (!parsedResult.buyerName && ourCompanies.length === 1) {
+      parsedResult.buyerName = OCRService.normalizeCompanyName(ourCompanies[0]);
+    }
   }
 
   // 3. Targeted Amount Rescue if 0
@@ -879,6 +945,74 @@ ${docTypeHintInstruction}
       }
     } catch (orderRescueErr) {
       console.warn('[Client OCR] Targeted order number rescue warning:', orderRescueErr);
+    }
+  }
+
+  // 5. Targeted Buyer Name Rescue if missing on an invoice or invalid
+  if (parsedResult.documentType === 'invoice' && OCRService.isInvalidBuyerName(parsedResult.buyerName, parsedResult.supplierName)) {
+    try {
+      console.log(`[Client OCR Buyer Rescue] Invoice is missing buyerName. Running targeted buyer scan...`);
+      const allKnownComps = Array.from(new Set([...ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+      const formattedComps = allKnownComps.map((c: string) => `- ${c}`).join('\n');
+      const rescueBuyerPrompt = `КРИТИЧНЕ ЗАВДАННЯ ДЛЯ ЗОБРАЖЕННЯ РАХУНКУ:
+У первинному аналізі НЕ вдалося виділити назву покупця/платника (нашої компанії).
+Уважно проскануй ВСЕ зображення цього документа (включно з рукописними написами, шапкою, печатками, таблицею) і визнач, яка саме НАША КОМПАНІЯ є покупцем/платником:
+
+ДЕ ШУКАТИ:
+1. Рядок "Покупець:" (найчастіше розташований під або праворуч від "Постачальник:", може містити лапки «...» або ТзОВ).
+2. Рядок "Платник:" (якщо там написано "той самий", "той же" або прочерк — назва покупця вказана в рядку "Покупець:").
+3. Рядок "Замовник:", "Одержувач:", "Вантажоодержувач:", "Адресат:", "Кому:", "Клієнт:".
+4. Блок зразка платіжного доручення / реквізитів для оплати вгорі або внизу документа ("Платник: ...").
+5. РУКОПИСНІ ПОЗНАЧКИ МЕНЕДЖЕРА: часто від руки ручкою/олівцем зверху або знизу написано назву компанії або замовлення ("Шоп", "ШІ", "Престиж", "Престижбуд", "Голден", "Будмонтаж", "229-26", "227-26").
+6. Накладна перевізника / експрес-доставка (Нова Пошта тощо): поле "Одержувач" або "Замовник".
+
+СПИСОК НАШИХ КОМПАНІЙ:
+${formattedComps}
+
+ВКАЗІВКА:
+- Якщо знайдена назва покупця або рукописний напис відповідає одній з компаній зі списку, обери стандартизовану назву (наприклад "ТОВ ШОП ІНТЕРІОР", "ТОВ ПРЕСТИЖБУД", "ТОВ ГОЛДЕН ПОІНТ", "ТОВ БУДМОНТАЖ-2026").
+- Якщо на документі вказано іншого покупця, поверни точну назву покупця з документа у форматі "ТОВ НАЗВА" великими літерами без лапок.
+- НІКОЛИ не повертай постачальника ("${parsedResult.supplierName || ''}") як покупця!
+
+Поверни JSON строго такого формату:
+{
+  "found": true,
+  "buyerName": "ТОВ ШОП ІНТЕРІОР",
+  "rawText": "Покупець: ТОВ \\"Шоп Інтеріор\\"",
+  "confidence": "high"
+}`;
+
+      const rescueBuyerResponse = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: [
+          {
+            inlineData: {
+              mimeType: finalMimeType,
+              data: cleanBase64,
+            },
+          },
+          { text: rescueBuyerPrompt },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      let rBuyerText = rescueBuyerResponse.text || '';
+      rBuyerText = rBuyerText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+      if (rBuyerText) {
+        const parsedRescueBuyer = JSON.parse(rBuyerText);
+        if (parsedRescueBuyer.found && parsedRescueBuyer.buyerName) {
+          const normBuyer = OCRService.normalizeCompanyName(parsedRescueBuyer.buyerName);
+          if (normBuyer && (!parsedResult.supplierName || !OCRService.isCompanyNameMatch(normBuyer, parsedResult.supplierName))) {
+            parsedResult.buyerName = normBuyer;
+            console.log(`[Client OCR Buyer Rescue] Successfully rescued buyerName: ${normBuyer}`);
+          }
+        }
+      }
+    } catch (buyerRescueErr) {
+      console.warn('[Client OCR] Targeted buyer name rescue error:', buyerRescueErr);
     }
   }
 
@@ -1106,6 +1240,31 @@ export class OCRService {
   };
 
   /**
+   * Checks if a buyer name is invalid, placeholder, or mistakenly matches the supplier
+   */
+  public static isInvalidBuyerName(name: string | undefined | null, supplierName?: string): boolean {
+    if (!name) return true;
+    const s = String(name).trim();
+    if (!s || s === '—' || s === '-' || s === '...' || s === 'null' || s === 'undefined') return true;
+
+    const lower = s.toLowerCase();
+    const genericPlaceholders = new Set([
+      'той самий', 'той же', 'він же', 'тойже', 'тойсамий',
+      'клієнт', 'приватна особа', 'фізична особа', 'кінцевий споживач',
+      'не вказано', 'відсутній', 'невідомо', 'none', 'n/a',
+      'покупець', 'платник', 'замовник', 'одержувач', 'вантажоодержувач',
+      'б/н', '—', '-', '...'
+    ]);
+    if (genericPlaceholders.has(lower)) return true;
+
+    if (supplierName && this.isCompanyNameMatch(s, supplierName)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
    * Replaces common Latin homoglyphs (like Latin I in Ukrainian "ЛIНА") with Cyrillic equivalents
    */
   public static normalizeHomoglyphs(str: string): string {
@@ -1123,7 +1282,15 @@ export class OCRService {
     if (!input) return '';
     let val = String(input).trim();
 
-    // 0. Normalize Latin homoglyphs to Cyrillic
+    // 0a. Strip document field label prefixes if present
+    val = val.replace(/^(Покупець|Платник|Одержувач|Отримувач|Замовник|Вантажоодержувач|Клієнт|Сторона|Компанія)\s*[:=–—\-]?\s*/gi, '');
+
+    // 0b. If text indicates "the same" or empty placeholders, return empty string
+    if (/^(той\s+самий|той\s+же|він\s+же|тойже|тойсамий|—|-|немає|відсутній)$/i.test(val.trim())) {
+      return '';
+    }
+
+    // 0c. Normalize Latin homoglyphs to Cyrillic
     val = this.normalizeHomoglyphs(val);
 
     // 1. Remove all types of quotes and brackets
@@ -1139,6 +1306,7 @@ export class OCRService {
     val = val.replace(/Акціонерне\s+товариство/gi, 'АТ');
     val = val.replace(/Державне\s+підприємство/gi, 'ДП');
     val = val.replace(/Торгов(?:ий|ого)\s+д(?:ім|ому|ом)/gi, 'ТД');
+    val = val.replace(/^(ТзОВ|ТзДВ)\b/gi, 'ТОВ');
 
     // 2b. Remove dots from abbreviations (e.g. Т.Д. -> ТД, Т.О.В. -> ТОВ, Ф.О.П. -> ФОП)
     val = val.replace(/\b([А-Яа-яЇїІіЄєҐґA-Za-z])\.(?=[А-Яа-яЇїІіЄєҐґA-Za-z]\.?)/g, '$1');
@@ -2346,6 +2514,8 @@ export class OCRService {
     rowIndex?: number;
     tabName?: string;
     reason?: string;
+    matchedInvoice?: ExistingSheetRow;
+    matchedPayment?: any;
   } {
     const isPlaceholderNumber = (num: string): boolean => {
       if (!num) return true;
@@ -2397,6 +2567,7 @@ export class OCRService {
             rowIndex: p.rowIndex,
             tabName: 'Платіжки',
             reason: `Платіжка №${p.paymentNumber} від ${existPayee} на суму ${existAmount || amount} грн вже є у вкладці "Платіжки" (рядок ${p.rowIndex})`,
+            matchedPayment: p,
           };
         }
 
@@ -2409,6 +2580,7 @@ export class OCRService {
             rowIndex: p.rowIndex,
             tabName: 'Платіжки',
             reason: `Платіжка з ідентичним призначенням від ${existPayee} на суму ${amount} грн вже є у вкладці "Платіжки" (рядок ${p.rowIndex})`,
+            matchedPayment: p,
           };
         }
       }
@@ -2423,6 +2595,7 @@ export class OCRService {
             rowIndex: repRowIndex,
             tabName: 'Рахунки',
             reason: `Рахунок внесено (заміна рядка ${repRowIndex})`,
+            matchedInvoice: repInv,
           };
         }
       }
@@ -2467,6 +2640,7 @@ export class OCRService {
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
             reason: `Рахунок №${inv.invoiceNumber} від ${existSupplier} на суму ${existAmount || amount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            matchedInvoice: inv,
           };
         }
 
@@ -2482,6 +2656,7 @@ export class OCRService {
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
             reason: `Рахунок від ${existSupplier} за замовленням ${inv.orderNumber} на суму ${amount || existAmount} грн вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            matchedInvoice: inv,
           };
         }
 
@@ -2492,6 +2667,7 @@ export class OCRService {
             rowIndex: inv.rowIndex,
             tabName: 'Рахунки',
             reason: `Рахунок від ${existSupplier} на суму ${amount} грн від ${existDate} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
+            matchedInvoice: inv,
           };
         }
       }

@@ -100,6 +100,8 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [updatingRowIndex, setUpdatingRowIndex] = useState<number | null>(null);
   const [isBatchReconciling, setIsBatchReconciling] = useState(false);
   const [isDeletingDuplicates, setIsDeletingDuplicates] = useState(false);
+  const [confirmDeleteRowId, setConfirmDeleteRowId] = useState<number | null>(null);
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
   const [isCompactingEmptyRows, setIsCompactingEmptyRows] = useState(false);
   const [showDuplicatesModal, setShowDuplicatesModal] = useState(false);
   const [actionInProgressRow, setActionInProgressRow] = useState<number | null>(null);
@@ -214,12 +216,14 @@ export const SheetLivePreview: React.FC<Props> = ({
 
   const handleDeleteAllDuplicates = async () => {
     if (!onDeleteDuplicates || allDuplicates.length === 0) return;
-    const confirmed = window.confirm(
-      `Видалити всі ${allDuplicates.length} виявлених дублікатів рядків з Google Таблиці?\n\nПерші оригінальні записи буде збережено, видаляться лише повторні рядки.`
-    );
-    if (!confirmed) return;
+    if (!confirmDeleteAll) {
+      setConfirmDeleteAll(true);
+      setTimeout(() => setConfirmDeleteAll(false), 5000);
+      return;
+    }
 
     setIsDeletingDuplicates(true);
+    setConfirmDeleteAll(false);
     try {
       await onDeleteDuplicates(allDuplicates);
       setShowDuplicatesModal(false);
@@ -230,12 +234,14 @@ export const SheetLivePreview: React.FC<Props> = ({
 
   const handleDeleteSingleDuplicate = async (match: DuplicateRowMatch) => {
     if (!onDeleteDuplicates) return;
-    const confirmed = window.confirm(
-      `Видалити дублікат рядок ${match.rowIndex} з вкладки "${match.tabName}" (${match.identifier})?`
-    );
-    if (!confirmed) return;
+    if (confirmDeleteRowId !== match.rowIndex) {
+      setConfirmDeleteRowId(match.rowIndex);
+      setTimeout(() => setConfirmDeleteRowId((cur) => (cur === match.rowIndex ? null : cur)), 5000);
+      return;
+    }
 
     setIsDeletingDuplicates(true);
+    setConfirmDeleteRowId(null);
     try {
       await onDeleteDuplicates([match]);
     } finally {
@@ -1801,11 +1807,27 @@ export const SheetLivePreview: React.FC<Props> = ({
                             type="button"
                             onClick={() => handleDeleteSingleDuplicate(item)}
                             disabled={isDeletingDuplicates}
-                            className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                            title={`Видалити рядок ${item.rowIndex} з вкладки "${item.tabName}"`}
+                            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50 ${
+                              confirmDeleteRowId === item.rowIndex
+                                ? 'bg-rose-600 text-white shadow-sm ring-2 ring-rose-400'
+                                : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                            }`}
+                            title={
+                              confirmDeleteRowId === item.rowIndex
+                                ? `Натисніть ще раз, щоб підтвердити видалення рядка ${item.rowIndex}`
+                                : `Видалити рядок ${item.rowIndex} з вкладки "${item.tabName}"`
+                            }
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Видалити дубль</span>
+                            {isDeletingDuplicates && confirmDeleteRowId === item.rowIndex ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                            <span>
+                              {confirmDeleteRowId === item.rowIndex
+                                ? `Підтвердити видалення р. ${item.rowIndex}`
+                                : 'Видалити дубль'}
+                            </span>
                           </button>
                         </div>
                       </div>
@@ -1830,14 +1852,22 @@ export const SheetLivePreview: React.FC<Props> = ({
                   type="button"
                   onClick={handleDeleteAllDuplicates}
                   disabled={isDeletingDuplicates}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-colors flex items-center space-x-2 shadow-xs cursor-pointer disabled:opacity-50"
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all flex items-center space-x-2 shadow-xs cursor-pointer disabled:opacity-50 ${
+                    confirmDeleteAll
+                      ? 'bg-rose-700 text-white ring-2 ring-rose-400'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white'
+                  }`}
                 >
                   {isDeletingDuplicates ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <Trash2 className="w-4 h-4" />
                   )}
-                  <span>Видалити всі {allDuplicates.length} дублікатів з Google Таблиці</span>
+                  <span>
+                    {confirmDeleteAll
+                      ? `Точно видалити всі ${allDuplicates.length} дублікатів?`
+                      : `Видалити всі ${allDuplicates.length} дублікатів з Google Таблиці`}
+                  </span>
                 </button>
               )}
             </div>

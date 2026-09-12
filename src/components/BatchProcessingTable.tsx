@@ -845,9 +845,21 @@ export const BatchProcessingTable: React.FC<Props> = ({
 
                     {/* Our Company / Payer */}
                     <td className="p-3">
-                      <p className="text-slate-700 max-w-[130px] truncate font-medium" title={data?.payerName || data?.buyerName}>
-                        {data?.payerName || data?.buyerName || '—'}
-                      </p>
+                      {(data?.payerName || (data?.buyerName && data.buyerName !== '—')) ? (
+                        <p className="text-slate-700 max-w-[130px] truncate font-medium" title={data?.payerName || data?.buyerName}>
+                          {data?.payerName || data?.buyerName}
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onOpenReview(doc)}
+                          className="text-[11px] text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded font-medium inline-flex items-center gap-1 transition-colors cursor-pointer"
+                          title="Компанію не визначено. Натисніть, щоб обрати зі списку"
+                        >
+                          <span className="italic">Не вказано</span>
+                          <span className="text-[10px]">✏️</span>
+                        </button>
+                      )}
                     </td>
 
                     {/* Invoice / Payment # & Date */}

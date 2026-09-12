@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
-import { KNOWN_PROJECT_ORDERS } from '../data/sampleDocuments';
+import { KNOWN_PROJECT_ORDERS, DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 import { CreditCard, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -1239,50 +1239,106 @@ export const DocumentReviewModal: React.FC<Props> = ({
             {/* Payer (Our Company) & Payee (Supplier) */}
             <div className="space-y-3">
               {/* Payer / Buyer (Our Company) */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center space-x-1">
-                  <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>{isPaymentDoc ? 'Платник (Наша компанія зі списку)' : 'Наша компанія (Покупець / Платник)'}</span>
-                </label>
-                {companyLists.ourCompanies.length > 0 ? (
-                  <select
-                    value={(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      handleChange('buyerName', val);
-                      handleChange('payerName', val);
-                    }}
-                    className="w-full text-xs font-bold uppercase p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  >
-                    {Array.from(new Set(companyLists.ourCompanies)).map((c, idx) => (
-                      <option key={idx} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                    {!companyLists.ourCompanies.includes((isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || '') && ((isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || '') && (
-                      <option value={(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''}>
-                        {(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''} (розпізнано)
-                      </option>
+              {(() => {
+                const combinedOurCompanies = Array.from(new Set([...(companyLists.ourCompanies || []), ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+                const currentBuyer = (isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || '';
+                const cleanOrderNum = OCRService.normalizeOrderNumber(formData.handwrittenOrderNumber || '');
+                const matchedOrderObj = cleanOrderNum ? KNOWN_PROJECT_ORDERS.find(o => o.code === cleanOrderNum || o.invoiceCode?.includes(cleanOrderNum)) : undefined;
+                let suggestedCompanyFromOrder = '';
+                if (matchedOrderObj?.invoiceCode?.startsWith('ШІ-') || matchedOrderObj?.title?.toLowerCase().includes('шоп')) {
+                  suggestedCompanyFromOrder = 'ТОВ ШОП ІНТЕРІОР';
+                } else if (matchedOrderObj?.invoiceCode?.startsWith('ПШ-') || matchedOrderObj?.title?.toLowerCase().includes('престиж')) {
+                  suggestedCompanyFromOrder = 'ТОВ ПРЕСТИЖБУД';
+                } else if (matchedOrderObj?.invoiceCode?.startsWith('ГП-')) {
+                  suggestedCompanyFromOrder = 'ТОВ ГОЛДЕН ПОІНТ';
+                } else if (matchedOrderObj?.invoiceCode?.startsWith('УП-')) {
+                  suggestedCompanyFromOrder = 'ТОВ УКРПРОМБУД';
+                }
+
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-slate-700 flex items-center space-x-1">
+                        <Building2 className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>{isPaymentDoc ? 'Платник (Наша компанія зі списку)' : 'Наша компанія (Покупець / Платник)'}</span>
+                      </label>
+                      {!currentBuyer && (
+                        <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          Не визначено ШІ
+                        </span>
+                      )}
+                    </div>
+
+                    <select
+                      value={currentBuyer}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        handleChange('buyerName', val);
+                        handleChange('payerName', val);
+                      }}
+                      className={`w-full text-xs font-bold uppercase p-2 border rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                        !currentBuyer ? 'bg-amber-50/60 border-amber-300 text-amber-900' : 'bg-slate-50 border-slate-200'
+                      }`}
+                    >
+                      <option value="">-- Оберіть нашу компанію зі списку --</option>
+                      {combinedOurCompanies.map((c, idx) => (
+                        <option key={idx} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                      {currentBuyer && !combinedOurCompanies.includes(currentBuyer) && (
+                        <option value={currentBuyer}>
+                          {currentBuyer} (розпізнано)
+                        </option>
+                      )}
+                    </select>
+
+                    {/* Quick Selection Buttons */}
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {combinedOurCompanies.map((comp, idx) => {
+                        const isCur = currentBuyer === comp;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              handleChange('buyerName', comp);
+                              handleChange('payerName', comp);
+                            }}
+                            className={`text-[10px] px-2 py-0.5 rounded font-medium border transition-colors cursor-pointer ${
+                              isCur
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-2xs'
+                                : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-200'
+                            }`}
+                          >
+                            {comp}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {suggestedCompanyFromOrder && suggestedCompanyFromOrder !== currentBuyer && (
+                      <div className="mt-1.5 flex items-center justify-between text-[11px] bg-indigo-50 border border-indigo-200 text-indigo-900 rounded p-1.5">
+                        <span>💡 За замовленням <b>{formData.handwrittenOrderNumber}</b> зазвичай закріплена <b>{suggestedCompanyFromOrder}</b></span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleChange('buyerName', suggestedCompanyFromOrder);
+                            handleChange('payerName', suggestedCompanyFromOrder);
+                          }}
+                          className="ml-2 font-bold text-indigo-700 hover:text-indigo-900 underline whitespace-nowrap cursor-pointer"
+                        >
+                          Застосувати
+                        </button>
+                      </div>
                     )}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={(isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      handleChange('buyerName', val);
-                      handleChange('payerName', val);
-                    }}
-                    onBlur={handleBuyerBlur}
-                    placeholder="наприклад: ТОВ БУДМОНТАЖ-2026"
-                    className="w-full text-xs font-bold uppercase p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                )}
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Формат: <span className="font-semibold text-slate-700">ТОВ НАЗВА КОМПАНІЇ</span> (всі великі літери, без лапок).
-                </p>
-              </div>
+
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      Формат: <span className="font-semibold text-slate-700">ТОВ НАЗВА КОМПАНІЇ</span> (всі великі літери, без лапок).
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Quick Swap button for Payment Documents */}
               {isPaymentDoc && (

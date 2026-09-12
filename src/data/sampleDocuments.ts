@@ -118,10 +118,13 @@ export const KNOWN_PROJECT_ORDERS: ProjectOrder[] = [
 ];
 
 export const DEFAULT_OUR_COMPANIES: string[] = [
+  'ТОВ ШОП ІНТЕРІОР',
+  'ТОВ ПРЕСТИЖБУД',
+  'ТОВ ГОЛДЕН ПОІНТ',
   'ТОВ БУДМОНТАЖ-2026',
   'ТОВ ТЕХНОПРОМСЕРВІС',
   'ФОП КОВАЛЕНКО О.М.',
-  'ТОВ ШОП ІНТЕРІОР',
+  'ТОВ УКРПРОМБУД',
 ];
 
 export const DEFAULT_SUPPLIERS: string[] = [

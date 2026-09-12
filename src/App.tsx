@@ -601,6 +601,26 @@ export default function App() {
 
           const check = OCRService.checkExistingDocumentInSheet(effectiveOcr, rows, payments);
 
+          // Auto-recover buyerName if missing from OCR but present in matched Google Sheet row or order
+          if (!effectiveOcr.buyerName || effectiveOcr.buyerName === '—') {
+            if (check.matchedInvoice?.buyer) {
+              effectiveOcr = {
+                ...effectiveOcr,
+                buyerName: OCRService.normalizeCompanyName(check.matchedInvoice.buyer),
+              };
+            } else if (effectiveOcr.handwrittenOrderNumber) {
+              const matchingOrderInv = rows.find(
+                (inv) => inv.orderNumber && inv.buyer && OCRService.normalizeOrderNumber(inv.orderNumber) === effectiveOcr.handwrittenOrderNumber
+              );
+              if (matchingOrderInv?.buyer) {
+                effectiveOcr = {
+                  ...effectiveOcr,
+                  buyerName: OCRService.normalizeCompanyName(matchingOrderInv.buyer),
+                };
+              }
+            }
+          }
+
           if (check.alreadyInSheet) {
             remainingDocs.push({
               ...d,
@@ -765,6 +785,20 @@ export default function App() {
         existingInvoicesRef.current,
         existingPaymentsRef.current
       );
+
+      // Auto-recover buyerName if missing from OCR but available in matched Google Sheet row!
+      if ((!ocrResult.buyerName || ocrResult.buyerName === '—') && sheetCheck.matchedInvoice?.buyer) {
+        ocrResult.buyerName = OCRService.normalizeCompanyName(sheetCheck.matchedInvoice.buyer);
+      }
+      // Also try to find buyer by handwrittenOrderNumber in existing invoices
+      if ((!ocrResult.buyerName || ocrResult.buyerName === '—') && ocrResult.handwrittenOrderNumber) {
+        const matchingOrderInv = existingInvoicesRef.current.find(
+          (inv) => inv.orderNumber && inv.buyer && OCRService.normalizeOrderNumber(inv.orderNumber) === ocrResult.handwrittenOrderNumber
+        );
+        if (matchingOrderInv?.buyer) {
+          ocrResult.buyerName = OCRService.normalizeCompanyName(matchingOrderInv.buyer);
+        }
+      }
 
       const updatedDoc: ProcessedDocument = {
         ...doc,
