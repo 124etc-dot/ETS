@@ -20,12 +20,14 @@ import {
   Sparkles,
   Info,
   SlidersHorizontal,
-  X
+  X,
+  Plus
 } from 'lucide-react';
 import { ProjectSheetRow, ProjectColumnHeader, SheetConfig } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
 import { AuthState } from '../services/googleAuth';
 import { SAMPLE_PROJECT_HEADERS, SAMPLE_PROJECT_ROWS } from '../data/sampleProjects';
+import { AddProjectModal } from './AddProjectModal';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -50,6 +52,7 @@ export const ProjectsTab: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedProject, setSelectedProject] = useState<ProjectSheetRow | null>(null);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'row' | 'order' | 'expenses' | 'margin'>('row');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
@@ -366,6 +369,15 @@ export const ProjectsTab: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+            <button
+              onClick={() => setIsAddModalOpen(true)}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Додати новий проект"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Додати проект</span>
+            </button>
+
             <button
               onClick={handleLoadFromSheet}
               disabled={isLoading}
@@ -1119,6 +1131,12 @@ export const ProjectsTab: React.FC<Props> = ({
           </div>
         </div>
       )}
+      {/* Add Project Modal */}
+      <AddProjectModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        existingManagers={projects.map((p) => p.colG)}
+      />
     </div>
   );
 };
