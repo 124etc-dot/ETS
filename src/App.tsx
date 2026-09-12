@@ -38,6 +38,7 @@ import { BatchProcessingTable } from './components/BatchProcessingTable';
 import { DocumentReviewModal } from './components/DocumentReviewModal';
 import { SheetLivePreview } from './components/SheetLivePreview';
 import { CompaniesTab } from './components/CompaniesTab';
+import { ProjectsTab } from './components/ProjectsTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
 import { APP_VERSION } from './version';
 import { 
@@ -77,7 +78,7 @@ const saveDismissedDriveIds = (ids: Set<string>) => {
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(googleAuth.getAuthState());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history'>('process');
+  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history' | 'projects'>('process');
 
   // Google Drive & Sheets state with local persistence
   const [driveFolderId, setDriveFolderId] = useState<string>(() => {
@@ -2658,6 +2659,19 @@ export default function App() {
             onRefresh={refreshSheetData}
             accessToken={authState.accessToken || undefined}
             onNotify={notify}
+          />
+        )}
+
+        {/* View Mode: Projects Management (Лист1 row 111+) */}
+        {activeTab === 'projects' && (
+          <ProjectsTab
+            sheetConfig={sheetConfig}
+            authState={authState}
+            onOpenSpreadsheet={() => {
+              if (sheetConfig?.spreadsheetUrl) {
+                window.open(sheetConfig.spreadsheetUrl, '_blank');
+              }
+            }}
           />
         )}
       </main>

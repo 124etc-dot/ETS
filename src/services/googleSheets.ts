@@ -1,4 +1,4 @@
-import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus } from '../types';
+import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, ProjectSheetRow, ProjectColumnHeader } from '../types';
 import { OCRService } from './ocrService';
 import { googleAuth } from './googleAuth';
 
@@ -1830,6 +1830,375 @@ export class GoogleSheetsService {
     } catch {
       // ignore
     }
+  }
+
+  /**
+   * Reads project cost & profitability data from "Лист1" strictly starting from row 111 and below.
+   * Extracts columns: A, B, C, D, E, F, G, H, I, M, N, O, P, sum(Q+R+S+T), U, V, W, X, Y.
+   * Also reads potential headers from rows 1..110 so table headers reflect the real sheet layout.
+   */
+  public static async getProjectsFromSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName = 'Лист1'
+  ): Promise<{
+    headers: ProjectColumnHeader[];
+    rows: ProjectSheetRow[];
+    totalSumQRST: number;
+    rowCount: number;
+    tabNameUsed: string;
+  }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    let targetTab = tabName;
+
+    // Check available sheets to match "Лист1" (case-insensitive, fallback to Sheet1 / Аркуш1 if needed)
+    try {
+      const details = await this.getSpreadsheetDetails(cleanId, accessToken);
+      if (details && details.sheets && details.sheets.length > 0) {
+        const foundTab = details.sheets.find(
+          (s) =>
+            s.trim().toLowerCase() === 'лист1' ||
+            s.trim().toLowerCase() === 'лист 1' ||
+            s.trim().toLowerCase() === 'sheet1' ||
+            s.trim().toLowerCase() === 'аркуш1'
+        );
+        if (foundTab) {
+          targetTab = foundTab;
+        } else if (!details.sheets.includes(targetTab)) {
+          // If neither found, use the first tab of spreadsheet
+          targetTab = details.sheets[0];
+        }
+      }
+    } catch {
+      // ignore fallback
+    }
+
+    const safeTab = targetTab.replace(/'/g, "''");
+    // We read from A1 to Y5000 so we capture both header definitions in rows 1..110 and project rows starting at 111
+    const range = encodeURIComponent(`'${safeTab}'!A1:Y5000`);
+    const data = await this.request<any>(
+      `${cleanId}/values/${range}`,
+      accessToken
+    );
+
+    const rows: any[][] = data.values || [];
+    if (!rows || rows.length === 0) {
+      return {
+        headers: this.getDefaultProjectHeaders(),
+        rows: [],
+        totalSumQRST: 0,
+        rowCount: 0,
+        tabNameUsed: targetTab,
+      };
+    }
+
+    // 1. Scan candidate rows (0..10 and row 109/Row 110) to determine the actual column header row
+    const targetCols = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 20, 21, 22, 23, 24];
+
+    const isNumOrDate = (val: string): boolean => {
+      const s = val.trim();
+      if (!s) return false;
+      if (/^\s*[-+]?\d+([.,]\d+)?\s*(грн|%|₴|\$|€)?\s*$/i.test(s)) return true;
+      if (/^\d{1,4}[-./]\d{1,2}[-./]\d{1,4}$/.test(s)) return true;
+      return false;
+    };
+
+    // Calculate score for candidate header row
+    const getRowHeaderScore = (rowIndex: number): number => {
+      const r = rows[rowIndex];
+      if (!r || !Array.isArray(r)) return 0;
+      let score = 0;
+      for (const colIdx of targetCols) {
+        const val = String(r[colIdx] ?? '').trim();
+        if (val && val.length >= 2 && !isNumOrDate(val)) {
+          score += 2;
+          const lower = val.toLowerCase();
+          if (
+            lower.includes('назв') ||
+            lower.includes('замовл') ||
+            lower.includes('клієнт') ||
+            lower.includes('партнер') ||
+            lower.includes('контракт') ||
+            lower.includes('догов') ||
+            lower.includes('статус') ||
+            lower.includes('сума') ||
+            lower.includes('оплат') ||
+            lower.includes('аванс') ||
+            lower.includes('витрат') ||
+            lower.includes('марж') ||
+            lower.includes('приміт') ||
+            lower.includes('комент') ||
+            lower.includes('дата') ||
+            lower.includes('термін') ||
+            lower.includes('відповідальн') ||
+            lower.includes('менеджер') ||
+            lower.includes('код') ||
+            lower.includes('обʼєкт') ||
+            lower.includes('об\'єкт') ||
+            lower.includes('обєкт') ||
+            lower.includes('№') ||
+            lower.includes('проект') ||
+            lower.includes('робот')
+          ) {
+            score += 3;
+          }
+        }
+      }
+      return score;
+    };
+
+    // Find candidate row with max score among rows 0..10 and row 109 (Row 110 in sheet)
+    let bestHeaderRowIdx = 0;
+    let maxHeaderScore = getRowHeaderScore(0);
+
+    for (let r = 1; r < Math.min(10, rows.length); r++) {
+      const score = getRowHeaderScore(r);
+      if (score > maxHeaderScore) {
+        maxHeaderScore = score;
+        bestHeaderRowIdx = r;
+      }
+    }
+
+    // Also check row 109 (Row 110 in sheet) in case header is placed directly above row 111
+    if (rows.length > 109) {
+      const score110 = getRowHeaderScore(109);
+      if (score110 > maxHeaderScore && score110 >= 4) {
+        maxHeaderScore = score110;
+        bestHeaderRowIdx = 109;
+      }
+    }
+
+    // Function to get clean title directly from the sheet
+    const getColumnHeaderTitle = (colIdx: number, colLetter: string): string => {
+      // 1. Try bestHeaderRowIdx
+      const primaryVal = String(rows[bestHeaderRowIdx]?.[colIdx] ?? '').trim();
+      if (primaryVal && !isNumOrDate(primaryVal)) {
+        // If row 0 has a category and row 1 has a sub-title
+        if (bestHeaderRowIdx === 1 && rows[0]?.[colIdx]) {
+          const topVal = String(rows[0][colIdx]).trim();
+          if (topVal && !isNumOrDate(topVal) && topVal !== primaryVal) {
+            return `${topVal} / ${primaryVal}`;
+          }
+        }
+        return primaryVal;
+      }
+
+      // 2. Try rows 0..5
+      for (let r = 0; r < Math.min(5, rows.length); r++) {
+        if (r === bestHeaderRowIdx) continue;
+        const val = String(rows[r]?.[colIdx] ?? '').trim();
+        if (val && !isNumOrDate(val)) {
+          return val;
+        }
+      }
+
+      // 3. Try row 109
+      if (rows.length > 109 && bestHeaderRowIdx !== 109) {
+        const val110 = String(rows[109]?.[colIdx] ?? '').trim();
+        if (val110 && !isNumOrDate(val110)) {
+          return val110;
+        }
+      }
+
+      return `Колонка ${colLetter}`;
+    };
+
+    const headers: ProjectColumnHeader[] = [
+      { key: 'colA', letter: 'A', title: getColumnHeaderTitle(0, 'A') },
+      { key: 'colB', letter: 'B', title: getColumnHeaderTitle(1, 'B') },
+      { key: 'colC', letter: 'C', title: getColumnHeaderTitle(2, 'C') },
+      { key: 'colD', letter: 'D', title: getColumnHeaderTitle(3, 'D') },
+      { key: 'colE', letter: 'E', title: getColumnHeaderTitle(4, 'E') },
+      { key: 'colF', letter: 'F', title: getColumnHeaderTitle(5, 'F') },
+      { key: 'colG', letter: 'G', title: getColumnHeaderTitle(6, 'G') },
+      { key: 'colH', letter: 'H', title: getColumnHeaderTitle(7, 'H') },
+      { key: 'colI', letter: 'I', title: getColumnHeaderTitle(8, 'I') },
+      { key: 'colM', letter: 'M', title: getColumnHeaderTitle(12, 'M') },
+      { key: 'colN', letter: 'N', title: getColumnHeaderTitle(13, 'N') },
+      { key: 'colO', letter: 'O', title: getColumnHeaderTitle(14, 'O') },
+      { key: 'colP', letter: 'P', title: getColumnHeaderTitle(15, 'P') },
+      // The user explicitly requested: "лише ту колонку де є сума колонок назви Заробітня плата"
+      { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Заробітня плата' },
+      { key: 'colU', letter: 'U', title: getColumnHeaderTitle(20, 'U') },
+      { key: 'colV', letter: 'V', title: getColumnHeaderTitle(21, 'V') },
+      { key: 'colW', letter: 'W', title: getColumnHeaderTitle(22, 'W') },
+      { key: 'colX', letter: 'X', title: getColumnHeaderTitle(23, 'X') },
+      { key: 'colY', letter: 'Y', title: getColumnHeaderTitle(24, 'Y') },
+    ];
+
+    // 2. Parse data rows starting strictly from row 111 (0-based index 110)
+    const parseNum = (v: any): number => {
+      if (typeof v === 'number') return isNaN(v) ? 0 : v;
+      const s = String(v ?? '')
+        .replace(/\s/g, '')
+        .replace(',', '.')
+        .replace(/[^0-9.-]/g, '');
+      const n = parseFloat(s);
+      return isNaN(n) ? 0 : n;
+    };
+
+    const isMeaningful = (v: any): boolean => {
+      const s = String(v ?? '').trim();
+      if (!s) return false;
+      if (
+        s === '—' ||
+        s === '-' ||
+        s === '–' ||
+        s === '.' ||
+        s === '0' ||
+        s === '0.0' ||
+        s === '0.00' ||
+        s === '0,0' ||
+        s === '0,00' ||
+        s === '0%' ||
+        s === '0.0%' ||
+        s === '0.00%' ||
+        s === '0,0%' ||
+        s === '0,00%' ||
+        s === '0 грн' ||
+        s === '0,00 грн' ||
+        s === '0.00 грн' ||
+        s === '0 ₴' ||
+        s === '0,00 ₴' ||
+        s === '0.00 ₴' ||
+        s.toLowerCase() === 'false' ||
+        s.toLowerCase() === 'null' ||
+        s.toLowerCase() === 'undefined'
+      ) {
+        return false;
+      }
+      if (/^0+(\.0+|,0+)?(\s*(грн|%|₴|\$|€))?$/i.test(s)) return false;
+      if (/^#(n\/a|value!|ref!|div\/0!|name\?|null!|num!)$/i.test(s)) return false;
+      return true;
+    };
+
+    const projectRows: ProjectSheetRow[] = [];
+    let totalSumQRST = 0;
+
+    // Start strictly at row index 110 (Row 111 in Google Sheets)
+    const startIndex = 110;
+    for (let i = startIndex; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || !Array.isArray(row)) continue;
+
+      const getVal = (idx: number) => String(row[idx] ?? '').trim();
+
+      const colA = getVal(0);
+      const colB = getVal(1);
+      const colC = getVal(2);
+      const colD = getVal(3);
+      const colE = getVal(4);
+      const colF = getVal(5);
+      const colG = getVal(6);
+      const colH = getVal(7);
+      const colI = getVal(8);
+      const colM = getVal(12);
+      const colN = getVal(13);
+      const colO = getVal(14);
+      const colP = getVal(15);
+      const colQ = getVal(16);
+      const colR = getVal(17);
+      const colS = getVal(18);
+      const colT = getVal(19);
+
+      const qVal = parseNum(colQ);
+      const rVal = parseNum(colR);
+      const sVal = parseNum(colS);
+      const tVal = parseNum(colT);
+      const sumQRST = qVal + rVal + sVal + tVal;
+
+      const colU = getVal(20);
+      const colV = getVal(21);
+      const colW = getVal(22);
+      const colX = getVal(23);
+      const colY = getVal(24);
+
+      // Check if row has an actual project identifier or meaningful data
+      const hasIdentifier = isMeaningful(colA) || isMeaningful(colB) || isMeaningful(colC);
+      const hasSecondary =
+        isMeaningful(colD) ||
+        isMeaningful(colE) ||
+        isMeaningful(colF) ||
+        isMeaningful(colG) ||
+        isMeaningful(colX) ||
+        isMeaningful(colY);
+      const hasFinances =
+        parseNum(colH) > 0 ||
+        parseNum(colI) > 0 ||
+        parseNum(colM) > 0 ||
+        parseNum(colN) > 0 ||
+        sumQRST > 0 ||
+        parseNum(colU) > 0;
+
+      // Filter out empty rows, formula ghosts, and unused trailing rows
+      if (!hasIdentifier && !hasSecondary && !hasFinances) {
+        continue;
+      }
+
+      totalSumQRST += sumQRST;
+
+      projectRows.push({
+        rowNumber: i + 1, // 1-based row number in sheet (111, 112, ...)
+        colA,
+        colB,
+        colC,
+        colD,
+        colE,
+        colF,
+        colG,
+        colH,
+        colI,
+        colM,
+        colN,
+        colO,
+        colP,
+        colQ,
+        colR,
+        colS,
+        colT,
+        sumQRST,
+        colU,
+        colV,
+        colW,
+        colX,
+        colY,
+      });
+    }
+
+    return {
+      headers,
+      rows: projectRows,
+      totalSumQRST,
+      rowCount: projectRows.length,
+      tabNameUsed: targetTab,
+    };
+  }
+
+  /**
+   * Default headers fallback when sheet is empty or unavailable
+   */
+  public static getDefaultProjectHeaders(): ProjectColumnHeader[] {
+    return [
+      { key: 'colA', letter: 'A', title: 'Колонка A' },
+      { key: 'colB', letter: 'B', title: 'Колонка B' },
+      { key: 'colC', letter: 'C', title: 'Колонка C' },
+      { key: 'colD', letter: 'D', title: 'Колонка D' },
+      { key: 'colE', letter: 'E', title: 'Колонка E' },
+      { key: 'colF', letter: 'F', title: 'Колонка F' },
+      { key: 'colG', letter: 'G', title: 'Колонка G' },
+      { key: 'colH', letter: 'H', title: 'Колонка H' },
+      { key: 'colI', letter: 'I', title: 'Колонка I' },
+      { key: 'colM', letter: 'M', title: 'Колонка M' },
+      { key: 'colN', letter: 'N', title: 'Колонка N' },
+      { key: 'colO', letter: 'O', title: 'Колонка O' },
+      { key: 'colP', letter: 'P', title: 'Колонка P' },
+      { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Заробітня плата' },
+      { key: 'colU', letter: 'U', title: 'Колонка U' },
+      { key: 'colV', letter: 'V', title: 'Колонка V' },
+      { key: 'colW', letter: 'W', title: 'Колонка W' },
+      { key: 'colX', letter: 'X', title: 'Колонка X' },
+      { key: 'colY', letter: 'Y', title: 'Колонка Y' },
+    ];
   }
 }
 

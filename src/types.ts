@@ -201,3 +201,37 @@ export interface DuplicateRowMatch {
   suggestedAction?: 'delete' | 'merge_fix_number';
   suggestedCorrectInvoiceNumber?: string;
 }
+
+export interface ProjectSheetRow {
+  rowNumber: number; // 1-based row number in Google Sheet (111, 112, ...)
+  colA: string; // Колонка A (наприклад, Номер замовлення / код проекту)
+  colB: string; // Колонка B (Клієнт / Замовник)
+  colC: string; // Колонка C (Назва проекту / об'єкту)
+  colD: string; // Колонка D
+  colE: string; // Колонка E
+  colF: string; // Колонка F
+  colG: string; // Колонка G
+  colH: string; // Колонка H
+  colI: string; // Колонка I
+  colM: string; // Колонка M
+  colN: string; // Колонка N
+  colO: string; // Колонка O
+  colP: string; // Колонка P
+  colQ: string; // Колонка Q (Матеріали)
+  colR: string; // Колонка R (Зарплати)
+  colS: string; // Колонка S (Електроенергія)
+  colT: string; // Колонка T (Накладні витрати)
+  sumQRST: number; // Сума колонок Q + R + S + T (Собівартість / всі витрати)
+  colU: string; // Колонка U (Маржа / результат)
+  colV: string; // Колонка V (Маржинальність %)
+  colW: string; // Колонка W
+  colX: string; // Колонка X
+  colY: string; // Колонка Y
+  rawValues?: Record<string, string>;
+}
+
+export interface ProjectColumnHeader {
+  key: string;
+  letter: string;
+  title: string;
+}

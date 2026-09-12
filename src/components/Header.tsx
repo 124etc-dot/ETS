@@ -10,7 +10,8 @@ import {
   CheckCircle2,
   ExternalLink,
   FolderSync,
-  Server
+  Server,
+  Briefcase
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
 import { SheetConfig } from '../types';
@@ -21,8 +22,8 @@ import { ServerStatusModal } from './ServerStatusModal';
 interface Props {
   authState: AuthState;
   sheetConfig: SheetConfig | null;
-  activeTab: 'process' | 'sheet' | 'companies' | 'history';
-  onSelectTab: (tab: 'process' | 'sheet' | 'companies' | 'history') => void;
+  activeTab: 'process' | 'sheet' | 'companies' | 'history' | 'projects';
+  onSelectTab: (tab: 'process' | 'sheet' | 'companies' | 'history' | 'projects') => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   totalPendingCount: number;
@@ -136,7 +137,7 @@ export const Header: React.FC<Props> = ({
 
               <button
                 onClick={() => onSelectTab('companies')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
                   activeTab === 'companies'
                     ? 'bg-white text-slate-900 shadow-xs font-bold'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
@@ -144,6 +145,18 @@ export const Header: React.FC<Props> = ({
               >
                 <Building2 className="w-3.5 h-3.5 text-slate-600" />
                 <span>Компанії & Постачальники</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('projects')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  activeTab === 'projects'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5 text-blue-600" />
+                <span>Проекти</span>
               </button>
             </nav>
 
