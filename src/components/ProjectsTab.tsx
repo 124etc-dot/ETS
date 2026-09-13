@@ -270,6 +270,12 @@ export const ProjectsTab: React.FC<Props> = ({
       return acc + n;
     }, 0);
 
+    // Remaining Payments (Col N) - user specified: "додамо ще 'Залишок оплат' і покажемо суму колонки N"
+    const totalRemainingPayments = validProjects.reduce((acc, p) => {
+      const n = parseFloat((p.colN || '').replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0;
+      return acc + n;
+    }, 0);
+
     // Total Margin (Col U)
     const totalMargin = validProjects.reduce((acc, p) => {
       const n = parseFloat(p.colU.replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0;
@@ -282,6 +288,7 @@ export const ProjectsTab: React.FC<Props> = ({
       totalProjects,
       totalExpenses,
       totalContracts,
+      totalRemainingPayments,
       totalMargin,
       avgMarginPercent,
     };
@@ -461,18 +468,26 @@ export const ProjectsTab: React.FC<Props> = ({
             </p>
           </div>
 
-          {/* Total Contract Sum */}
-          <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200/80">
-            <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-              <span className="font-medium">Сума договорів (Колонка M)</span>
-              <TrendingUp className="w-4 h-4 text-indigo-500" />
+          {/* Total Contract Sum & Remaining Payments */}
+          <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200/80 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-medium">Сума договорів (Колонка M)</span>
+                <TrendingUp className="w-4 h-4 text-indigo-500" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">
+                {formatCurrency(stats.totalContracts)}
+              </div>
             </div>
-            <div className="text-xl font-bold text-slate-900">
-              {formatCurrency(stats.totalContracts)}
+
+            <div className="mt-2.5 pt-2 border-t border-slate-200 flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-slate-600">
+                Залишок оплат (Кол. N):
+              </span>
+              <span className="font-bold font-mono text-xs text-amber-800 bg-amber-50 border border-amber-200/80 px-1.5 py-0.5 rounded">
+                {formatCurrency(stats.totalRemainingPayments)}
+              </span>
             </div>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              {getHeaderTitle('colM', 'M')} • Загальний обсяг за договорами
-            </p>
           </div>
 
           {/* Average Margin */}
@@ -1136,6 +1151,12 @@ export const ProjectsTab: React.FC<Props> = ({
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         existingManagers={projects.map((p) => p.colG)}
+        sheetConfig={sheetConfig}
+        accessToken={authState?.accessToken}
+        onProjectAdded={async (newRowIndex, projNum) => {
+          // Immediately reload latest project rows from Google Sheet
+          await handleLoadFromSheet();
+        }}
       />
     </div>
   );

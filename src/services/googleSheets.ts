@@ -2200,6 +2200,145 @@ export class GoogleSheetsService {
       { key: 'colY', letter: 'Y', title: 'Колонка Y' },
     ];
   }
+
+  /**
+   * Validates project number format (e.g. "235-26", "227-26", "12-25", "100/26")
+   */
+  public static isProjectNumberValid(num: string): boolean {
+    if (!num) return false;
+    const trimmed = num.trim().replace(/^[№#]\s*/, '');
+    // Standard format: digits/alphanumeric prefix with hyphen/slash and year suffix
+    return /^[A-Za-zА-Яа-яІіЇїЄє0-9]{1,8}[-/]\d{2,4}$/.test(trimmed) || /^\d+[-/]\d+$/.test(trimmed);
+  }
+
+  /**
+   * Appends a new project row into the first free/empty cell in Column A of the specified tab (default "Лист1").
+   * Strictly respects user requirements:
+   * - Column A: Project Number (Номер проекту)
+   * - Column B: Project Name (Назва проекту)
+   * - Column C: Start Date (Старт проект)
+   * - Column G: Invoice Number (Рахунок)
+   * - Column H: Invoice Date (Дата рахунку)
+   */
+  public static async addProjectToSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    projectData: {
+      projectNumber: string;
+      projectName: string;
+      startDate: string;
+      invoiceNumber?: string;
+      invoiceDate?: string;
+      contractAmount?: string | number;
+    },
+    tabName = 'Лист1'
+  ): Promise<{ targetRow: number; tabNameUsed: string }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    let targetTab = tabName;
+
+    // Resolve matching sheet tab if needed (Лист1 / Sheet1 / Аркуш1)
+    try {
+      const details = await this.getSpreadsheetDetails(cleanId, accessToken);
+      if (details && details.sheets && details.sheets.length > 0) {
+        const foundTab = details.sheets.find(
+          (s) =>
+            s.trim().toLowerCase() === 'лист1' ||
+            s.trim().toLowerCase() === 'лист 1' ||
+            s.trim().toLowerCase() === 'sheet1' ||
+            s.trim().toLowerCase() === 'аркуш1'
+        );
+        if (foundTab) {
+          targetTab = foundTab;
+        } else if (!details.sheets.includes(targetTab)) {
+          targetTab = details.sheets[0];
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    const safeTab = targetTab.replace(/'/g, "''");
+
+    // Read column A from row 1 to row 5000 to locate the first free/empty cell in Column A for projects
+    const range = encodeURIComponent(`'${safeTab}'!A1:A5000`);
+    const data = await this.request<any>(`${cleanId}/values/${range}`, accessToken);
+    const colAValues: any[][] = data.values || [];
+
+    // The project table rows start strictly at row 111 (0-based index 110).
+    // Scan starting from row 111 downwards for the first empty cell in Column A.
+    let targetRow = 111;
+    const startIndex = 110;
+
+    if (colAValues.length <= startIndex) {
+      targetRow = 111;
+    } else {
+      let foundEmpty = false;
+      for (let r = startIndex; r < colAValues.length; r++) {
+        const cell = colAValues[r]?.[0];
+        const val = cell !== undefined && cell !== null ? String(cell).trim() : '';
+        if (!val) {
+          targetRow = r + 1; // 1-based row index
+          foundEmpty = true;
+          break;
+        }
+      }
+      if (!foundEmpty) {
+        targetRow = colAValues.length + 1;
+      }
+    }
+
+    // Format dates to DD.MM.YYYY if given in YYYY-MM-DD
+    const formatDateForSheet = (dStr: string): string => {
+      if (!dStr) return '';
+      const s = dStr.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, d] = s.split('-');
+        return `${d}.${m}.${y}`;
+      }
+      return s;
+    };
+
+    const formattedStartDate = formatDateForSheet(projectData.startDate);
+    const formattedInvoiceDate = formatDateForSheet(projectData.invoiceDate || '');
+    const cleanProjectNumber = projectData.projectNumber.trim().replace(/^[№#]\s*/, '');
+
+    // Prepare batchUpdate value ranges:
+    // Range 1: Columns A..C (A: Project Number, B: Project Name, C: Start Date)
+    // Range 2: Columns G..H (G: Invoice Number, H: Invoice Date)
+    // Range 3: Column M (M: Contract Amount / Сума Договору)
+    const updateRanges: Array<{ range: string; values: any[][] }> = [
+      {
+        range: `'${safeTab}'!A${targetRow}:C${targetRow}`,
+        values: [[cleanProjectNumber, projectData.projectName.trim(), formattedStartDate]],
+      },
+      {
+        range: `'${safeTab}'!G${targetRow}:H${targetRow}`,
+        values: [[projectData.invoiceNumber?.trim() || '', formattedInvoiceDate]],
+      },
+    ];
+
+    if (projectData.contractAmount !== undefined && projectData.contractAmount !== null && String(projectData.contractAmount).trim() !== '') {
+      const rawAmount = String(projectData.contractAmount).trim().replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '');
+      const num = parseFloat(rawAmount);
+      updateRanges.push({
+        range: `'${safeTab}'!M${targetRow}`,
+        values: [[!isNaN(num) ? num : String(projectData.contractAmount).trim()]],
+      });
+    }
+
+    await this.request<any>(`${cleanId}/values:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: updateRanges,
+      }),
+    });
+
+    return {
+      targetRow,
+      tabNameUsed: targetTab,
+    };
+  }
 }
 
 
