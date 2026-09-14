@@ -78,7 +78,7 @@ const saveDismissedDriveIds = (ids: Set<string>) => {
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(googleAuth.getAuthState());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history' | 'projects'>('process');
+  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history' | 'projects'>('projects');
 
   // Google Drive & Sheets state with local persistence
   const [driveFolderId, setDriveFolderId] = useState<string>(() => {
@@ -1964,7 +1964,7 @@ export default function App() {
     notify(`Успішно занесено ${successCount} записів у Google Таблицю!`, 'success');
   };
 
-  // Delete duplicate rows from Google Sheets ("Рахунки" and "Платіжки")
+  // Delete duplicate rows from Google Sheets ("Рахунки" and "Платіжки") and trash duplicate files on Drive
   const handleDeleteDuplicateRows = async (duplicates: DuplicateRowMatch[]) => {
     if (!authState.accessToken) {
       setIsAuthModalOpen(true);
@@ -1987,6 +1987,54 @@ export default function App() {
       const paymentRowIndices = duplicates
         .filter((d) => d.type === 'payment')
         .map((d) => d.rowIndex);
+
+      // Find and trash corresponding Google Drive files for duplicate rows
+      let trashedFilesCount = 0;
+      const dismissed = getDismissedDriveIds();
+      const removedDriveIds = new Set<string>();
+
+      for (const dup of duplicates) {
+        let fileId: string | null = null;
+        if (dup.type === 'invoice') {
+          const inv = existingInvoices.find((i) => i.rowIndex === dup.rowIndex);
+          if (inv?.driveLink) fileId = GoogleDriveService.extractFileId(inv.driveLink);
+          if (!fileId) {
+            const d = documentsRef.current.find(
+              (doc) =>
+                doc.syncedRowIndex === dup.rowIndex ||
+                (inv?.fileName && doc.fileName.toLowerCase().trim() === inv.fileName.toLowerCase().trim())
+            );
+            if (d?.driveFileId) fileId = d.driveFileId;
+          }
+        } else {
+          const pay = existingPayments.find((p) => p.rowIndex === dup.rowIndex);
+          if (pay?.driveLink) fileId = GoogleDriveService.extractFileId(pay.driveLink);
+          if (!fileId) {
+            const d = documentsRef.current.find(
+              (doc) =>
+                doc.syncedRowIndex === dup.rowIndex ||
+                (pay?.fileName && doc.fileName.toLowerCase().trim() === pay.fileName.toLowerCase().trim())
+            );
+            if (d?.driveFileId) fileId = d.driveFileId;
+          }
+        }
+
+        if (fileId && !removedDriveIds.has(fileId)) {
+          removedDriveIds.add(fileId);
+          dismissed.add(fileId);
+          try {
+            await GoogleDriveService.trashFile(fileId, authState.accessToken);
+            trashedFilesCount++;
+          } catch (e) {
+            console.warn(`Could not trash duplicate file ${fileId}:`, e);
+          }
+        }
+      }
+
+      if (removedDriveIds.size > 0) {
+        saveDismissedDriveIds(dismissed);
+        setDocuments((prev) => prev.filter((d) => !d.driveFileId || !removedDriveIds.has(d.driveFileId)));
+      }
 
       let deletedTotal = 0;
 
@@ -2011,8 +2059,11 @@ export default function App() {
       }
 
       await refreshSheetData();
+      const driveInfo = trashedFilesCount > 0
+        ? ` Також ${trashedFilesCount} дублюючих файлів переміщено в кошик на Google Диску!`
+        : '';
       notify(
-        `🧹 Успішно видалено ${deletedTotal} дублікатів рядків з Google Таблиці! Оновлено.`,
+        `🧹 Успішно видалено ${deletedTotal} дублікатів рядків з Google Таблиці!${driveInfo}`,
         'success'
       );
     } catch (err: any) {
@@ -2059,6 +2110,83 @@ export default function App() {
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
+      const targetInvoice = existingInvoices.find((i) => i.rowIndex === rowIndex);
+
+      // 1. Locate file on Google Drive
+      let fileIdToDelete: string | null = null;
+      let deletedFileName: string = targetInvoice?.fileName || '';
+
+      // a) Directly from row's driveLink
+      if (targetInvoice?.driveLink) {
+        fileIdToDelete = GoogleDriveService.extractFileId(targetInvoice.driveLink);
+      }
+
+      // b) From current queue documents
+      const matchedDoc = documentsRef.current.find(
+        (d) =>
+          d.syncedRowIndex === rowIndex ||
+          (fileIdToDelete && d.driveFileId === fileIdToDelete) ||
+          (targetInvoice?.fileName && d.fileName.toLowerCase().trim() === targetInvoice.fileName.toLowerCase().trim()) ||
+          (targetInvoice?.invoiceNumber &&
+            (d.ocrResult?.invoiceNumber === targetInvoice.invoiceNumber ||
+              d.editedData?.invoiceNumber === targetInvoice.invoiceNumber))
+      );
+
+      if (!fileIdToDelete && matchedDoc?.driveFileId) {
+        fileIdToDelete = matchedDoc.driveFileId;
+      }
+      if (!deletedFileName && matchedDoc?.fileName) {
+        deletedFileName = matchedDoc.fileName;
+      }
+
+      // c) Search Drive folder if folder connected and not found yet
+      if (!fileIdToDelete && driveFolderId && authState.accessToken && targetInvoice) {
+        try {
+          const found = await GoogleDriveService.findFileInFolder(
+            driveFolderId,
+            authState.accessToken,
+            {
+              invoiceNumber: targetInvoice.invoiceNumber,
+              orderNumber: targetInvoice.orderNumber,
+              supplier: targetInvoice.supplier,
+              fileName: targetInvoice.fileName,
+              amount: targetInvoice.amount,
+            }
+          );
+          if (found) {
+            fileIdToDelete = found.id;
+            if (!deletedFileName) deletedFileName = found.name;
+          }
+        } catch (e) {
+          console.warn('Could not search Drive folder for file to delete:', e);
+        }
+      }
+
+      // 2. Trash file on Google Drive and mark as dismissed so it doesn't duplicate upon re-reading
+      let driveTrashed = false;
+      if (fileIdToDelete && authState.accessToken) {
+        try {
+          await GoogleDriveService.trashFile(fileIdToDelete, authState.accessToken);
+          driveTrashed = true;
+          const dismissed = getDismissedDriveIds();
+          dismissed.add(fileIdToDelete);
+          saveDismissedDriveIds(dismissed);
+        } catch (driveErr) {
+          console.warn(`Could not trash file ${fileIdToDelete} on Google Drive:`, driveErr);
+        }
+      }
+
+      // 3. Remove corresponding item from documents queue
+      setDocuments((prev) =>
+        prev.filter(
+          (d) =>
+            d.syncedRowIndex !== rowIndex &&
+            (!fileIdToDelete || d.driveFileId !== fileIdToDelete) &&
+            (!matchedDoc || d.id !== matchedDoc.id)
+        )
+      );
+
+      // 4. Delete row from Google Sheets
       notify(`Видалення рядка ${rowIndex} з вкладки "${sheetConfig.invoicesSheetName || 'Рахунки'}"...`, 'info');
       await GoogleSheetsService.deleteRowsFromSheet(
         sheetConfig.spreadsheetId,
@@ -2067,7 +2195,15 @@ export default function App() {
         [rowIndex]
       );
       await refreshSheetData();
-      notify(`🧹 Рядок ${rowIndex} успішно видалено з Google Таблиці та вилучено з черги!`, 'success');
+
+      if (driveTrashed) {
+        notify(
+          `🧹 Рядок ${rowIndex} (${targetInvoice?.invoiceNumber || 'рахунок'}) видалено з таблиці, а файл «${deletedFileName || fileIdToDelete}» переміщено в кошик на Google Диску! При повторному зчитуванні він не з'явиться.`,
+          'success'
+        );
+      } else {
+        notify(`🧹 Рядок ${rowIndex} успішно видалено з Google Таблиці та вилучено з черги!`, 'success');
+      }
     } catch (err: any) {
       notify(err.message || 'Помилка видалення рядка з Google Таблиці.', 'error');
     } finally {
@@ -2079,6 +2215,83 @@ export default function App() {
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
+      const targetPayment = existingPayments.find((p) => p.rowIndex === rowIndex);
+
+      // 1. Locate file on Google Drive
+      let fileIdToDelete: string | null = null;
+      let deletedFileName: string = targetPayment?.fileName || '';
+
+      // a) Directly from row's driveLink
+      if (targetPayment?.driveLink) {
+        fileIdToDelete = GoogleDriveService.extractFileId(targetPayment.driveLink);
+      }
+
+      // b) From current queue documents
+      const matchedDoc = documentsRef.current.find(
+        (d) =>
+          d.syncedRowIndex === rowIndex ||
+          (fileIdToDelete && d.driveFileId === fileIdToDelete) ||
+          (targetPayment?.fileName && d.fileName.toLowerCase().trim() === targetPayment.fileName.toLowerCase().trim()) ||
+          (targetPayment?.paymentNumber &&
+            (d.ocrResult?.paymentNumber === targetPayment.paymentNumber ||
+              d.editedData?.paymentNumber === targetPayment.paymentNumber))
+      );
+
+      if (!fileIdToDelete && matchedDoc?.driveFileId) {
+        fileIdToDelete = matchedDoc.driveFileId;
+      }
+      if (!deletedFileName && matchedDoc?.fileName) {
+        deletedFileName = matchedDoc.fileName;
+      }
+
+      // c) Search Drive folder if folder connected and not found yet
+      if (!fileIdToDelete && driveFolderId && authState.accessToken && targetPayment) {
+        try {
+          const found = await GoogleDriveService.findFileInFolder(
+            driveFolderId,
+            authState.accessToken,
+            {
+              paymentNumber: targetPayment.paymentNumber,
+              orderNumber: targetPayment.orderNumber,
+              payee: targetPayment.payee,
+              fileName: targetPayment.fileName,
+              amount: targetPayment.amountPaid,
+            }
+          );
+          if (found) {
+            fileIdToDelete = found.id;
+            if (!deletedFileName) deletedFileName = found.name;
+          }
+        } catch (e) {
+          console.warn('Could not search Drive folder for payment file to delete:', e);
+        }
+      }
+
+      // 2. Trash file on Google Drive and mark as dismissed so it doesn't duplicate upon re-reading
+      let driveTrashed = false;
+      if (fileIdToDelete && authState.accessToken) {
+        try {
+          await GoogleDriveService.trashFile(fileIdToDelete, authState.accessToken);
+          driveTrashed = true;
+          const dismissed = getDismissedDriveIds();
+          dismissed.add(fileIdToDelete);
+          saveDismissedDriveIds(dismissed);
+        } catch (driveErr) {
+          console.warn(`Could not trash file ${fileIdToDelete} on Google Drive:`, driveErr);
+        }
+      }
+
+      // 3. Remove corresponding item from documents queue
+      setDocuments((prev) =>
+        prev.filter(
+          (d) =>
+            d.syncedRowIndex !== rowIndex &&
+            (!fileIdToDelete || d.driveFileId !== fileIdToDelete) &&
+            (!matchedDoc || d.id !== matchedDoc.id)
+        )
+      );
+
+      // 4. Delete row from Google Sheets
       notify(`Видалення рядка ${rowIndex} з вкладки "${sheetConfig.paymentsSheetName || 'Платіжки'}"...`, 'info');
       await GoogleSheetsService.deleteRowsFromSheet(
         sheetConfig.spreadsheetId,
@@ -2087,7 +2300,15 @@ export default function App() {
         [rowIndex]
       );
       await refreshSheetData();
-      notify(`🧹 Рядок ${rowIndex} успішно видалено з Google Таблиці та вилучено з черги!`, 'success');
+
+      if (driveTrashed) {
+        notify(
+          `🧹 Рядок ${rowIndex} (${targetPayment?.paymentNumber || 'платіжка'}) видалено з таблиці, а файл «${deletedFileName || fileIdToDelete}» переміщено в кошик на Google Диску! При повторному зчитуванні він не з'явиться.`,
+          'success'
+        );
+      } else {
+        notify(`🧹 Рядок ${rowIndex} успішно видалено з Google Таблиці та вилучено з черги!`, 'success');
+      }
     } catch (err: any) {
       notify(err.message || 'Помилка видалення рядка з Google Таблиці.', 'error');
     } finally {
@@ -2103,6 +2324,26 @@ export default function App() {
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
+      // Find duplicate's file if any and trash it from Google Drive
+      const dupInvoice = existingInvoices.find((i) => i.rowIndex === duplicateRowIndex);
+      let dupFileId: string | null = null;
+      if (dupInvoice?.driveLink) dupFileId = GoogleDriveService.extractFileId(dupInvoice.driveLink);
+      if (!dupFileId) {
+        const d = documentsRef.current.find((doc) => doc.syncedRowIndex === duplicateRowIndex);
+        if (d?.driveFileId) dupFileId = d.driveFileId;
+      }
+      if (dupFileId) {
+        try {
+          await GoogleDriveService.trashFile(dupFileId, authState.accessToken);
+          const dismissed = getDismissedDriveIds();
+          dismissed.add(dupFileId);
+          saveDismissedDriveIds(dismissed);
+          setDocuments((prev) => prev.filter((doc) => doc.driveFileId !== dupFileId && doc.syncedRowIndex !== duplicateRowIndex));
+        } catch (e) {
+          console.warn('Could not trash duplicate merged file:', e);
+        }
+      }
+
       notify(
         `Об'єднання: оновлення рядка ${originalRowIndex} номером №${correctInvoiceNumber} та видалення дублюючого рядка ${duplicateRowIndex}...`,
         'info'
@@ -2117,7 +2358,7 @@ export default function App() {
       );
       await refreshSheetData();
       notify(
-        `✨ Успішно! Номер №${correctInvoiceNumber} внесено в рядок ${originalRowIndex}, дублюючий рядок ${duplicateRowIndex} видалено. Вся нумерація рядків збереглася!`,
+        `✨ Успішно! Номер №${correctInvoiceNumber} внесено в рядок ${originalRowIndex}, дублюючий рядок ${duplicateRowIndex} видалено, а дублюючий файл на Google Диску переміщено в кошик!`,
         'success'
       );
     } catch (err: any) {
@@ -2680,7 +2921,7 @@ export default function App() {
       <footer className="mt-auto border-t border-slate-200 bg-white py-3.5 px-4 sm:px-6 lg:px-8 text-xs text-slate-500 shadow-2xs">
         <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5">
           <div className="flex items-center space-x-2">
-            <span className="font-bold text-slate-800 tracking-tight">ETS Invoice &amp; Payment</span>
+            <span className="font-bold text-slate-800 tracking-tight">ETS PROJECTS</span>
             <span className="text-slate-300">•</span>
             <span 
               className="font-mono font-bold text-indigo-700 bg-indigo-50/80 border border-indigo-200/80 px-2 py-0.5 rounded text-[11px]"

@@ -75,7 +75,7 @@ export const Header: React.FC<Props> = ({
               </div>
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
                 <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap">
-                  ETS <span className="text-indigo-600">Invoice &amp; Payment</span>
+                  ETS <span className="text-indigo-600">PROJECTS</span>
                 </span>
                 
                 {/* Version Pill */}
@@ -106,6 +106,18 @@ export const Header: React.FC<Props> = ({
 
             {/* Center Navigation Tabs */}
             <nav className="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+              <button
+                onClick={() => onSelectTab('projects')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  activeTab === 'projects'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5 text-blue-600" />
+                <span>Проекти</span>
+              </button>
+
               <button
                 onClick={() => onSelectTab('process')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
@@ -145,18 +157,6 @@ export const Header: React.FC<Props> = ({
               >
                 <Building2 className="w-3.5 h-3.5 text-slate-600" />
                 <span>Компанії & Постачальники</span>
-              </button>
-
-              <button
-                onClick={() => onSelectTab('projects')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
-                  activeTab === 'projects'
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <Briefcase className="w-3.5 h-3.5 text-blue-600" />
-                <span>Проекти</span>
               </button>
             </nav>
 

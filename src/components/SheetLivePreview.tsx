@@ -1006,7 +1006,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                                   type="button"
                                   disabled={actionInProgressRow === inv.rowIndex}
                                   onClick={async () => {
-                                    const confirmMsg = `Видалити рядок ${inv.rowIndex} (${inv.supplier || ''} ${inv.invoiceNumber || ''}) з вкладки «${sheetConfig?.invoicesSheetName || 'Рахунки'}»?\n\nПісля видалення цей запис також зникне з черги обробки.`;
+                                    const confirmMsg = `Видалити рядок ${inv.rowIndex} (${inv.supplier || ''} ${inv.invoiceNumber || ''}) з вкладки «${sheetConfig?.invoicesSheetName || 'Рахунки'}»?\n\nУвага: цей рядок буде вилучено з таблиці, а відповідний файл переміщено в кошик на Google Диску, щоб при повторному зчитуванні він не дублювався.`;
                                     if (window.confirm(confirmMsg)) {
                                       setActionInProgressRow(inv.rowIndex);
                                       try {
@@ -1508,7 +1508,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                                   type="button"
                                   disabled={actionInProgressRow === pay.rowIndex}
                                   onClick={async () => {
-                                    const confirmMsg = `Видалити рядок ${pay.rowIndex} (${pay.payee || ''} ${pay.amountPaid || ''} грн) з вкладки «${sheetConfig?.paymentsSheetName || 'Платіжки'}»?\n\nПісля видалення цей запис також зникне з черги обробки.`;
+                                    const confirmMsg = `Видалити рядок ${pay.rowIndex} (${pay.payee || ''} ${pay.amountPaid || ''} грн) з вкладки «${sheetConfig?.paymentsSheetName || 'Платіжки'}»?\n\nУвага: цей рядок буде вилучено з таблиці, а відповідний файл переміщено в кошик на Google Диску, щоб при повторному зчитуванні він не дублювався.`;
                                     if (window.confirm(confirmMsg)) {
                                       setActionInProgressRow(pay.rowIndex);
                                       try {

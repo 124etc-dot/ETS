@@ -818,6 +818,8 @@ export class GoogleSheetsService {
       let colStatus = 7;
       let colUploadedAt = 8;
       let colPaidAmount = 9;
+      let colFileName = -1;
+      let colDriveLink = -1;
 
       const scanLimit = Math.min(rows.length, 6);
       for (let r = 0; r < scanLimit; r++) {
@@ -859,6 +861,10 @@ export class GoogleSheetsService {
               colStatus = cIdx;
             } else if (cell.includes('час') || cell.includes('внесен') || cell.includes('додан')) {
               colUploadedAt = cIdx;
+            } else if (cell.includes('файл') || cell.includes('документ')) {
+              colFileName = cIdx;
+            } else if (cell.includes('drive') || cell.includes('посилання') || cell.includes('лінк') || cell.includes('диск')) {
+              colDriveLink = cIdx;
             }
           });
           break;
@@ -912,6 +918,29 @@ export class GoogleSheetsService {
           rawInvDate = tmp;
         }
 
+        // Extract file name and drive link if present in specific columns or anywhere in row
+        let rawFileName = colFileName >= 0 ? String(row[colFileName] || '').trim() : '';
+        let rawDriveLink = colDriveLink >= 0 ? String(row[colDriveLink] || '').trim() : '';
+
+        if (!rawDriveLink) {
+          for (const c of row) {
+            const s = String(c || '').trim();
+            if (s.includes('drive.google.com') || (s.startsWith('http') && s.includes('drive'))) {
+              rawDriveLink = s;
+              break;
+            }
+          }
+        }
+        if (!rawFileName) {
+          for (const c of row) {
+            const s = String(c || '').trim();
+            if (/\.(pdf|jpg|jpeg|png|webp|heic|tiff|bmp)$/i.test(s)) {
+              rawFileName = s;
+              break;
+            }
+          }
+        }
+
         parsedInvoices.push({
           rowIndex: startRowIdx + idx,
           orderNumber: OCRService.normalizeOrderNumber(rawOrder),
@@ -924,6 +953,8 @@ export class GoogleSheetsService {
           paymentStatus,
           uploadedAt: rawUploadedAt,
           paidAmount,
+          fileName: rawFileName || undefined,
+          driveLink: rawDriveLink || undefined,
         });
       });
 

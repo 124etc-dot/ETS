@@ -1,6 +1,6 @@
 {
-  "name": "Remix Invoice \u0026 Payment OCR Processor",
-  "description": "Automated OCR extraction of supplier invoices, handwritten internal order numbers, payment reconciliation, and project margin calculation from Google Sheets (Лист1).",
+  "name": "ETS PROJECTS",
+  "description": "Автоматизована система обліку та аналізу проектів, OCR-розпізнавання рахунків постачальників, контролю маржинальності та синхронізації з Google Таблицями.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

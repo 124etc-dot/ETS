@@ -151,16 +151,19 @@ export class GoogleDriveService {
   }
 
   /**
-   * Search for an invoice file in the folder by invoice number, order number, supplier, or file name
+   * Search for an invoice or payment file in the folder by invoice number, payment number, order number, supplier, or file name
    */
   public static async findFileInFolder(
     folderId: string,
     accessToken: string,
     query: {
       invoiceNumber?: string;
+      paymentNumber?: string;
       orderNumber?: string;
       supplier?: string;
+      payee?: string;
       fileName?: string;
+      amount?: number;
     }
   ): Promise<GoogleDriveFile | null> {
     const cleanFolderId = this.extractFolderId(folderId);
@@ -173,16 +176,24 @@ export class GoogleDriveService {
       const cleanInvNum = query.invoiceNumber
         ? query.invoiceNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase()
         : '';
+      const cleanPaymentNum = query.paymentNumber
+        ? query.paymentNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase()
+        : '';
       const cleanOrderNum = query.orderNumber
         ? query.orderNumber.trim().toLowerCase()
         : '';
       const cleanFileName = query.fileName
         ? query.fileName.trim().toLowerCase()
         : '';
+      const cleanFileNameNoExt = cleanFileName.replace(/\.[^/.]+$/, '');
 
       // 1. Direct file name match
       if (cleanFileName) {
-        const directMatch = files.find((f) => f.name.toLowerCase() === cleanFileName);
+        const directMatch = files.find((f) => {
+          const fn = f.name.toLowerCase().trim();
+          const fnNoExt = fn.replace(/\.[^/.]+$/, '');
+          return fn === cleanFileName || fnNoExt === cleanFileNameNoExt;
+        });
         if (directMatch) return directMatch;
       }
 
@@ -191,12 +202,21 @@ export class GoogleDriveService {
         if (f.appProperties) {
           const ocr = this.extractOcrFromDriveProperties(f.appProperties);
           if (ocr) {
+            // Invoice number match
             if (cleanInvNum && ocr.invoiceNumber) {
               const ocrCleanInv = ocr.invoiceNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
               if (ocrCleanInv && (ocrCleanInv === cleanInvNum || ocrCleanInv.includes(cleanInvNum) || cleanInvNum.includes(ocrCleanInv))) {
                 return f;
               }
             }
+            // Payment number match
+            if (cleanPaymentNum && (ocr.paymentNumber || ocr.invoiceNumber)) {
+              const ocrCleanPay = (ocr.paymentNumber || ocr.invoiceNumber || '').replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
+              if (ocrCleanPay && (ocrCleanPay === cleanPaymentNum || ocrCleanPay.includes(cleanPaymentNum) || cleanPaymentNum.includes(ocrCleanPay))) {
+                return f;
+              }
+            }
+            // Order number match
             if (cleanOrderNum && ocr.handwrittenOrderNumber) {
               if (ocr.handwrittenOrderNumber.toLowerCase() === cleanOrderNum) {
                 return f;
@@ -215,7 +235,16 @@ export class GoogleDriveService {
         if (byName) return byName;
       }
 
-      // 4. Match file name containing order number (e.g. "142-26")
+      // 4. Match file name containing payment number (minimum 2 chars)
+      if (cleanPaymentNum && cleanPaymentNum.length >= 2) {
+        const byPayName = files.find((f) => {
+          const fn = f.name.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
+          return fn.includes(cleanPaymentNum);
+        });
+        if (byPayName) return byPayName;
+      }
+
+      // 5. Match file name containing order number (e.g. "142-26")
       if (cleanOrderNum && cleanOrderNum.length >= 4) {
         const byOrder = files.find((f) => {
           const fn = f.name.toLowerCase();
