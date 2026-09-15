@@ -764,9 +764,28 @@ export default function App() {
           ocrResult.handwrittenConfidence = 'high';
         }
       } else {
+        // For Invoices: check if matching payment exists in Google Sheets or in local queue
+        let currentPayments = existingPaymentsRef.current;
+        if (authState.accessToken && sheetConfig?.spreadsheetId && currentPayments.length === 0) {
+          try {
+            const payData = await GoogleSheetsService.loadExistingPayments(
+              sheetConfig.spreadsheetId,
+              authState.accessToken,
+              sheetConfig.paymentsSheetName,
+              sheetConfig.availableSheets
+            );
+            if (payData?.payments && payData.payments.length > 0) {
+              currentPayments = payData.payments;
+              setExistingPayments(payData.payments);
+            }
+          } catch (e) {
+            console.warn('Could not refresh payments before matching invoice:', e);
+          }
+        }
+
         const match = OCRService.matchInvoiceWithPayments(
           ocrResult,
-          existingPaymentsRef.current,
+          currentPayments,
           documentsRef.current
         );
         if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
@@ -817,29 +836,50 @@ export default function App() {
 
       setDocuments((prev) => {
         const next = prev.map((d) => (d.id === docId ? updatedDoc : d));
-        // If this was an invoice with an order number, propagate it to any matching payments in queue
+        // If an invoice was processed, link any matching payments in queue
         if (updatedDoc.ocrResult?.documentType === 'invoice') {
-          const invOrder = updatedDoc.ocrResult.handwrittenOrderNumber;
-          if (invOrder) {
-            return next.map((d) => {
-              if (d.id === docId) return d;
-              const data = d.editedData || d.ocrResult;
-              if (data?.documentType === 'payment' && !data.handwrittenOrderNumber) {
-                const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, next);
-                if (pMatch.matchedOrderNumber) {
-                  const updatedData: OCRResult = {
-                    ...data,
-                    handwrittenOrderNumber: pMatch.matchedOrderNumber,
-                    referencedOrderNumber: pMatch.matchedOrderNumber,
-                    handwrittenConfidence: 'high',
-                    matchedInvoiceNumber: pMatch.matchedInvoiceNumber || data.matchedInvoiceNumber,
-                  };
-                  return { ...d, ocrResult: updatedData, editedData: updatedData };
-                }
+          return next.map((d) => {
+            if (d.id === docId) return d;
+            const data = d.editedData || d.ocrResult;
+            if (data?.documentType === 'payment') {
+              const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, next);
+              if (pMatch.matchedInvoiceNumber || pMatch.matchedOrderNumber) {
+                const updatedData: OCRResult = {
+                  ...data,
+                  handwrittenOrderNumber: pMatch.matchedOrderNumber || data.handwrittenOrderNumber,
+                  referencedOrderNumber: pMatch.matchedOrderNumber || data.referencedOrderNumber,
+                  handwrittenConfidence: pMatch.matchedOrderNumber ? 'high' : data.handwrittenConfidence,
+                  matchedInvoiceNumber: pMatch.matchedInvoiceNumber || data.matchedInvoiceNumber,
+                  matchedInvoiceAmount: pMatch.invoiceAmount || data.matchedInvoiceAmount,
+                  paymentStatus: pMatch.computedStatus || data.paymentStatus,
+                };
+                return { ...d, ocrResult: updatedData, editedData: updatedData };
               }
-              return d;
-            });
-          }
+            }
+            return d;
+          });
+        }
+        // If a payment was processed, link any matching invoices in queue
+        if (updatedDoc.ocrResult?.documentType === 'payment') {
+          return next.map((d) => {
+            if (d.id === docId) return d;
+            const data = d.editedData || d.ocrResult;
+            if (data?.documentType === 'invoice') {
+              const invMatch = OCRService.matchInvoiceWithPayments(data, existingPaymentsRef.current, next);
+              if (invMatch.computedStatus && invMatch.computedStatus !== 'Не оплачено') {
+                const updatedData: OCRResult = {
+                  ...data,
+                  paymentStatus: invMatch.computedStatus,
+                  paidAmount: invMatch.totalPaidAmount,
+                  matchedPaymentNumber: invMatch.matchedPaymentNumbers.join(', '),
+                  matchedPaymentAmount: invMatch.totalPaidAmount,
+                  matchedPaymentsSummary: invMatch.matchReason,
+                };
+                return { ...d, ocrResult: updatedData, editedData: updatedData };
+              }
+            }
+            return d;
+          });
         }
         return next;
       });
@@ -876,6 +916,51 @@ export default function App() {
     for (const id of docIds) {
       await handleProcessDocument(id);
     }
+
+    // Secondary reconciliation pass over all documents in queue to ensure mutual linking regardless of upload order
+    setDocuments((prev) => {
+      return prev.map((d) => {
+        const data = d.editedData || d.ocrResult;
+        if (!data) return d;
+        if (data.documentType === 'invoice') {
+          const invMatch = OCRService.matchInvoiceWithPayments(data, existingPaymentsRef.current, prev);
+          if (invMatch.computedStatus && invMatch.computedStatus !== 'Не оплачено') {
+            const nextData: OCRResult = {
+              ...data,
+              paymentStatus: invMatch.computedStatus,
+              paidAmount: invMatch.totalPaidAmount,
+              matchedPaymentNumber: invMatch.matchedPaymentNumbers.join(', '),
+              matchedPaymentAmount: invMatch.totalPaidAmount,
+              matchedPaymentsSummary: invMatch.matchReason,
+            };
+            return {
+              ...d,
+              editedData: nextData,
+              ocrResult: d.ocrResult ? { ...d.ocrResult, ...nextData } : nextData,
+            };
+          }
+        } else if (data.documentType === 'payment') {
+          const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, prev);
+          if (pMatch.matchedInvoiceNumber || pMatch.matchedOrderNumber) {
+            const nextData: OCRResult = {
+              ...data,
+              handwrittenOrderNumber: pMatch.matchedOrderNumber || data.handwrittenOrderNumber,
+              referencedOrderNumber: pMatch.matchedOrderNumber || data.referencedOrderNumber,
+              handwrittenConfidence: pMatch.matchedOrderNumber ? 'high' : data.handwrittenConfidence,
+              matchedInvoiceNumber: pMatch.matchedInvoiceNumber || data.matchedInvoiceNumber,
+              matchedInvoiceAmount: pMatch.invoiceAmount || data.matchedInvoiceAmount,
+              paymentStatus: pMatch.computedStatus || data.paymentStatus,
+            };
+            return {
+              ...d,
+              editedData: nextData,
+              ocrResult: d.ocrResult ? { ...d.ocrResult, ...nextData } : nextData,
+            };
+          }
+        }
+        return d;
+      });
+    });
 
     setIsProcessingBatch(false);
     notify(`Оброблено ${docIds.length} документів через Gemini AI.`, 'success');
@@ -1448,7 +1533,51 @@ export default function App() {
           if (invoiceMatch.computedStatus && invoiceMatch.computedStatus !== 'Не оплачено') {
             initialStatus = invoiceMatch.computedStatus;
             initialPaidAmount = invoiceMatch.totalPaidAmount;
+            dataToSync.paymentStatus = initialStatus;
+            dataToSync.paidAmount = initialPaidAmount;
             matchInfoMsg = ` ${invoiceMatch.matchReason || ''}. Статус встановлено: "${initialStatus}".`;
+
+            // If matched against payments already on Google Sheets ("Платіжки"), back-populate order/invoice number
+            if (invoiceMatch.matchedPaymentRows && invoiceMatch.matchedPaymentRows.length > 0) {
+              const orderToSet = dataToSync.handwrittenOrderNumber || dataToSync.orderNumber;
+              for (const pRow of invoiceMatch.matchedPaymentRows) {
+                if (pRow.rowIndex && pRow.rowIndex >= 2) {
+                  try {
+                    await GoogleSheetsService.updatePaymentOrderAndInvoiceInSheet(
+                      sheetConfig.spreadsheetId,
+                      authState.accessToken,
+                      pRow.rowIndex,
+                      orderToSet,
+                      dataToSync.invoiceNumber,
+                      sheetConfig.paymentsSheetName
+                    );
+                  } catch (e) {
+                    console.warn('Could not update payment order/invoice in sheet:', e);
+                  }
+                }
+              }
+            }
+
+            // Also update any matching payment documents currently in local queue
+            if (invoiceMatch.matchedPaymentNumbers && invoiceMatch.matchedPaymentNumbers.length > 0) {
+              const matchedNums = new Set(invoiceMatch.matchedPaymentNumbers);
+              setDocuments((prev) =>
+                prev.map((d) => {
+                  const pData = d.editedData || d.ocrResult;
+                  if (pData?.documentType === 'payment' && matchedNums.has(pData.paymentOrderNumber || '')) {
+                    const updPData: OCRResult = {
+                      ...pData,
+                      handwrittenOrderNumber: dataToSync.handwrittenOrderNumber || pData.handwrittenOrderNumber,
+                      referencedOrderNumber: dataToSync.handwrittenOrderNumber || pData.referencedOrderNumber,
+                      matchedInvoiceNumber: dataToSync.invoiceNumber || pData.matchedInvoiceNumber,
+                      matchedInvoiceAmount: dataToSync.totalAmount || pData.matchedInvoiceAmount,
+                    };
+                    return { ...d, ocrResult: updPData, editedData: updPData };
+                  }
+                  return d;
+                })
+              );
+            }
           }
         } catch {
           // ignore lookup failure and proceed with normal append

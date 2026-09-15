@@ -898,11 +898,27 @@ export const BatchProcessingTable: React.FC<Props> = ({
                         </span>
                       )}
                       {doc.status === 'ready_for_review' && (
-                        <div className="flex flex-col items-center">
+                        <div className="flex flex-col items-center gap-0.5">
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-900 border border-amber-200">
                             <CheckCircle2 className="w-3 h-3 mr-1 text-amber-600" />
                             Готово
                           </span>
+                          {data?.documentType !== 'payment' && data?.paymentStatus === 'Оплачено' && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs cursor-help"
+                              title={data.matchedPaymentsSummary || `Підтягнуто оплату №${data.matchedPaymentNumber || ''}`}
+                            >
+                              ✓ Оплачено
+                            </span>
+                          )}
+                          {data?.documentType !== 'payment' && data?.paymentStatus === 'Оплачено частково' && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-800 border border-blue-300 shadow-2xs cursor-help"
+                              title={data.matchedPaymentsSummary || `Підтягнуто часткову оплату №${data.matchedPaymentNumber || ''}`}
+                            >
+                              Частково оплачено
+                            </span>
+                          )}
                           {doc.alreadyInSheet && (
                             <span
                               className="text-[9px] text-amber-700 font-medium mt-0.5 max-w-[110px] truncate cursor-help"

@@ -1740,6 +1740,53 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Update Order Number (Column I) and/or Invoice Number (Column H) for an existing payment in "Платіжки"
+   */
+  public static async updatePaymentOrderAndInvoiceInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    orderNumber?: string,
+    invoiceNumber?: string,
+    paymentsTab = 'Платіжки'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(paymentsTab) || rowIndex < 2) return;
+
+    await this.ensureTabExists(cleanId, accessToken, paymentsTab, this.PAYMENT_HEADERS);
+
+    const updates: Array<{ range: string; values: any[][] }> = [];
+
+    if (invoiceNumber !== undefined && invoiceNumber.trim()) {
+      updates.push({
+        range: `'${paymentsTab}'!H${rowIndex}`,
+        values: [[invoiceNumber.trim()]],
+      });
+    }
+
+    if (orderNumber !== undefined && orderNumber.trim()) {
+      updates.push({
+        range: `'${paymentsTab}'!I${rowIndex}`,
+        values: [[orderNumber.trim()]],
+      });
+    }
+
+    if (updates.length === 0) return;
+
+    await this.request<any>(
+      `${cleanId}/values:batchUpdate`,
+      accessToken,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: updates,
+        }),
+      }
+    );
+  }
+
+  /**
    * Create standard tabs & formatted column headers if spreadsheet is new/empty.
    * STRICT GUARANTEE: Never deletes, renames, or modifies "Лист1".
    * Only creates and populates dedicated tabs: 'Рахунки', 'Платіжки', 'Наші компанії', 'Постачальники'.
