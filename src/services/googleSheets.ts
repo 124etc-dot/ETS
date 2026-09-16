@@ -775,6 +775,74 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Append a company name to the specified company list tab ("Наші компанії" or "Постачальники")
+   * if it doesn't already exist.
+   * STRICT GUARANTEE: Never touches or modifies "Лист1", "Рахунки", or "Платіжки".
+   */
+  public static async appendCompanyIfMissing(
+    spreadsheetId: string,
+    accessToken: string,
+    companyName: string,
+    tabType: 'our' | 'supplier',
+    customTabName?: string,
+    taxIdOrNote?: string
+  ): Promise<boolean> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    const normName = OCRService.normalizeCompanyName(companyName);
+    if (!normName || normName.length < 3 || this.isHeaderOrInvalidCompanyName(normName)) {
+      return false;
+    }
+
+    const defaultTab = tabType === 'our' ? 'Наші компанії' : 'Постачальники';
+    const tabName = customTabName || defaultTab;
+    if (this.isProtectedTab(tabName)) return false;
+
+    const safeTab = tabName.replace(/'/g, "''");
+    let existingRows: any[][] = [];
+    try {
+      const data = await this.request<any>(
+        `${cleanId}/values/${encodeURIComponent(`'${safeTab}'!A1:B1000`)}`,
+        accessToken
+      );
+      existingRows = data.values || [];
+    } catch {
+      // Tab might not exist yet; ensure it
+    }
+
+    const headerRow = tabType === 'our'
+      ? ['Назва нашої компанії', 'ЄДРПОУ / Примітка']
+      : ['Назва постачальника', 'ЄДРПОУ / Контакт'];
+
+    if (existingRows.length === 0) {
+      await this.ensureTabExists(cleanId, accessToken, tabName, headerRow);
+      existingRows = [headerRow];
+    }
+
+    // Check if company is already present in existing rows
+    const alreadyExists = existingRows.some((row) => {
+      const rowName = this.extractCleanCompanyName(row[0], row[1]);
+      return rowName && OCRService.isCompanyNameMatch(rowName, normName);
+    });
+
+    if (alreadyExists) {
+      return false;
+    }
+
+    const nextRow = existingRows.length + 1;
+    await this.request<any>(
+      `${cleanId}/values/'${safeTab}'!A${nextRow}:B${nextRow}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          values: [[normName, taxIdOrNote ? String(taxIdOrNote).trim() : '']],
+        }),
+      }
+    );
+    return true;
+  }
+
+  /**
    * Read existing Invoices from "Рахунки" tab
    * Columns A to J (or auto-detected from headers):
    * A: Номер замовлення | B: Постачальник | C: Платник | D: Номер рахунку | E: Дата рахунку | F: Сума | G: Валюта | H: Статус | I: Час завантаження | J: Сума оплати

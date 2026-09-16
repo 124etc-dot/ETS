@@ -1615,6 +1615,45 @@ export default function App() {
         )
       );
 
+      // Auto-register new company (наша компанія / наш ФОП) to "Наші компанії" tab
+      // and supplier (постачальник / ФОП постачальника) to "Постачальники" tab
+      const ourCompName = dataToSync.documentType === 'payment'
+        ? (dataToSync.payerName || dataToSync.buyerName)
+        : (dataToSync.buyerName || dataToSync.payerName);
+      const suppCompName = dataToSync.documentType === 'payment'
+        ? (dataToSync.payeeName || dataToSync.supplierName)
+        : (dataToSync.supplierName || dataToSync.payeeName);
+
+      if (ourCompName && sheetConfig.spreadsheetId && authState.accessToken) {
+        try {
+          await GoogleSheetsService.appendCompanyIfMissing(
+            sheetConfig.spreadsheetId,
+            authState.accessToken,
+            ourCompName,
+            'our',
+            sheetConfig.ourCompaniesSheetName,
+            dataToSync.buyerTaxId
+          );
+        } catch (e) {
+          console.warn('Could not auto-register buyer in Our Companies tab:', e);
+        }
+      }
+
+      if (suppCompName && sheetConfig.spreadsheetId && authState.accessToken) {
+        try {
+          await GoogleSheetsService.appendCompanyIfMissing(
+            sheetConfig.spreadsheetId,
+            authState.accessToken,
+            suppCompName,
+            'supplier',
+            sheetConfig.suppliersSheetName,
+            dataToSync.supplierTaxId
+          );
+        } catch (e) {
+          console.warn('Could not auto-register supplier in Suppliers tab:', e);
+        }
+      }
+
       // Refresh live view
       await refreshSheetData();
       notify(

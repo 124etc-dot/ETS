@@ -8,7 +8,9 @@ import {
   Sparkles,
   CheckCircle2,
   RefreshCw,
-  Trash2
+  Trash2,
+  Plus,
+  Loader2
 } from 'lucide-react';
 import { SheetCompanyLists, SheetConfig } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -33,6 +35,12 @@ export const CompaniesTab: React.FC<Props> = ({
   const [isCleaning, setIsCleaning] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
 
+  const [newOurName, setNewOurName] = useState('');
+  const [isAddingOur, setIsAddingOur] = useState(false);
+
+  const [newSupplierName, setNewSupplierName] = useState('');
+  const [isAddingSupplier, setIsAddingSupplier] = useState(false);
+
   // Guarantee strictly unique lists on display
   const uniqueOur = GoogleSheetsService.deduplicateCompanyList(companyLists.ourCompanies);
   const uniqueSuppliers = GoogleSheetsService.deduplicateCompanyList(companyLists.suppliers);
@@ -40,10 +48,71 @@ export const CompaniesTab: React.FC<Props> = ({
   const filteredOur = uniqueOur.filter((c) =>
     c.toLowerCase().includes(ourSearch.toLowerCase())
   );
-
   const filteredSuppliers = uniqueSuppliers.filter((s) =>
     s.toLowerCase().includes(supplierSearch.toLowerCase())
   );
+
+  const handleAddOurCompany = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newOurName.trim();
+    if (!clean) return;
+    if (!sheetConfig?.spreadsheetId || !accessToken) {
+      onNotify?.('Будь ласка, переконайтеся що Google Таблицю підключено', 'info');
+      return;
+    }
+    setIsAddingOur(true);
+    try {
+      const added = await GoogleSheetsService.appendCompanyIfMissing(
+        sheetConfig.spreadsheetId,
+        accessToken,
+        clean,
+        'our',
+        sheetConfig.ourCompaniesSheetName
+      );
+      if (added) {
+        setNewOurName('');
+        await onRefresh();
+        onNotify?.(`Нашу компанію/ФОП "${clean}" успішно додано до вкладки Google Таблиці!`, 'success');
+      } else {
+        onNotify?.(`Компанія "${clean}" уже присутня у списку.`, 'info');
+      }
+    } catch (err: any) {
+      onNotify?.(err.message || 'Помилка додавання компанії', 'error');
+    } finally {
+      setIsAddingOur(false);
+    }
+  };
+
+  const handleAddSupplier = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newSupplierName.trim();
+    if (!clean) return;
+    if (!sheetConfig?.spreadsheetId || !accessToken) {
+      onNotify?.('Будь ласка, переконайтеся що Google Таблицю підключено', 'info');
+      return;
+    }
+    setIsAddingSupplier(true);
+    try {
+      const added = await GoogleSheetsService.appendCompanyIfMissing(
+        sheetConfig.spreadsheetId,
+        accessToken,
+        clean,
+        'supplier',
+        sheetConfig.suppliersSheetName
+      );
+      if (added) {
+        setNewSupplierName('');
+        await onRefresh();
+        onNotify?.(`Постачальника/ФОП "${clean}" успішно додано до вкладки Google Таблиці!`, 'success');
+      } else {
+        onNotify?.(`Постачальник "${clean}" уже присутній у списку.`, 'info');
+      }
+    } catch (err: any) {
+      onNotify?.(err.message || 'Помилка додавання постачальника', 'error');
+    } finally {
+      setIsAddingSupplier(false);
+    }
+  };
 
   const handleCleanSheetDuplicates = async () => {
     if (!sheetConfig?.spreadsheetId || !accessToken) {
@@ -164,6 +233,26 @@ export const CompaniesTab: React.FC<Props> = ({
             />
           </div>
 
+          {/* Quick Add Our Company / FOP */}
+          <form onSubmit={handleAddOurCompany} className="flex gap-1.5">
+            <input
+              type="text"
+              value={newOurName}
+              onChange={(e) => setNewOurName(e.target.value)}
+              placeholder="Додати наш ФОП / ТОВ (напр. ФОП ПЕТРЕНКО І.В.)..."
+              className="flex-1 text-xs px-3 py-1.5 bg-indigo-50/40 border border-indigo-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 placeholder:text-slate-400"
+            />
+            <button
+              type="submit"
+              disabled={!newOurName.trim() || isAddingOur}
+              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0 transition-colors shadow-2xs"
+              title="Додати до вкладки «Наші компанії»"
+            >
+              {isAddingOur ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              <span>Додати</span>
+            </button>
+          </form>
+
           <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
             {filteredOur.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-6">
@@ -219,6 +308,26 @@ export const CompaniesTab: React.FC<Props> = ({
               className="w-full text-xs pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
+
+          {/* Quick Add Supplier / FOP */}
+          <form onSubmit={handleAddSupplier} className="flex gap-1.5">
+            <input
+              type="text"
+              value={newSupplierName}
+              onChange={(e) => setNewSupplierName(e.target.value)}
+              placeholder="Додати постачальника / ФОП (напр. ФОП СИДОРЕНКО О.П.)..."
+              className="flex-1 text-xs px-3 py-1.5 bg-slate-100/60 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-500 text-slate-900 placeholder:text-slate-400"
+            />
+            <button
+              type="submit"
+              disabled={!newSupplierName.trim() || isAddingSupplier}
+              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0 transition-colors shadow-2xs"
+              title="Додати до вкладки «Постачальники»"
+            >
+              {isAddingSupplier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              <span>Додати</span>
+            </button>
+          </form>
 
           <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
             {filteredSuppliers.length === 0 ? (
