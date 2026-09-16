@@ -83,6 +83,7 @@ export const ReplaceInvoiceModal: React.FC<Props> = ({
     totalAmount: targetInvoice.amount || 0,
     currency: targetInvoice.currency || 'UAH',
     paymentStatus: 'Не оплачено',
+    approvalStatus: 'НЕ ПОГОДЖЕНО',
     confidenceScore: 100,
   });
 
@@ -104,6 +105,7 @@ export const ReplaceInvoiceModal: React.FC<Props> = ({
         totalAmount: targetInvoice.amount || 0,
         currency: targetInvoice.currency || 'UAH',
         paymentStatus: 'Не оплачено',
+        approvalStatus: 'НЕ ПОГОДЖЕНО',
         confidenceScore: 100,
       });
       setSelectedQueueDocId('');
@@ -286,6 +288,7 @@ export const ReplaceInvoiceModal: React.FC<Props> = ({
         totalAmount: Math.abs(numAmount),
         currency: String(formData.currency ?? 'UAH').trim() || 'UAH',
         paymentStatus: 'Не оплачено',
+        approvalStatus: 'НЕ ПОГОДЖЕНО',
       };
 
       setIsSubmitting(true);

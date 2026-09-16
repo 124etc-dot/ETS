@@ -1,5 +1,6 @@
 export type DocumentType = 'invoice' | 'payment' | 'other';
 export type InvoicePaymentStatus = 'Оплачено' | 'Не оплачено' | 'Оплачено частково';
+export type InvoiceApprovalStatus = 'ПОГОДЖЕНО' | 'НЕ ПОГОДЖЕНО';
 
 export interface ExtractedLineItem {
   name: string;
@@ -20,6 +21,9 @@ export interface OCRResult {
   
   // Status: "Оплачено" | "Не оплачено" | "Оплачено частково"
   paymentStatus?: InvoicePaymentStatus;
+
+  // Approval status: "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО"
+  approvalStatus?: InvoiceApprovalStatus;
 
   // Invoice details
   supplierName: string; // Must NOT match our companies
@@ -92,6 +96,7 @@ export interface ProcessedDocument {
   driveWebViewLink?: string;
   status: 'pending' | 'processing' | 'ready_for_review' | 'synced' | 'error';
   paymentStatus?: InvoicePaymentStatus; // "Не оплачено" | "Оплачено" | "Оплачено частково"
+  approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО"
   errorMessage?: string;
   ocrResult?: OCRResult;
   editedData?: OCRResult;
@@ -163,6 +168,7 @@ export interface ExistingSheetRow {
   amount: number;
   currency: string;
   paymentStatus: InvoicePaymentStatus; // "Не оплачено" | "Оплачено" | "Оплачено частково"
+  approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО"
   uploadedAt: string;
   paidAmount?: number; // Column J: Сума оплати
   paymentDate?: string;

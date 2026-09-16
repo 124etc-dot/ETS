@@ -313,7 +313,8 @@ ${docTypeHintInstruction}
    - supplierName: Це компанія, яка виставила рахунок (продавець / постачальник / виконавець).
      ВАЖЛИВО: Назва постачальника НЕ МОЖЕ співпадати з назвою наших компаній!
    
-   - buyerName (НАША КОМПАНІЯ — ПОКУПЕЦЬ / ПЛАТНИК):
+   - buyerName (НАША КОМПАНІЯ — ПОКУПЕЦЬ / ПЛАТНИК / ОДЕРЖУВАЧ):
+     * КРИТИЧНО: Якщо в рахунку фігурує 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА' (або 'Боднар Лариса', 'Боднар Л.В.', 'ФОП Боднар') чи будь-яка з НАШИХ КОМПАНІЙ — вона ЗАВЖДИ є buyerName (Покупець / Одержувач / Платник), і КАТЕГОРИЧНО НЕ постачальник (supplierName)!
      * ДЕ ШУКАТИ В РАХУНКАХ:
        1. Рядок "Покупець:" (найчастіше розташований під або праворуч від "Постачальник:").
        2. Рядок "Платник:"
@@ -652,17 +653,25 @@ ${docTypeHintInstruction}
   if (parsedResult.documentType === 'payment') {
     // 1. Smart Anti-Swap Check: In bank receipts with two "Найменування" rows (one under Платник, one under Отримувач),
     // models sometimes mix them up. Check against configured ourCompanies and suppliers:
-    if (parsedResult.payeeName && parsedResult.payerName && ourCompanies.length > 0) {
-      const isPayeeOurCompany = ourCompanies.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.payeeName!));
-      const isPayerOurCompany = ourCompanies.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.payerName!));
+    const allOurComps = Array.from(new Set([...ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+    const isPayeeBodnar = /боднар/i.test(parsedResult.payeeName || '');
+    const isPayerBodnar = /боднар/i.test(parsedResult.payerName || '');
+
+    if (parsedResult.payeeName && parsedResult.payerName && (allOurComps.length > 0 || isPayeeBodnar)) {
+      const isPayeeOurCompany = isPayeeBodnar || allOurComps.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.payeeName!));
+      const isPayerOurCompany = isPayerBodnar || allOurComps.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.payerName!));
       const isPayerSupplier = suppliers.some((s) => OCRService.isCompanyNameMatch(s, parsedResult.payerName!));
 
       if (isPayeeOurCompany && (!isPayerOurCompany || isPayerSupplier)) {
         console.log(`[OCR Smart Swap] Swapping payerName "${parsedResult.payerName}" and payeeName "${parsedResult.payeeName}" because payee matches ourCompanies!`);
         const temp = parsedResult.payerName;
-        parsedResult.payerName = parsedResult.payeeName;
+        parsedResult.payerName = isPayeeBodnar ? 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА' : parsedResult.payeeName;
         parsedResult.payeeName = temp;
       }
+    }
+
+    if (isPayerBodnar || /боднар/i.test(parsedResult.payerName || '')) {
+      parsedResult.payerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
     }
 
     // 2. Rescue missing payeeName (Отримувач / Постачальник)
@@ -783,6 +792,7 @@ ${docTypeHintInstruction}
     parsedResult.paymentStatus = 'Оплачено';
   } else if (parsedResult.documentType === 'invoice') {
     parsedResult.paymentStatus = 'Не оплачено';
+    parsedResult.approvalStatus = 'НЕ ПОГОДЖЕНО';
 
     // Cross-fill from payment fields if Gemini placed buyer/supplier in payer/payee
     if (!parsedResult.buyerName && parsedResult.payerName) {
@@ -790,6 +800,25 @@ ${docTypeHintInstruction}
     }
     if (!parsedResult.supplierName && parsedResult.payeeName) {
       parsedResult.supplierName = parsedResult.payeeName;
+    }
+
+    // 1. Smart Anti-Swap Check for Invoices:
+    // If supplierName matches ourCompanies (e.g. ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА, ТОВ ШОП ІНТЕРІОР, etc.)
+    // or contains "БОДНАР" / "Боднар", it is guaranteed to be our company (Buyer / Recipient), NOT the supplier!
+    const allOurComps = Array.from(new Set([...ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+    const isSupplierBodnar = /боднар/i.test(parsedResult.supplierName || '');
+    const isSupplierOurComp = isSupplierBodnar || allOurComps.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.supplierName || ''));
+    const isBuyerBodnar = /боднар/i.test(parsedResult.buyerName || '');
+    const isBuyerOurComp = isBuyerBodnar || allOurComps.some((c) => OCRService.isCompanyNameMatch(c, parsedResult.buyerName || ''));
+    const isBuyerKnownSupplier = suppliers.some((s) => OCRService.isCompanyNameMatch(s, parsedResult.buyerName || ''));
+
+    if (isSupplierOurComp && (!isBuyerOurComp || isBuyerKnownSupplier)) {
+      console.log(`[OCR Smart Swap Invoice] Moving "${parsedResult.supplierName}" from supplier to buyer because it matches our companies!`);
+      const temp = parsedResult.buyerName;
+      parsedResult.buyerName = isSupplierBodnar ? 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА' : OCRService.normalizeCompanyName(parsedResult.supplierName!);
+      parsedResult.supplierName = temp || '';
+    } else if (isSupplierBodnar && !isBuyerBodnar) {
+      parsedResult.buyerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
     }
 
     // Ensure buyerName is valid and not a placeholder or supplier
@@ -800,19 +829,27 @@ ${docTypeHintInstruction}
     // Try finding buyer from notes, raw text, filename, or description if empty
     if (!parsedResult.buyerName) {
       const fullText = `${parsedResult.notes || ''} ${parsedResult.handwrittenRawText || ''} ${fileName || ''}`;
-      for (const ourComp of ourCompanies) {
-        if (ourComp && OCRService.isCompanyNameMatch(fullText, ourComp)) {
-          parsedResult.buyerName = OCRService.normalizeCompanyName(ourComp);
-          break;
+      if (/боднар/i.test(fullText)) {
+        parsedResult.buyerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
+      } else {
+        for (const ourComp of allOurComps) {
+          if (ourComp && OCRService.isCompanyNameMatch(fullText, ourComp)) {
+            parsedResult.buyerName = OCRService.normalizeCompanyName(ourComp);
+            break;
+          }
         }
       }
     }
 
     // Canonical match against ourCompanies
-    if (parsedResult.buyerName && ourCompanies.length > 0) {
-      const match = ourCompanies.find((c: string) => OCRService.isCompanyNameMatch(c, parsedResult.buyerName!));
-      if (match) {
-        parsedResult.buyerName = OCRService.normalizeCompanyName(match);
+    if (parsedResult.buyerName) {
+      if (/боднар/i.test(parsedResult.buyerName)) {
+        parsedResult.buyerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
+      } else if (allOurComps.length > 0) {
+        const match = allOurComps.find((c: string) => OCRService.isCompanyNameMatch(c, parsedResult.buyerName!));
+        if (match) {
+          parsedResult.buyerName = OCRService.normalizeCompanyName(match);
+        }
       }
     }
 
@@ -2400,6 +2437,9 @@ export class OCRService {
     matchedPaymentPayee?: string;
     matchReason: string;
     isClosedPair?: boolean;
+    allMatchedInvoiceRowIndices?: number[];
+    siblingUnpaidInvoiceRowIndices?: number[];
+    multiInvoiceCount?: number;
   }> {
     const results: Array<{
       invoiceRowIndex: number;
@@ -2417,13 +2457,79 @@ export class OCRService {
       matchedPaymentPayee?: string;
       matchReason: string;
       isClosedPair?: boolean;
+      allMatchedInvoiceRowIndices?: number[];
+      siblingUnpaidInvoiceRowIndices?: number[];
+      multiInvoiceCount?: number;
     }> = [];
+
+    // 1. Analyze every payment in existingPayments to determine which invoices it matches,
+    // and identify multi-invoice payments.
+    const paymentMatchedInvoicesMap = new Map<
+      number,
+      {
+        allRowIndices: number[];
+        unpaidRowIndices: number[];
+        isMultiInvoice: boolean;
+        totalInvoiceCount: number;
+      }
+    >();
+
+    for (const p of existingPayments) {
+      if (!p.rowIndex) continue;
+      const pOcr: OCRResult = {
+        documentType: 'payment',
+        documentTypeUkrainian: 'Платіжна інструкція',
+        paymentNumber: p.paymentNumber,
+        paymentDate: p.paymentDate,
+        invoiceNumber: p.referencedInvoiceNumber || '',
+        invoiceDate: p.paymentDate || '',
+        supplierName: p.payee,
+        buyerName: p.payer,
+        payerName: p.payer,
+        payeeName: p.payee,
+        amountPaid: p.amountPaid,
+        totalAmount: p.amountPaid,
+        currency: p.currency || 'UAH',
+        paymentPurpose: p.paymentPurpose,
+        referencedInvoiceNumber: p.referencedInvoiceNumber,
+        referencedInvoiceNumbers: this.extractAllInvoiceNumbers(p.referencedInvoiceNumber, undefined, p.paymentPurpose),
+        referencedOrderNumber: p.orderNumber,
+        handwrittenOrderNumber: p.orderNumber,
+        handwrittenConfidence: 'high',
+        confidenceScore: 100,
+      };
+
+      const matchedInvs = this.matchPaymentWithAllInvoices(pOcr, existingInvoices);
+      const allRowIndices = Array.from(
+        new Set(
+          matchedInvs
+            .map((m) => m.matchedRowIndex)
+            .filter((idx): idx is number => typeof idx === 'number' && idx > 0)
+        )
+      );
+
+      const unpaidRowIndices = allRowIndices.filter((rowIndex) => {
+        const inv = existingInvoices.find((i) => i.rowIndex === rowIndex);
+        return inv && inv.paymentStatus !== 'Оплачено';
+      });
+
+      const extractedRefNums = this.extractAllInvoiceNumbers(p.referencedInvoiceNumber, undefined, p.paymentPurpose);
+      const isMultiInvoice = allRowIndices.length > 1 || extractedRefNums.length > 1;
+
+      paymentMatchedInvoicesMap.set(p.rowIndex, {
+        allRowIndices,
+        unpaidRowIndices,
+        isMultiInvoice,
+        totalInvoiceCount: Math.max(allRowIndices.length, extractedRefNums.length),
+      });
+    }
 
     const consumedPaymentRowIndices = new Set<number>();
     const consumedPaymentSemanticKeys = new Set<string>();
 
     // Pass 1: Process invoices that ALREADY have status "Оплачено" in Google Sheets.
-    // They are closed pairs. Deactivate further accumulation, consume their payment, and repair any inflated paid amounts.
+    // They are closed pairs. Deactivate further accumulation, but DO NOT consume multi-invoice payments
+    // if there are other invoices from that same payment that are still unpaid!
     for (const inv of existingInvoices) {
       if (!inv.rowIndex) continue;
       if (inv.paymentStatus === 'Оплачено') {
@@ -2440,18 +2546,31 @@ export class OCRService {
           handwrittenConfidence: 'high',
           confidenceScore: 1,
           paymentStatus: inv.paymentStatus,
+          approvalStatus: inv.approvalStatus || (inv.paymentStatus !== 'Оплачено' ? 'НЕ ПОГОДЖЕНО' : undefined),
         };
 
         const match = this.matchInvoiceWithPayments(mockOcr, existingPayments);
         const firstPay = match.matchedPaymentRows[0];
+        const payInfo = firstPay?.rowIndex ? paymentMatchedInvoicesMap.get(firstPay.rowIndex) : undefined;
 
         if (match.matchedPaymentRows.length > 0) {
           for (const p of match.matchedPaymentRows) {
-            if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
-            const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
-            consumedPaymentSemanticKeys.add(semKey);
+            const pInfo = p.rowIndex ? paymentMatchedInvoicesMap.get(p.rowIndex) : undefined;
+            const hasUnpaidRemaining = pInfo && pInfo.unpaidRowIndices.length > 0;
+            // Only consume if all invoices for this payment are fully closed
+            if (!hasUnpaidRemaining) {
+              if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
+              const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+              consumedPaymentSemanticKeys.add(semKey);
+            }
           }
         }
+
+        const allIndices = payInfo?.allRowIndices && payInfo.allRowIndices.length > 0
+          ? payInfo.allRowIndices
+          : (firstPay?.rowIndex ? [inv.rowIndex] : []);
+        const unpaidIndices = payInfo?.unpaidRowIndices || [];
+        const multiCount = payInfo?.totalInvoiceCount || (allIndices.length > 1 ? allIndices.length : 1);
 
         results.push({
           invoiceRowIndex: inv.rowIndex,
@@ -2468,25 +2587,38 @@ export class OCRService {
           matchedPaymentAmount: firstPay?.amountPaid,
           matchedPaymentPayee: firstPay?.payee,
           matchReason: firstPay
-            ? `🔒 Пара закрита (деактивована): рахунок №${inv.invoiceNumber || ''} оплачено платіжкою №${firstPay.paymentNumber || ''} на суму ${this.formatCurrency(inv.amount)}`
+            ? payInfo?.isMultiInvoice
+              ? `🔒 Пара закрита: рахунок №${inv.invoiceNumber || ''} оплачено груповою платіжкою №${firstPay.paymentNumber || ''} (сума ${this.formatCurrency(inv.amount)})`
+              : `🔒 Пара закрита (деактивована): рахунок №${inv.invoiceNumber || ''} оплачено платіжкою №${firstPay.paymentNumber || ''} на суму ${this.formatCurrency(inv.amount)}`
             : `🔒 Рахунок закрито (статус «Оплачено», сума ${this.formatCurrency(inv.amount)})`,
           isClosedPair: true,
+          allMatchedInvoiceRowIndices: allIndices,
+          siblingUnpaidInvoiceRowIndices: unpaidIndices.filter((idx) => idx !== inv.rowIndex),
+          multiInvoiceCount: multiCount,
         });
       }
     }
 
     // Pass 2: Process remaining open invoices (status is "Не оплачено" or "Оплачено частково").
-    // Reconcile ONLY against available payments (excluding those already consumed by closed pairs).
-    const availablePayments = existingPayments.filter((p) => {
-      if (p.rowIndex && consumedPaymentRowIndices.has(p.rowIndex)) return false;
-      const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
-      if (consumedPaymentSemanticKeys.has(semKey)) return false;
-      return true;
-    });
-
+    // Reconcile against available payments.
     for (const inv of existingInvoices) {
       if (!inv.rowIndex) continue;
       if (inv.paymentStatus === 'Оплачено') continue; // already handled in Pass 1
+
+      // Available payments for this specific invoice:
+      // Include any payment that specifically belongs to this invoice (even if partially consumed),
+      // while excluding consumed payments from unrelated invoices.
+      const availablePayments = existingPayments.filter((p) => {
+        if (!p.rowIndex) return true;
+        const pInfo = paymentMatchedInvoicesMap.get(p.rowIndex);
+        if (pInfo && pInfo.allRowIndices.includes(inv.rowIndex!)) {
+          return true;
+        }
+        if (consumedPaymentRowIndices.has(p.rowIndex)) return false;
+        const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+        if (consumedPaymentSemanticKeys.has(semKey)) return false;
+        return true;
+      });
 
       const mockOcr: OCRResult = {
         invoiceNumber: inv.invoiceNumber,
@@ -2501,20 +2633,37 @@ export class OCRService {
         handwrittenConfidence: 'high',
         confidenceScore: 1,
         paymentStatus: inv.paymentStatus,
+        approvalStatus: inv.approvalStatus || 'НЕ ПОГОДЖЕНО',
       };
 
       const match = this.matchInvoiceWithPayments(mockOcr, availablePayments);
 
       if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
         const firstPay = match.matchedPaymentRows[0];
+        const payInfo = firstPay?.rowIndex ? paymentMatchedInvoicesMap.get(firstPay.rowIndex) : undefined;
 
-        // If this payment completely pays this invoice, consume it so it won't be used again
+        // If this payment completely pays this invoice and has no remaining unpaid sibling invoices, consume it
         if (match.computedStatus === 'Оплачено') {
           for (const p of match.matchedPaymentRows) {
-            if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
-            const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
-            consumedPaymentSemanticKeys.add(semKey);
+            const pInfo = p.rowIndex ? paymentMatchedInvoicesMap.get(p.rowIndex) : undefined;
+            const remainingSiblingsUnpaid = pInfo ? pInfo.unpaidRowIndices.filter((idx) => idx !== inv.rowIndex) : [];
+            if (!pInfo?.isMultiInvoice || remainingSiblingsUnpaid.length === 0) {
+              if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
+              const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+              consumedPaymentSemanticKeys.add(semKey);
+            }
           }
+        }
+
+        const allIndices = payInfo?.allRowIndices && payInfo.allRowIndices.length > 0
+          ? payInfo.allRowIndices
+          : (firstPay?.rowIndex ? [inv.rowIndex] : []);
+        const unpaidIndices = payInfo?.unpaidRowIndices || [];
+        const multiCount = payInfo?.totalInvoiceCount || (allIndices.length > 1 ? allIndices.length : 1);
+
+        let customMatchReason = match.matchReason;
+        if (payInfo?.isMultiInvoice && firstPay) {
+          customMatchReason = `Платіжка №${firstPay.paymentNumber || ''} (рядок ${firstPay.rowIndex}) містить ${multiCount} рахунки. За цим рахунком сума: ${this.formatCurrency(inv.amount)}.`;
         }
 
         results.push({
@@ -2531,8 +2680,11 @@ export class OCRService {
           matchedPaymentDate: firstPay?.paymentDate,
           matchedPaymentAmount: firstPay?.amountPaid,
           matchedPaymentPayee: firstPay?.payee,
-          matchReason: match.matchReason || `Знайдено платіжку на суму ${this.formatCurrency(match.totalPaidAmount)}`,
+          matchReason: customMatchReason || `Знайдено платіжку на суму ${this.formatCurrency(match.totalPaidAmount)}`,
           isClosedPair: match.computedStatus === 'Оплачено',
+          allMatchedInvoiceRowIndices: allIndices,
+          siblingUnpaidInvoiceRowIndices: unpaidIndices.filter((idx) => idx !== inv.rowIndex),
+          multiInvoiceCount: multiCount,
         });
       }
     }

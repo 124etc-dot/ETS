@@ -23,6 +23,7 @@ import {
   ExistingPaymentRow,
   OCRResult,
   InvoicePaymentStatus,
+  InvoiceApprovalStatus,
   DuplicateRowMatch
 } from './types';
 import { googleAuth, AuthState } from './services/googleAuth';
@@ -40,6 +41,7 @@ import { SheetLivePreview } from './components/SheetLivePreview';
 import { CompaniesTab } from './components/CompaniesTab';
 import { ProjectsTab } from './components/ProjectsTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
+import { NewCompanyConfirmModal } from './components/NewCompanyConfirmModal';
 import { APP_VERSION } from './version';
 import { 
   DEFAULT_OUR_COMPANIES, 
@@ -122,7 +124,14 @@ export default function App() {
         const stored = localStorage.getItem(COMPANIES_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
-          if (parsed?.ourCompanies?.length || parsed?.suppliers?.length) return parsed;
+          if (parsed?.ourCompanies?.length || parsed?.suppliers?.length) {
+            const mergedOur = Array.from(new Set([...(parsed.ourCompanies || []), ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+            const mergedSuppliers = Array.from(new Set([...(parsed.suppliers || []), ...DEFAULT_SUPPLIERS])).filter(Boolean);
+            return {
+              ourCompanies: mergedOur,
+              suppliers: mergedSuppliers,
+            };
+          }
         }
       } catch {}
     }
@@ -131,6 +140,37 @@ export default function App() {
       suppliers: DEFAULT_SUPPLIERS,
     };
   });
+
+  // State for confirming newly detected our company (ФОП / ТОВ) before syncing invoice to sheet
+  const [newCompanyModalState, setNewCompanyModalState] = useState<{
+    isOpen: boolean;
+    companyName: string;
+    invoiceNumber?: string;
+    fileName?: string;
+    supplierName?: string;
+    totalAmount?: number;
+    currency?: string;
+    taxId?: string;
+    resolve: (val: { confirmed: boolean; finalCompanyName?: string }) => void;
+  } | null>(null);
+
+  const requestNewCompanyConfirmation = (data: {
+    companyName: string;
+    invoiceNumber?: string;
+    fileName?: string;
+    supplierName?: string;
+    totalAmount?: number;
+    currency?: string;
+    taxId?: string;
+  }): Promise<{ confirmed: boolean; finalCompanyName?: string }> => {
+    return new Promise((resolve) => {
+      setNewCompanyModalState({
+        isOpen: true,
+        ...data,
+        resolve,
+      });
+    });
+  };
 
   const [existingInvoices, setExistingInvoices] = useState<ExistingSheetRow[]>(() => {
     if (typeof window !== 'undefined') {
@@ -340,9 +380,17 @@ export default function App() {
               .map((d: ProcessedDocument) => {
                 const fixedOcr = autoCorrectPaymentClassification(d.ocrResult, d.fileName);
                 const fixedEdited = autoCorrectPaymentClassification(d.editedData, d.fileName);
+                const docType = fixedEdited?.documentType || fixedOcr?.documentType || 'invoice';
+                const payStatus = fixedEdited?.paymentStatus || fixedOcr?.paymentStatus || d.paymentStatus;
+                const isUnpaidInv = docType !== 'payment' && payStatus !== 'Оплачено';
+                const appStatus = d.approvalStatus || (isUnpaidInv ? 'НЕ ПОГОДЖЕНО' : undefined);
+                if (fixedOcr && !fixedOcr.approvalStatus && isUnpaidInv) fixedOcr.approvalStatus = 'НЕ ПОГОДЖЕНО';
+                if (fixedEdited && !fixedEdited.approvalStatus && isUnpaidInv) fixedEdited.approvalStatus = 'НЕ ПОГОДЖЕНО';
+
                 return {
                   ...d,
                   status: d.status === 'processing' ? ('pending' as const) : d.status,
+                  approvalStatus: appStatus,
                   ocrResult: fixedOcr,
                   editedData: fixedEdited,
                   errorMessage: d.status === 'processing' ? undefined : d.errorMessage,
@@ -715,6 +763,17 @@ export default function App() {
           );
           base64Payload = downloaded.base64;
           mimeType = downloaded.mimeType;
+
+          // Requirement: При скачуванні видалити файл з гугл драйва
+          try {
+            await GoogleDriveService.trashFile(doc.driveFileId, authState.accessToken);
+            const dismissed = getDismissedDriveIds();
+            dismissed.add(doc.driveFileId);
+            saveDismissedDriveIds(dismissed);
+            console.log(`[Google Drive] File ${doc.driveFileId} (${doc.fileName}) moved to trash on Drive after download.`);
+          } catch (trashErr) {
+            console.warn(`Could not trash file ${doc.driveFileId} on Drive after download:`, trashErr);
+          }
         }
 
         if (!base64Payload) {
@@ -827,6 +886,8 @@ export default function App() {
         alreadyInSheet: sheetCheck.alreadyInSheet,
         alreadyInSheetReason: sheetCheck.reason,
         alreadyInSheetTab: sheetCheck.tabName,
+        paymentStatus: ocrResult?.paymentStatus,
+        approvalStatus: ocrResult?.approvalStatus || (ocrResult?.documentType !== 'payment' && ocrResult?.paymentStatus !== 'Оплачено' ? 'НЕ ПОГОДЖЕНО' : undefined),
         ocrResult,
         editedData: ocrResult,
         previewDataUrl: base64Payload || doc.previewDataUrl,
@@ -1126,6 +1187,7 @@ export default function App() {
             handwrittenConfidence: iMatch.orderNumber ? 'high' : 'none',
             confidenceScore: 100,
             paymentStatus: iMatch.paymentStatus || 'Не оплачено',
+            approvalStatus: iMatch.approvalStatus || (iMatch.paymentStatus !== 'Оплачено' ? 'НЕ ПОГОДЖЕНО' : undefined),
           };
           return {
             inSheet: true,
@@ -1315,6 +1377,71 @@ export default function App() {
     if (effAmount <= 0) {
       notify(`Документ "${doc.fileName}" має нульову суму (0 грн). В системі апріорі не може бути рахунків чи платіжок без суми. Будь ласка, відкрийте документ та вкажіть суму перед занесенням.`, 'error');
       return;
+    }
+
+    // -------------------------------------------------------------
+    // NEW OUR COMPANY DETECTION & USER CONFIRMATION FLOW
+    // "Якщо в новому завантаженому рахунку є нова наша компанія якої немає в списку, 
+    // то потрібно додати цю компанію до списку і внести в таблицю, це може бути і ФОП і ТОВ, 
+    // а перед цим видати повідомлення про виявлення нової нашої компанії і або підтвердити 
+    // або скасувати внесення рахунку в таблицю."
+    // -------------------------------------------------------------
+    if (dataToSync.documentType === 'invoice') {
+      const buyerCandidate = (dataToSync.buyerName || dataToSync.payerName || '').trim();
+      const isPlaceholder = !buyerCandidate || buyerCandidate === '—' || buyerCandidate.toLowerCase() === 'той самий' || buyerCandidate.toLowerCase() === 'той же';
+
+      if (!isPlaceholder && buyerCandidate.length >= 3) {
+        const allKnownOur = Array.from(new Set([...companyLists.ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+        const isKnown = allKnownOur.some((c) => OCRService.isCompanyNameMatch(c, buyerCandidate));
+
+        if (!isKnown) {
+          const normCandidate = OCRService.normalizeCompanyName(buyerCandidate);
+          const userDecision = await requestNewCompanyConfirmation({
+            companyName: normCandidate,
+            invoiceNumber: dataToSync.invoiceNumber,
+            fileName: doc.fileName,
+            supplierName: dataToSync.supplierName,
+            totalAmount: dataToSync.totalAmount,
+            currency: dataToSync.currency,
+            taxId: dataToSync.buyerTaxId,
+          });
+
+          if (!userDecision.confirmed || !userDecision.finalCompanyName) {
+            notify(`Внесення рахунку №${dataToSync.invoiceNumber || doc.fileName} скасовано.`, 'info');
+            return;
+          }
+
+          const confirmedCompName = userDecision.finalCompanyName;
+          dataToSync.buyerName = confirmedCompName;
+
+          // 1. Update in local state & localStorage
+          const updatedOur = Array.from(new Set([...companyLists.ourCompanies, confirmedCompName]));
+          const updatedLists = { ...companyLists, ourCompanies: updatedOur };
+          setCompanyLists(updatedLists);
+          try {
+            localStorage.setItem(COMPANIES_STORAGE_KEY, JSON.stringify(updatedLists));
+          } catch {}
+
+          // 2. Add company to Google Sheet 'Наші компанії' tab
+          if (sheetConfig.spreadsheetId && authState.accessToken) {
+            try {
+              await GoogleSheetsService.appendCompanyIfMissing(
+                sheetConfig.spreadsheetId,
+                authState.accessToken,
+                confirmedCompName,
+                'our',
+                sheetConfig.ourCompaniesSheetName,
+                dataToSync.buyerTaxId
+              );
+              console.log(`[Google Sheets] Successfully appended new company "${confirmedCompName}" to sheet.`);
+            } catch (err) {
+              console.warn('Could not auto-append new company to sheet tab:', err);
+            }
+          }
+
+          notify(`Компанію «${confirmedCompName}» додано до списку наших компаній. Вносимо рахунок у таблицю...`, 'success');
+        }
+      }
     }
 
     // CRITICAL: Fetch fresh rows from Google Sheets right before appending to avoid race condition duplicates with concurrent users (e.g. secretary)
@@ -1600,6 +1727,14 @@ export default function App() {
         const dismissed = getDismissedDriveIds();
         dismissed.add(doc.driveFileId);
         saveDismissedDriveIds(dismissed);
+        if (authState.accessToken) {
+          try {
+            await GoogleDriveService.trashFile(doc.driveFileId, authState.accessToken);
+            console.log(`[Google Drive] File ${doc.driveFileId} trashed on sync.`);
+          } catch (delErr) {
+            console.warn(`Could not trash file ${doc.driveFileId} on sync:`, delErr);
+          }
+        }
       }
 
       setDocuments((prev) =>
@@ -1711,6 +1846,71 @@ export default function App() {
       notify(`Статус у Google Таблиці (рядок ${rowIndex}) оновлено на "${newStatus}"!`, 'success');
     } catch (err: any) {
       notify(err.message || 'Помилка оновлення статусу в Google Таблиці.', 'error');
+    }
+  };
+
+  const handleToggleInvoiceApproval = async (
+    targetInvoice: ExistingSheetRow,
+    newStatus: InvoiceApprovalStatus
+  ) => {
+    // 1. Optimistic update in local state
+    setExistingInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.rowIndex === targetInvoice.rowIndex) {
+          return { ...inv, approvalStatus: newStatus };
+        }
+        return inv;
+      })
+    );
+
+    // 2. Also update documents state if any document matches
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (
+          doc.ocr?.invoiceNumber &&
+          targetInvoice.invoiceNumber &&
+          doc.ocr.invoiceNumber.trim().toLowerCase() === targetInvoice.invoiceNumber.trim().toLowerCase()
+        ) {
+          return {
+            ...doc,
+            approvalStatus: newStatus,
+            ocr: { ...doc.ocr, approvalStatus: newStatus },
+          };
+        }
+        return doc;
+      })
+    );
+
+    // 3. Write to Google Sheets if connected
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
+      notify(`Статус погодження змінено на "${newStatus}" (локально)`, 'info');
+      return;
+    }
+
+    try {
+      const result = await GoogleSheetsService.updateInvoiceApprovalInSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        targetInvoice.rowIndex,
+        newStatus,
+        targetInvoice.invoiceNumber,
+        targetInvoice.supplier,
+        sheetConfig.invoicesSheetName
+      );
+
+      notify(
+        `Статус погодження "${newStatus}" збережено в Google Таблиці (рядок ${result.targetRow}, колонка K)!`,
+        'success'
+      );
+    } catch (err: any) {
+      const revertStatus: InvoiceApprovalStatus = newStatus === 'ПОГОДЖЕНО' ? 'НЕ ПОГОДЖЕНО' : 'ПОГОДЖЕНО';
+      setExistingInvoices((prev) =>
+        prev.map((inv) =>
+          inv.rowIndex === targetInvoice.rowIndex ? { ...inv, approvalStatus: revertStatus } : inv
+        )
+      );
+      notify(err.message || 'Помилка оновлення статусу погодження в Google Таблиці.', 'error');
+      throw err;
     }
   };
 
@@ -3056,6 +3256,7 @@ export default function App() {
               onReplaceInvoice={handleReplaceInvoice}
               onAddLocalDocument={handleAddSingleLocalDocument}
               onMergeDuplicateInvoice={handleMergeDuplicateInvoice}
+              onToggleInvoiceApproval={handleToggleInvoiceApproval}
             />
           </div>
         )}
@@ -3126,6 +3327,18 @@ export default function App() {
           const doc = documents.find((d) => d.id === docId);
           await handleReplaceInvoice(targetRowIndex, cleanData, doc, prevInfo, options);
         }}
+        onTrashDriveFile={async (driveFileId) => {
+          if (!authState.accessToken) return;
+          try {
+            await GoogleDriveService.trashFile(driveFileId, authState.accessToken);
+            const dismissed = getDismissedDriveIds();
+            dismissed.add(driveFileId);
+            saveDismissedDriveIds(dismissed);
+            notify('Файл завантажено та видалено з Google Диска.', 'info');
+          } catch (e) {
+            console.warn('Could not trash file from Drive:', e);
+          }
+        }}
       />
 
       {/* Modal: Google Auth Connect */}
@@ -3137,6 +3350,30 @@ export default function App() {
           refreshSheetData();
         }}
       />
+
+      {/* Modal: Confirmation for Newly Detected Our Company (ФОП / ТОВ) */}
+      {newCompanyModalState && (
+        <NewCompanyConfirmModal
+          isOpen={newCompanyModalState.isOpen}
+          companyName={newCompanyModalState.companyName}
+          invoiceNumber={newCompanyModalState.invoiceNumber}
+          fileName={newCompanyModalState.fileName}
+          supplierName={newCompanyModalState.supplierName}
+          totalAmount={newCompanyModalState.totalAmount}
+          currency={newCompanyModalState.currency}
+          taxId={newCompanyModalState.taxId}
+          onConfirm={(finalName) => {
+            const resolve = newCompanyModalState.resolve;
+            setNewCompanyModalState(null);
+            resolve({ confirmed: true, finalCompanyName: finalName });
+          }}
+          onCancel={() => {
+            const resolve = newCompanyModalState.resolve;
+            setNewCompanyModalState(null);
+            resolve({ confirmed: false });
+          }}
+        />
+      )}
     </div>
   );
 }

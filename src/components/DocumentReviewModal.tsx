@@ -21,7 +21,8 @@ import {
   RefreshCw,
   RotateCcw,
   AlertCircle,
-  ArrowUpDown
+  ArrowUpDown,
+  Download
 } from 'lucide-react';
 import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
@@ -62,6 +63,7 @@ interface Props {
       oldFileName?: string;
     }
   ) => Promise<void>;
+  onTrashDriveFile?: (driveFileId: string) => Promise<void>;
 }
 
 export const DocumentReviewModal: React.FC<Props> = ({
@@ -72,6 +74,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
   onSyncToSheet,
   onReprocess,
   onUploadToDrive,
+  onTrashDriveFile,
   isDriveConnected,
   companyLists,
   existingInvoices = [],
@@ -133,6 +136,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
         currency: raw.currency || 'UAH',
         confidenceScore: raw.confidenceScore ?? 0,
         paymentStatus: raw.paymentStatus || (raw.documentType === 'payment' ? 'Оплачено' : 'Не оплачено'),
+        approvalStatus: raw.approvalStatus || (raw.documentType !== 'payment' && raw.paymentStatus !== 'Оплачено' ? 'НЕ ПОГОДЖЕНО' : undefined),
         paymentPurpose: raw.paymentPurpose || '',
         referencedInvoiceNumber: raw.referencedInvoiceNumber || '',
         referencedOrderNumber: raw.referencedOrderNumber || '',
@@ -640,6 +644,35 @@ export const DocumentReviewModal: React.FC<Props> = ({
               >
                 <RotateCw className="w-3.5 h-3.5" />
               </button>
+              {doc.previewDataUrl && (
+                <>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    onClick={async () => {
+                      if (doc.previewDataUrl) {
+                        const link = window.document.createElement('a');
+                        link.href = doc.previewDataUrl;
+                        link.download = doc.fileName || 'document';
+                        window.document.body.appendChild(link);
+                        link.click();
+                        window.document.body.removeChild(link);
+                      }
+                      if (doc.driveFileId && onTrashDriveFile) {
+                        try {
+                          await onTrashDriveFile(doc.driveFileId);
+                        } catch (e) {
+                          console.warn('Could not trash file on Drive after download:', e);
+                        }
+                      }
+                    }}
+                    className="p-1 text-slate-700 hover:text-indigo-600 transition-colors flex items-center space-x-1"
+                    title="Скачати файл (та видалити з Google Диска)"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span className="text-[10px]">Скачати</span>
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Document Canvas / Image Container */}

@@ -432,7 +432,8 @@ ${knownOrdersPromptList}
    - supplierName: Це компанія, яка виставила рахунок (продавець / постачальник / виконавець).
      ВАЖЛИВО: Назва постачальника НЕ МОЖЕ співпадати з назвою наших компаній!
    
-   - buyerName (НАША КОМПАНІЯ — ПОКУПЕЦЬ / ПЛАТНИК):
+   - buyerName (НАША КОМПАНІЯ — ПОКУПЕЦЬ / ПЛАТНИК / ОДЕРЖУВАЧ):
+     * КРИТИЧНО: Якщо в рахунку присутня 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА' (або 'Боднар Лариса', 'Боднар Л.В.', 'ФОП Боднар') чи будь-яка з НАШИХ КОМПАНІЙ — вона ЗАВЖДИ є buyerName (Покупець / Одержувач / Платник), і КАТЕГОРИЧНО НЕ постачальник (supplierName)!
      * ДЕ ШУКАТИ В РАХУНКАХ:
        1. Рядок "Покупець:" (найчастіше розташований під або праворуч від "Постачальник:").
        2. Рядок "Платник:"
@@ -797,6 +798,25 @@ ${knownOrdersPromptList}
     }
     parsedResult.paymentNumber = undefined;
 
+    // 1. Smart Anti-Swap Check for Invoices:
+    // If supplierName matches ourCompanies (e.g. ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА, ТОВ ШОП ІНТЕРІОР, etc.)
+    // or contains "БОДНАР" / "Боднар", it is guaranteed to be our company (Buyer / Recipient), NOT the supplier!
+    const allOurComps = Array.from(new Set([...ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+    const isSupplierBodnar = /боднар/i.test(parsedResult.supplierName || '');
+    const isSupplierOurComp = isSupplierBodnar || allOurComps.some((c) => isCompanyNameMatch(c, parsedResult.supplierName || ''));
+    const isBuyerBodnar = /боднар/i.test(parsedResult.buyerName || '');
+    const isBuyerOurComp = isBuyerBodnar || allOurComps.some((c) => isCompanyNameMatch(c, parsedResult.buyerName || ''));
+    const isBuyerKnownSupplier = suppliers.some((s) => isCompanyNameMatch(s, parsedResult.buyerName || ''));
+
+    if (isSupplierOurComp && (!isBuyerOurComp || isBuyerKnownSupplier)) {
+      console.log(`[OCR Smart Swap API Invoice] Moving "${parsedResult.supplierName}" from supplier to buyer because it matches our companies!`);
+      const temp = parsedResult.buyerName;
+      parsedResult.buyerName = isSupplierBodnar ? 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА' : normalizeCompanyName(parsedResult.supplierName!);
+      parsedResult.supplierName = temp || '';
+    } else if (isSupplierBodnar && !isBuyerBodnar) {
+      parsedResult.buyerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
+    }
+
     // Ensure buyerName is valid and not a placeholder or supplier
     if (isInvalidBuyerName(parsedResult.buyerName, parsedResult.supplierName)) {
       parsedResult.buyerName = '';
@@ -805,19 +825,27 @@ ${knownOrdersPromptList}
     // Try finding buyer from notes, raw text, filename, or description if empty
     if (!parsedResult.buyerName) {
       const fullText = `${parsedResult.notes || ''} ${parsedResult.handwrittenRawText || ''} ${fileName || ''}`;
-      for (const ourComp of ourCompanies) {
-        if (ourComp && isCompanyNameMatch(fullText, ourComp)) {
-          parsedResult.buyerName = normalizeCompanyName(ourComp);
-          break;
+      if (/боднар/i.test(fullText)) {
+        parsedResult.buyerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
+      } else {
+        for (const ourComp of allOurComps) {
+          if (ourComp && isCompanyNameMatch(fullText, ourComp)) {
+            parsedResult.buyerName = normalizeCompanyName(ourComp);
+            break;
+          }
         }
       }
     }
 
     // Canonical match against ourCompanies
-    if (parsedResult.buyerName && ourCompanies.length > 0) {
-      const match = ourCompanies.find((c: string) => isCompanyNameMatch(c, parsedResult.buyerName!));
-      if (match) {
-        parsedResult.buyerName = normalizeCompanyName(match);
+    if (parsedResult.buyerName) {
+      if (/боднар/i.test(parsedResult.buyerName)) {
+        parsedResult.buyerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
+      } else if (allOurComps.length > 0) {
+        const match = allOurComps.find((c: string) => isCompanyNameMatch(c, parsedResult.buyerName!));
+        if (match) {
+          parsedResult.buyerName = normalizeCompanyName(match);
+        }
       }
     }
 
@@ -848,17 +876,25 @@ ${knownOrdersPromptList}
   if (parsedResult.documentType === 'payment') {
     // 1. Smart Anti-Swap Check: In bank receipts with two "Найменування" rows (one under Платник, one under Отримувач),
     // models sometimes mix them up. Check against configured ourCompanies and suppliers:
-    if (parsedResult.payeeName && parsedResult.payerName && ourCompanies.length > 0) {
-      const isPayeeOurCompany = ourCompanies.some((c) => isCompanyNameMatch(c, parsedResult.payeeName!));
-      const isPayerOurCompany = ourCompanies.some((c) => isCompanyNameMatch(c, parsedResult.payerName!));
+    const allOurComps = Array.from(new Set([...ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+    const isPayeeBodnar = /боднар/i.test(parsedResult.payeeName || '');
+    const isPayerBodnar = /боднар/i.test(parsedResult.payerName || '');
+
+    if (parsedResult.payeeName && parsedResult.payerName && (allOurComps.length > 0 || isPayeeBodnar)) {
+      const isPayeeOurCompany = isPayeeBodnar || allOurComps.some((c) => isCompanyNameMatch(c, parsedResult.payeeName!));
+      const isPayerOurCompany = isPayerBodnar || allOurComps.some((c) => isCompanyNameMatch(c, parsedResult.payerName!));
       const isPayerSupplier = suppliers.some((s) => isCompanyNameMatch(s, parsedResult.payerName!));
 
       if (isPayeeOurCompany && (!isPayerOurCompany || isPayerSupplier)) {
         console.log(`[OCR Smart Swap API] Swapping payerName "${parsedResult.payerName}" and payeeName "${parsedResult.payeeName}" because payee matches ourCompanies!`);
         const temp = parsedResult.payerName;
-        parsedResult.payerName = parsedResult.payeeName;
+        parsedResult.payerName = isPayeeBodnar ? 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА' : parsedResult.payeeName;
         parsedResult.payeeName = temp;
       }
+    }
+
+    if (isPayerBodnar || /боднар/i.test(parsedResult.payerName || '')) {
+      parsedResult.payerName = 'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА';
     }
 
     // 2. Rescue missing payeeName (Отримувач / Постачальник)

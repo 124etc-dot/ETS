@@ -1,4 +1,4 @@
-import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, ProjectSheetRow, ProjectColumnHeader } from '../types';
+import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, InvoiceApprovalStatus, ProjectSheetRow, ProjectColumnHeader } from '../types';
 import { OCRService } from './ocrService';
 import { googleAuth } from './googleAuth';
 
@@ -19,6 +19,7 @@ export class GoogleSheetsService {
     'Статус',
     'Час завантаження',
     'Сума оплати',
+    'Погодження',
   ];
 
   public static readonly PAYMENT_HEADERS = [
@@ -886,6 +887,7 @@ export class GoogleSheetsService {
       let colStatus = 7;
       let colUploadedAt = 8;
       let colPaidAmount = 9;
+      let colApproval = 10;
       let colFileName = -1;
       let colDriveLink = -1;
 
@@ -933,6 +935,8 @@ export class GoogleSheetsService {
               colFileName = cIdx;
             } else if (cell.includes('drive') || cell.includes('посилання') || cell.includes('лінк') || cell.includes('диск')) {
               colDriveLink = cIdx;
+            } else if (cell.includes('погоджен') || cell.includes('approval')) {
+              colApproval = cIdx;
             }
           });
           break;
@@ -977,6 +981,20 @@ export class GoogleSheetsService {
           paymentStatus = 'Оплачено';
         }
 
+        let approvalStatus: InvoiceApprovalStatus | undefined = undefined;
+        if (colApproval >= 0) {
+          const rawApproval = String(row[colApproval] || '').trim().toLowerCase();
+          if (rawApproval.includes('не погоджено')) {
+            approvalStatus = 'НЕ ПОГОДЖЕНО';
+          } else if (rawApproval.includes('погоджено')) {
+            approvalStatus = 'ПОГОДЖЕНО';
+          }
+        }
+        // Default for all unpaid invoices: 'НЕ ПОГОДЖЕНО'
+        if (!approvalStatus && paymentStatus !== 'Оплачено') {
+          approvalStatus = 'НЕ ПОГОДЖЕНО';
+        }
+
         // Safety check: if rawInvNumber is formatted as a date (e.g. 2026-08-25 or 25.08.2026) and rawInvDate is not,
         // or if the two columns are swapped in the sheet row:
         const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s);
@@ -1019,6 +1037,7 @@ export class GoogleSheetsService {
           amount,
           currency: String(row[colCurrency] || 'UAH').trim() || 'UAH',
           paymentStatus,
+          approvalStatus,
           uploadedAt: rawUploadedAt,
           paidAmount,
           fileName: rawFileName || undefined,
@@ -1368,7 +1387,7 @@ export class GoogleSheetsService {
       status === 'Оплачено' ? (data.ocr.totalAmount || 0) : 0
     );
 
-    // Exactly 10 columns: A to J
+    // Exactly 11 columns: A to K
     const row = [
       orderNum,                           // A: Номер замовлення (xxx-xx)
       supplier,                           // B: Постачальник
@@ -1380,6 +1399,7 @@ export class GoogleSheetsService {
       status,                             // H: Статус ("Не оплачено", "Оплачено", "Оплачено частково")
       formattedTimestamp,                 // I: Час завантаження
       paidAmount,                         // J: Сума оплати
+      data.ocr.approvalStatus || (status !== 'Оплачено' ? 'НЕ ПОГОДЖЕНО' : ''), // K: Погодження
     ];
 
     // Ensure tab exists before writing
@@ -1389,7 +1409,7 @@ export class GoogleSheetsService {
     try {
       // Find the exact first available empty row (e.g. row 26, right below existing filled rows)
       const targetRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
-      const range = `'${safeTab}'!A${targetRow}:J${targetRow}`;
+      const range = `'${safeTab}'!A${targetRow}:K${targetRow}`;
 
       await this.request<any>(
         `${cleanId}/values:batchUpdate`,
@@ -1414,7 +1434,7 @@ export class GoogleSheetsService {
         // Fallback: force create tab and retry once
         await this.ensureTabExists(cleanId, accessToken, tabName, this.INVOICE_HEADERS);
         const retryRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
-        const retryRange = `'${safeTab}'!A${retryRow}:J${retryRow}`;
+        const retryRange = `'${safeTab}'!A${retryRow}:K${retryRow}`;
         await this.request<any>(
           `${cleanId}/values:batchUpdate`,
           accessToken,
@@ -1492,7 +1512,7 @@ export class GoogleSheetsService {
     const status: InvoicePaymentStatus = 'Не оплачено';
     const paidAmount = 0;
 
-    // Exactly 10 columns: A to J
+    // Exactly 11 columns: A to K
     const row = [
       orderNum,                           // A: Номер замовлення (xxx-xx)
       supplier,                           // B: Постачальник
@@ -1504,10 +1524,11 @@ export class GoogleSheetsService {
       status,                             // H: Статус ("Не оплачено")
       finalTimestamp,                     // I: Час завантаження / заміни
       paidAmount,                         // J: Сума оплати (0)
+      'НЕ ПОГОДЖЕНО',                     // K: Погодження (новий замінений рахунок)
     ];
 
     const safeTab = tabName.replace(/'/g, "''");
-    const range = `'${safeTab}'!A${rowIndex}:J${rowIndex}`;
+    const range = `'${safeTab}'!A${rowIndex}:K${rowIndex}`;
 
     try {
       await this.request<any>(
@@ -1637,6 +1658,186 @@ export class GoogleSheetsService {
     invoicesTab = 'Рахунки'
   ): Promise<void> {
     return this.updateInvoicePaymentInSheet(spreadsheetId, accessToken, rowIndex, newStatus, undefined, invoicesTab);
+  }
+
+  /**
+   * Updates Invoice Approval Status in Column K in "Рахунки" using Validate-before-Write.
+   * Dynamically locates the row by invoiceNumber & supplier to ensure table sorting doesn't mismatch rows.
+   */
+  public static async updateInvoiceApprovalInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    approvalStatus: InvoiceApprovalStatus,
+    invoiceNumber?: string,
+    supplier?: string,
+    invoicesTab = 'Рахунки'
+  ): Promise<{ targetRow: number; updatedRange: string }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(invoicesTab)) {
+      throw new Error(`Внесення даних у "${invoicesTab}" заблоковано для збереження існуючих даних.`);
+    }
+
+    await this.ensureTabExists(cleanId, accessToken, invoicesTab, this.INVOICE_HEADERS);
+
+    const safeTab = invoicesTab.replace(/'/g, "''");
+    // Read current data to dynamically locate the target row (Validate-before-Write)
+    const range = `'${safeTab}'!A:K`;
+    const data = await this.request<any>(
+      `${cleanId}/values/${encodeURIComponent(range)}`,
+      accessToken
+    );
+
+    const rows: any[][] = data.values || [];
+    let targetRow = rowIndex;
+    let colSupplier = 1;   // Default Column B
+    let colInvoiceNum = 3; // Default Column D
+    let colApproval = 10;  // Default Column K
+    let headerRowIdx = -1;
+
+    // Scan for header row
+    const scanLimit = Math.min(rows.length, 6);
+    for (let r = 0; r < scanLimit; r++) {
+      const row = rows[r];
+      if (!row || !Array.isArray(row)) continue;
+      const joined = row.map((c) => String(c || '').toLowerCase()).join(' ');
+      if (
+        joined.includes('замовлен') ||
+        joined.includes('постачальн') ||
+        joined.includes('платник') ||
+        joined.includes('рахун') ||
+        joined.includes('сума') ||
+        joined.includes('статус')
+      ) {
+        headerRowIdx = r;
+        row.forEach((cellRaw, cIdx) => {
+          const cell = String(cellRaw || '').trim().toLowerCase();
+          if (!cell) return;
+          if (cell.includes('постачальн') || cell.includes('продавець')) {
+            colSupplier = cIdx;
+          } else if (
+            (cell.includes('номер') && (cell.includes('рахун') || cell.includes('інвойс'))) ||
+            ((cell.includes('рахун') || cell.includes('інвойс')) && !cell.includes('дата') && !cell.includes('сума') && !cell.includes('статус'))
+          ) {
+            colInvoiceNum = cIdx;
+          } else if (cell.includes('погоджен') || cell.includes('approval')) {
+            colApproval = cIdx;
+          }
+        });
+        break;
+      }
+    }
+
+    // Ensure Column K has a header if header row exists and cell is empty
+    const colLetter = this.columnIndexToLetter(colApproval);
+    if (headerRowIdx >= 0) {
+      const headerRow = rows[headerRowIdx] || [];
+      const currentHeader = String(headerRow[colApproval] || '').trim();
+      if (!currentHeader) {
+        try {
+          await this.request<any>(
+            `${cleanId}/values/'${safeTab}'!${colLetter}${headerRowIdx + 1}?valueInputOption=USER_ENTERED`,
+            accessToken,
+            {
+              method: 'PUT',
+              body: JSON.stringify({
+                range: `'${safeTab}'!${colLetter}${headerRowIdx + 1}`,
+                values: [['Погодження']],
+              }),
+            }
+          );
+        } catch {
+          // Non-blocking header write
+        }
+      }
+    }
+
+    // Validate-before-Write: Dynamic row search by invoiceNumber and supplier
+    const cleanStr = (s: any) =>
+      String(s || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-zа-яієїґ0-9]/gi, '');
+
+    const targetNum = cleanStr(invoiceNumber);
+    const targetSup = cleanStr(supplier);
+
+    if (targetNum || targetSup) {
+      let matchedRow = -1;
+
+      // 1. First test whether rowIndex matches directly (fast path)
+      const initialIdx = rowIndex - 1; // 0-based in rows array
+      if (initialIdx >= 0 && initialIdx < rows.length) {
+        const checkRow = rows[initialIdx];
+        if (checkRow && Array.isArray(checkRow)) {
+          const rowNum = cleanStr(checkRow[colInvoiceNum]);
+          const rowSup = cleanStr(checkRow[colSupplier]);
+
+          const numMatch = !targetNum || (rowNum && (rowNum === targetNum || rowNum.includes(targetNum) || targetNum.includes(rowNum)));
+          const supMatch = !targetSup || (rowSup && (rowSup === targetSup || rowSup.includes(targetSup) || targetSup.includes(rowSup)));
+
+          if (targetNum && targetSup) {
+            if (numMatch && supMatch) {
+              matchedRow = rowIndex;
+            }
+          } else if (targetNum && numMatch) {
+            matchedRow = rowIndex;
+          }
+        }
+      }
+
+      // 2. If row shifted or sorted, search all data rows to find the exact row
+      if (matchedRow === -1) {
+        const startR = headerRowIdx >= 0 ? headerRowIdx + 1 : 1;
+        let candidateByBoth = -1;
+        let candidateByNum = -1;
+
+        for (let r = startR; r < rows.length; r++) {
+          const checkRow = rows[r];
+          if (!checkRow || !Array.isArray(checkRow)) continue;
+
+          const rowNum = cleanStr(checkRow[colInvoiceNum]);
+          const rowSup = cleanStr(checkRow[colSupplier]);
+
+          const numMatch = targetNum && rowNum && (rowNum === targetNum || rowNum.includes(targetNum) || targetNum.includes(rowNum));
+          const supMatch = targetSup && rowSup && (rowSup === targetSup || rowSup.includes(targetSup) || targetSup.includes(rowSup));
+
+          if (numMatch && supMatch) {
+            candidateByBoth = r + 1; // 1-based in sheet
+            break;
+          }
+          if (numMatch && candidateByNum === -1) {
+            candidateByNum = r + 1;
+          }
+        }
+
+        if (candidateByBoth !== -1) {
+          matchedRow = candidateByBoth;
+        } else if (candidateByNum !== -1) {
+          matchedRow = candidateByNum;
+        }
+      }
+
+      if (matchedRow !== -1) {
+        targetRow = matchedRow;
+      }
+    }
+
+    const targetCellRange = `'${safeTab}'!${colLetter}${targetRow}`;
+
+    await this.request<any>(
+      `${cleanId}/values/${encodeURIComponent(targetCellRange)}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          range: targetCellRange,
+          values: [[approvalStatus]],
+        }),
+      }
+    );
+
+    return { targetRow, updatedRange: targetCellRange };
   }
 
   /**
