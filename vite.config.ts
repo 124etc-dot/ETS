@@ -13,10 +13,8 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: [
           'logo.png',
+          'logomobile.png',
           'apple-touch-icon.png',
-          'pwa-192x192.png',
-          'pwa-512x512.png',
-          'pwa-maskable-512x512.png',
           'manifest.json',
         ],
         manifest: {
@@ -32,31 +30,19 @@ export default defineConfig(() => {
           scope: '/',
           icons: [
             {
-              src: '/pwa-192x192.png',
-              sizes: '192x192',
+              src: '/logomobile.png',
+              sizes: '192x192 512x512 645x616',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
-              sizes: '512x512',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/pwa-maskable-512x512.png',
+              src: '/logomobile.png',
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
             },
             {
-              src: '/logo.png',
-              sizes: '284x152',
-              type: 'image/png',
-              purpose: 'any',
-            },
-            {
-              src: '/apple-touch-icon.png',
+              src: '/logomobile.png',
               sizes: '180x180',
               type: 'image/png',
               purpose: 'any',
