@@ -119,6 +119,18 @@ export const Header: React.FC<Props> = ({
               </button>
 
               <button
+                onClick={() => onSelectTab('sheet')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
+                  activeTab === 'sheet'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Рахунки & Оплати</span>
+              </button>
+
+              <button
                 onClick={() => onSelectTab('process')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
                   activeTab === 'process'
@@ -133,18 +145,6 @@ export const Header: React.FC<Props> = ({
                     {totalPendingCount + totalReadyCount}
                   </span>
                 )}
-              </button>
-
-              <button
-                onClick={() => onSelectTab('sheet')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
-                  activeTab === 'sheet'
-                    ? 'bg-white text-slate-900 shadow-xs font-bold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
-                }`}
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Рахунки & Оплати</span>
               </button>
 
               <button
