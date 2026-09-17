@@ -31,6 +31,7 @@ import { GoogleDriveService } from './services/googleDrive';
 import { GoogleSheetsService } from './services/googleSheets';
 import { OCRService } from './services/ocrService';
 import { normalizeFileName, deduplicateDocuments } from './utils/deduplication';
+import { ensureOcrDates } from './utils/dateUtils';
 import { Header } from './components/Header';
 import { DriveFolderBar } from './components/DriveFolderBar';
 import { SpreadsheetBar } from './components/SpreadsheetBar';
@@ -878,6 +879,8 @@ export default function App() {
           ocrResult.buyerName = OCRService.normalizeCompanyName(matchingOrderInv.buyer);
         }
       }
+
+      ensureOcrDates(ocrResult, doc.fileName);
 
       const updatedDoc: ProcessedDocument = {
         ...doc,

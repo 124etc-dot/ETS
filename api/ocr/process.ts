@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { DEFAULT_OUR_COMPANIES, KNOWN_PROJECT_ORDERS } from '../../src/data/sampleDocuments';
+import { ensureOcrDates, normalizeDateToIso, extractDateFromText } from '../../src/utils/dateUtils';
 
 // Vercel Serverless Function Configuration
 export const config = {
@@ -243,11 +244,11 @@ const ocrResponseSchema: Schema = {
     },
     invoiceDate: {
       type: Type.STRING,
-      description: 'Invoice issue date in YYYY-MM-DD format (e.g. "2026-03-15")',
+      description: 'Invoice issue date strictly in YYYY-MM-DD format (e.g. "2026-09-15"). Look in header after word "від" ("від 15.09.2026", "від 15 вересня 2026 р.", "від «15» вересня 2026"), or "Дата:", "Дата рахунку:", "Дата складання:". Convert any written or numeric date to strict YYYY-MM-DD.',
     },
     invoiceDateOriginal: {
       type: Type.STRING,
-      description: 'Original date string as printed on document, e.g. "15 березня 2026 р."',
+      description: 'Original date string as printed on document, e.g. "15 вересня 2026 р.", "15.09.2026", "від 12.09.2026 р."',
     },
     totalAmount: {
       type: Type.NUMBER,
@@ -445,9 +446,21 @@ ${knownOrdersPromptList}
        - Якщо компанії немає в списку, все одно поверни точну назву покупця з рахунку у форматі "ТОВ НАЗВА" чи "ФОП ПРІЗВИЩЕ І.Б." великими літерами.
        - КАТЕГОРИЧНО ЗАБОРОНЕНО залишати поле buyerName порожнім або ставити "той самий", якщо в рахунку зазначено покупця!
 
-4. НОМЕР ТА ДАТА РАХУНКУ:
-   - invoiceNumber: Номер рахунку (наприклад "СФ-000124", "452-М").
-   - invoiceDate: Дата виставлення у форматі РРРР-ММ-ДД (YYYY-MM-DD).
+4. НОМЕР ТА ДАТА РАХУНКУ (invoiceNumber, invoiceDate, invoiceDateOriginal):
+   - invoiceNumber: Номер рахунку (наприклад "СФ-000124", "452-М", "227763", "125").
+     * КАТЕГОРИЧНО ЗАБОРОНЕНО повертати слова "рахунок", "рахунка", "рахунку", "рахунком", "інвойс", "invoice", "згідно", "номер", "б/н"!
+     * Якщо на документі написано "Рахунок на оплату № 227763" чи "Призначення платежу: згідно рахунка № 227763", номером є ВИКЛЮЧНО число/код "227763"!
+     * Якщо перед номером стоїть префікс "№", "No", "N", "номер", "рах." — обов'язково відкинь цей префікс і повертай тільки сам номер.
+   - invoiceDate: Дата виставлення рахунку ОБОВ'ЯЗКОВО у форматі РРРР-ММ-ДД (YYYY-MM-DD, наприклад "2026-09-15").
+     * ДЕ ШУКАТИ ДАТУ РАХУНКУ (обов'язково оглянь!):
+       1. У назві / шапці рахунку поруч із номером: "Рахунок на оплату № ... від 15 вересня 2026 р.", "від 15.09.2026", "від «15» вересня 2026 року", "Рахунок-фактура № ... від 15.09.26", "Рахунок № ... від ...". Слово "від" (або "от") завжди вказує на дату складання рахунку!
+       2. В окремих рядках: "Дата:", "Дата рахунку:", "Дата складання:", "Дата виписки:", "Дата оформлення:", "Date:".
+       3. У таблиці або реквізитах рахунку вгорі чи внизу.
+     * ЯК ПРАВИЛЬНО ЗАПОВНИТИ:
+       - Якщо на документі надруковано "від 15 вересня 2026 р.", або "15.09.2026", або "15.09.26" — ОБОВ'ЯЗКОВО перетвори у формат YYYY-MM-DD ("2026-09-15") та запиши в invoiceDate!
+       - Запиши точний текст дати як є (наприклад "15 вересня 2026 р." чи "15.09.2026") у поле invoiceDateOriginal!
+       - КАТЕГОРИЧНО ЗАБОРОНЕНО залишати invoiceDate порожнім або ставити "—", якщо на рахунку є хоч якась дата виставлення чи складання!
+       - Також продублюй цю дату в поле paymentDate.
 
 5. СУМА ТА ВАЛЮТА (АПРІОРНЕ ПРАВИЛО: СУМА ДОКУМЕНТА ЗАВЖДИ > 0):
    - У НАШІЙ БАЗІ ТА РОБОЧІЙ ПАПЦІ НЕ МОЖЕ БУТИ РАХУНКІВ АБО ПЛАТІЖОК З НУЛЬОВОЮ СУМОЮ (0 грн)!
@@ -1047,6 +1060,14 @@ ${knownOrdersPromptList}
     }
   } else if (parsedResult.documentType === 'invoice') {
     parsedResult.paymentStatus = 'Не оплачено';
+
+    // Synchronize and normalize dates for invoices:
+    ensureOcrDates(parsedResult, fileName);
+    if (parsedResult.invoiceDate && !parsedResult.paymentDate) {
+      parsedResult.paymentDate = parsedResult.invoiceDate;
+    } else if (parsedResult.paymentDate && !parsedResult.invoiceDate) {
+      parsedResult.invoiceDate = parsedResult.paymentDate;
+    }
   }
 
   // 3. Targeted Amount Rescue if 0
@@ -1230,6 +1251,68 @@ ${formattedComps}
       console.warn('Targeted buyer name rescue error:', buyerRescueErr);
     }
   }
+
+  // 6. Targeted Invoice Date Rescue if missing on an invoice
+  if (parsedResult.documentType === 'invoice' && !parsedResult.invoiceDate) {
+    try {
+      console.log(`[OCR Date Rescue] Invoice is missing invoiceDate. Running targeted date extraction...`);
+      const rescueDatePrompt = `КРИТИЧНЕ ЗАВДАННЯ ДЛЯ ЗОБРАЖЕННЯ РАХУНКУ НА ОПЛАТУ:
+Первинний аналіз не зміг розпізнати дату рахунку. На будь-якому рахунку на оплату / рахунку-фактурі ОБОВ'ЯЗКОВО надруковано дату складання або виставлення!
+Уважно оглянь зображення цього документа:
+1. Біля назви та номера документа у верхній частині:
+   - "Рахунок на оплату № ... від 15 вересня 2026 р."
+   - "Рахунок на оплату № ... від 15.09.2026" (або "від «15» вересня 2026")
+   - "Рахунок-фактура № ... від 15.09.26"
+   - "Рахунок № ... від ..."
+2. У рядках: "Дата:", "Дата рахунку:", "Дата складання:", "Дата виписки:", "Дата оформлення:", "Date:"
+3. У табличній частині чи реквізитах
+4. Якщо дата написана словами (наприклад "15 вересня 2026 р."), обов'язково переведи її у формат YYYY-MM-DD (наприклад "2026-09-15")!
+
+Поверни JSON строго такого формату:
+{
+  "found": true,
+  "invoiceDate": "2026-09-15",
+  "invoiceDateOriginal": "15 вересня 2026 р."
+}`;
+
+      const rescueDateResponse = await ai.models.generateContent({
+        model: 'gemini-flash-latest',
+        contents: [
+          {
+            inlineData: {
+              mimeType: finalMimeType,
+              data: cleanBase64,
+            },
+          },
+          { text: rescueDatePrompt },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      });
+
+      let rDateText = rescueDateResponse.text || '';
+      rDateText = rDateText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
+      if (rDateText) {
+        const parsedRescueDate = JSON.parse(rDateText);
+        if (parsedRescueDate.found && (parsedRescueDate.invoiceDate || parsedRescueDate.invoiceDateOriginal)) {
+          const iso = normalizeDateToIso(parsedRescueDate.invoiceDate || parsedRescueDate.invoiceDateOriginal);
+          if (iso) {
+            parsedResult.invoiceDate = iso;
+            if (!parsedResult.paymentDate) parsedResult.paymentDate = iso;
+            if (parsedRescueDate.invoiceDateOriginal) parsedResult.invoiceDateOriginal = parsedRescueDate.invoiceDateOriginal;
+            console.log(`[OCR Date Rescue] Successfully rescued invoiceDate: ${iso}`);
+          }
+        }
+      }
+    } catch (dateRescueErr) {
+      console.warn('Targeted date rescue error:', dateRescueErr);
+    }
+  }
+
+  // Final date normalization and fallback cascade
+  ensureOcrDates(parsedResult, fileName);
 
   // Validation warnings
   const warnings: string[] = [];

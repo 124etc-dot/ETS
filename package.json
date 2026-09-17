@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.4.1",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -28,10 +28,12 @@
     "@types/node": "^22.14.0",
     "electron-to-chromium": "^1.5.421",
     "esbuild": "^0.25.0",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "vite-plugin-pwa": "^1.3.0"
   },
   "overrides": {
     "electron-to-chromium": "^1.5.421"

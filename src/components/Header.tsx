@@ -70,9 +70,11 @@ export const Header: React.FC<Props> = ({
           <div className="flex items-center justify-between h-16 gap-4 sm:gap-6 lg:gap-8">
             {/* Logo & ETS Branding with Release Version */}
             <div className="flex items-center space-x-2.5 shrink-0">
-              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shrink-0 shadow-xs">
-                <span className="text-white font-extrabold text-[11px] tracking-tight">ETS</span>
-              </div>
+              <img
+                src="/logo.png"
+                alt="ETS PROJECTS"
+                className="h-8 max-w-[48px] object-contain rounded-md shrink-0"
+              />
               <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5">
                 <span className="text-base sm:text-lg font-bold tracking-tight text-slate-900 whitespace-nowrap">
                   ETS <span className="text-indigo-600">PROJECTS</span>

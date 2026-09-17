@@ -27,6 +27,7 @@ import {
 import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
 import { KNOWN_PROJECT_ORDERS, DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
+import { normalizeDateToIso, extractDateFromText } from '../utils/dateUtils';
 import { CreditCard, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
 
 interface Props {
@@ -129,8 +130,18 @@ export const DocumentReviewModal: React.FC<Props> = ({
         payeeName: raw.payeeName || raw.supplierName || '',
         invoiceNumber: raw.invoiceNumber || raw.paymentNumber || '',
         paymentNumber: raw.paymentNumber || raw.invoiceNumber || '',
-        invoiceDate: raw.invoiceDate || raw.paymentDate || '',
-        paymentDate: raw.paymentDate || raw.invoiceDate || '',
+        invoiceDate:
+          normalizeDateToIso(raw.invoiceDate) ||
+          normalizeDateToIso(raw.invoiceDateOriginal) ||
+          normalizeDateToIso(raw.paymentDate) ||
+          extractDateFromText(`${doc.fileName || ''} ${raw.notes || ''} ${raw.documentTitle || ''} ${raw.paymentPurpose || ''}`) ||
+          '',
+        paymentDate:
+          normalizeDateToIso(raw.paymentDate) ||
+          normalizeDateToIso(raw.invoiceDate) ||
+          normalizeDateToIso(raw.invoiceDateOriginal) ||
+          extractDateFromText(`${doc.fileName || ''} ${raw.notes || ''} ${raw.documentTitle || ''} ${raw.paymentPurpose || ''}`) ||
+          '',
         totalAmount: raw.totalAmount ?? raw.amountPaid ?? 0,
         amountPaid: raw.amountPaid ?? raw.totalAmount ?? 0,
         currency: raw.currency || 'UAH',
@@ -1442,15 +1453,33 @@ export const DocumentReviewModal: React.FC<Props> = ({
             {/* Date, Amount & Currency */}
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Дата {isPaymentDoc ? 'платіжки' : 'рахунку'}
+                <label className={`block text-xs font-semibold mb-1 flex items-center justify-between ${!formData.invoiceDate ? 'text-amber-700' : 'text-slate-700'}`}>
+                  <span>Дата {isPaymentDoc ? 'платіжки' : 'рахунку'}</span>
+                  {!formData.invoiceDate && (
+                    <span className="text-[10px] text-amber-600 font-bold bg-amber-100 px-1.5 py-0.2 rounded">
+                      Потрібна дата!
+                    </span>
+                  )}
                 </label>
                 <input
                   type="date"
-                  value={formData.invoiceDate || ''}
-                  onChange={(e) => handleChange('invoiceDate', e.target.value)}
-                  className="w-full text-xs font-medium p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  value={normalizeDateToIso(formData.invoiceDate) || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    handleChange('invoiceDate', val);
+                    if (!formData.paymentDate || isPaymentDoc) {
+                      handleChange('paymentDate', val);
+                    }
+                  }}
+                  className={`w-full text-xs font-medium p-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                    !formData.invoiceDate ? 'bg-amber-50/50 border border-amber-300' : 'bg-slate-50 border border-slate-200'
+                  }`}
                 />
+                {formData.invoiceDateOriginal && formData.invoiceDateOriginal !== formData.invoiceDate && (
+                  <p className="text-[10px] text-slate-500 mt-0.5 truncate" title={formData.invoiceDateOriginal}>
+                    У документі: <span className="font-medium text-slate-700">{formData.invoiceDateOriginal}</span>
+                  </p>
+                )}
               </div>
 
               <div>
