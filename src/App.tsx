@@ -765,7 +765,7 @@ export default function App() {
           mimeType = downloaded.mimeType;
 
           // Requirement: При скачуванні видалити файл з гугл драйва
-          try {
+          /*try {
             await GoogleDriveService.trashFile(doc.driveFileId, authState.accessToken);
             const dismissed = getDismissedDriveIds();
             dismissed.add(doc.driveFileId);
@@ -773,7 +773,7 @@ export default function App() {
             console.log(`[Google Drive] File ${doc.driveFileId} (${doc.fileName}) moved to trash on Drive after download.`);
           } catch (trashErr) {
             console.warn(`Could not trash file ${doc.driveFileId} on Drive after download:`, trashErr);
-          }
+          }*/
         }
 
         if (!base64Payload) {
@@ -798,10 +798,10 @@ export default function App() {
           () =>
             reject(
               new Error(
-                'Час очікування розпізнавання вичерпано (таймаут 45 с). Перевірте інтернет-з’єднання або натисніть "Перезапустити".'
+                'Час очікування розпізнавання вичерпано (таймаут 90 с). Перевірте інтернет-з’єднання або натисніть "Перезапустити".'
               )
             ),
-          45000
+          90000
         )
       );
 
