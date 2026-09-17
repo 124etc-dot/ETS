@@ -1730,14 +1730,8 @@ export default function App() {
         const dismissed = getDismissedDriveIds();
         dismissed.add(doc.driveFileId);
         saveDismissedDriveIds(dismissed);
-        if (authState.accessToken) {
-          try {
-            await GoogleDriveService.trashFile(doc.driveFileId, authState.accessToken);
-            console.log(`[Google Drive] File ${doc.driveFileId} trashed on sync.`);
-          } catch (delErr) {
-            console.warn(`Could not trash file ${doc.driveFileId} on sync:`, delErr);
-          }
-        }
+        // Не переміщуємо файл у кошик Google Drive після перевірки та синхронізації,
+        // файл має залишатися збереженим на Google Диску у вибраній папці.
       }
 
       setDocuments((prev) =>
@@ -3329,18 +3323,6 @@ export default function App() {
         onReplaceInvoice={async (targetRowIndex, docId, cleanData, prevInfo, options) => {
           const doc = documents.find((d) => d.id === docId);
           await handleReplaceInvoice(targetRowIndex, cleanData, doc, prevInfo, options);
-        }}
-        onTrashDriveFile={async (driveFileId) => {
-          if (!authState.accessToken) return;
-          try {
-            await GoogleDriveService.trashFile(driveFileId, authState.accessToken);
-            const dismissed = getDismissedDriveIds();
-            dismissed.add(driveFileId);
-            saveDismissedDriveIds(dismissed);
-            notify('Файл завантажено та видалено з Google Диска.', 'info');
-          } catch (e) {
-            console.warn('Could not trash file from Drive:', e);
-          }
         }}
       />
 

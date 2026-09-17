@@ -64,7 +64,6 @@ interface Props {
       oldFileName?: string;
     }
   ) => Promise<void>;
-  onTrashDriveFile?: (driveFileId: string) => Promise<void>;
 }
 
 export const DocumentReviewModal: React.FC<Props> = ({
@@ -75,7 +74,6 @@ export const DocumentReviewModal: React.FC<Props> = ({
   onSyncToSheet,
   onReprocess,
   onUploadToDrive,
-  onTrashDriveFile,
   isDriveConnected,
   companyLists,
   existingInvoices = [],
@@ -659,7 +657,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 <>
                   <span className="text-slate-300">|</span>
                   <button
-                    onClick={async () => {
+                    onClick={() => {
                       if (doc.previewDataUrl) {
                         const link = window.document.createElement('a');
                         link.href = doc.previewDataUrl;
@@ -668,16 +666,9 @@ export const DocumentReviewModal: React.FC<Props> = ({
                         link.click();
                         window.document.body.removeChild(link);
                       }
-                      if (doc.driveFileId && onTrashDriveFile) {
-                        try {
-                          await onTrashDriveFile(doc.driveFileId);
-                        } catch (e) {
-                          console.warn('Could not trash file on Drive after download:', e);
-                        }
-                      }
                     }}
-                    className="p-1 text-slate-700 hover:text-indigo-600 transition-colors flex items-center space-x-1"
-                    title="Скачати файл (та видалити з Google Диска)"
+                    className="p-1 text-slate-700 hover:text-indigo-600 transition-colors flex items-center space-x-1 cursor-pointer"
+                    title="Скачати файл на пристрій"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span className="text-[10px]">Скачати</span>
