@@ -80,9 +80,9 @@ export const Header: React.FC<Props> = ({
                   ETS <span className="text-indigo-600">PROJECTS</span>
                 </span>
                 
-                {/* Version Pill */}
+                {/* Version Pill - Always visible on mobile and desktop */}
                 <span 
-                  className="hidden xs:inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs select-all shrink-0"
+                  className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs select-all shrink-0"
                   title={`Поточна версія релізу (з package.json): ${APP_VERSION}`}
                 >
                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1 sm:mr-1.5"></span>
