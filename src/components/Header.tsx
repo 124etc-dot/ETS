@@ -144,7 +144,7 @@ export const Header: React.FC<Props> = ({
                 }`}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Google Таблиця</span>
+                <span>Рахунки & Оплати</span>
               </button>
 
               <button
