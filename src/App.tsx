@@ -24,7 +24,8 @@ import {
   OCRResult,
   InvoicePaymentStatus,
   InvoiceApprovalStatus,
-  DuplicateRowMatch
+  DuplicateRowMatch,
+  OverheadExpenseRow
 } from './types';
 import { googleAuth, AuthState } from './services/googleAuth';
 import { GoogleDriveService } from './services/googleDrive';
@@ -41,6 +42,7 @@ import { DocumentReviewModal } from './components/DocumentReviewModal';
 import { SheetLivePreview } from './components/SheetLivePreview';
 import { CompaniesTab } from './components/CompaniesTab';
 import { ProjectsTab } from './components/ProjectsTab';
+import { OverheadTab } from './components/OverheadTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
 import { NewCompanyConfirmModal } from './components/NewCompanyConfirmModal';
 import { APP_VERSION } from './version';
@@ -61,6 +63,7 @@ const DISMISSED_DRIVE_IDS_KEY = 'invoice_ocr_dismissed_drive_file_ids_v1';
 const COMPANIES_STORAGE_KEY = 'invoice_sheet_companies_cache_v1';
 const INVOICES_STORAGE_KEY = 'invoice_sheet_invoices_cache_v1';
 const PAYMENTS_STORAGE_KEY = 'invoice_sheet_payments_cache_v1';
+const OVERHEAD_STORAGE_KEY = 'invoice_sheet_overhead_cache_v1';
 
 const getDismissedDriveIds = (): Set<string> => {
   if (typeof window === 'undefined') return new Set();
@@ -81,7 +84,7 @@ const saveDismissedDriveIds = (ids: Set<string>) => {
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(googleAuth.getAuthState());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history' | 'projects'>('projects');
+  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead'>('projects');
 
   // Google Drive & Sheets state with local persistence
   const [driveFolderId, setDriveFolderId] = useState<string>(() => {
@@ -206,6 +209,24 @@ export default function App() {
   useEffect(() => {
     existingPaymentsRef.current = existingPayments;
   }, [existingPayments]);
+
+  // Workshop Overhead expenses ("Цех" tab) state with localStorage caching
+  const [overheadExpenses, setOverheadExpenses] = useState<OverheadExpenseRow[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(OVERHEAD_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const overheadExpensesRef = useRef(overheadExpenses);
+  useEffect(() => {
+    overheadExpensesRef.current = overheadExpenses;
+  }, [overheadExpenses]);
 
   // Auto-OCR and Auto-Sync periodic settings
   const [autoOcrEnabled, setAutoOcrEnabled] = useState<boolean>(() => {
@@ -358,6 +379,19 @@ export default function App() {
       if (!updated.buyerName && updated.payerName) updated.buyerName = updated.payerName;
       if (!updated.supplierName && updated.payeeName) updated.supplierName = updated.payeeName;
 
+      return updated;
+    }
+
+    // Workshop overhead detection ("ЦЕХ")
+    if (OCRService.isOverheadDocument(data, fileName)) {
+      const updated = { ...data };
+      updated.expenseCategory = 'OVERHEAD';
+      updated.isOverhead = true;
+      const orderNum = (updated.handwrittenOrderNumber || '').trim();
+      if (!orderNum || orderNum === '—' || OCRService.isOverheadMarker(orderNum)) {
+        updated.handwrittenOrderNumber = 'ЦЕХ';
+        updated.handwrittenConfidence = updated.handwrittenConfidence && updated.handwrittenConfidence !== 'none' ? updated.handwrittenConfidence : 'high';
+      }
       return updated;
     }
 
@@ -605,6 +639,25 @@ export default function App() {
         } catch {}
       }
 
+      // Load Workshop overhead expenses ("Цех" tab)
+      let overheadRows: OverheadExpenseRow[] = [];
+      try {
+        overheadRows = await GoogleSheetsService.loadExistingOverheadExpenses(
+          activeCfg.spreadsheetId,
+          authState.accessToken,
+          activeCfg.overheadSheetName || 'Цех',
+          availableTabs
+        );
+        if (overheadRows && overheadRows.length > 0) {
+          setOverheadExpenses(overheadRows);
+          try {
+            localStorage.setItem(OVERHEAD_STORAGE_KEY, JSON.stringify(overheadRows));
+          } catch {}
+        }
+      } catch (overheadErr) {
+        console.warn('Could not load overhead expenses from Цех tab:', overheadErr);
+      }
+
       // Auto-sync tab names or availableSheets back to sheetConfig if discovered
       if (
         (resolvedTabName && resolvedTabName !== activeCfg.paymentsSheetName) ||
@@ -621,7 +674,7 @@ export default function App() {
       // Automatically re-evaluate whether any documents in the list already exist in the sheet
       setDocuments((prevDocs) => {
         // If sheet data failed to load or is completely empty, do NOT modify documents state
-        if ((!rows || rows.length === 0) && (!payments || payments.length === 0)) {
+        if ((!rows || rows.length === 0) && (!payments || payments.length === 0) && (!overheadRows || overheadRows.length === 0)) {
           return prevDocs;
         }
 
@@ -649,7 +702,7 @@ export default function App() {
             }
           }
 
-          const check = OCRService.checkExistingDocumentInSheet(effectiveOcr, rows, payments);
+          const check = OCRService.checkExistingDocumentInSheet(effectiveOcr, rows, payments, overheadRows);
 
           // Auto-recover buyerName if missing from OCR but present in matched Google Sheet row or order
           if (!effectiveOcr.buyerName || effectiveOcr.buyerName === '—') {
@@ -863,7 +916,8 @@ export default function App() {
       const sheetCheck = OCRService.checkExistingDocumentInSheet(
         ocrResult,
         existingInvoicesRef.current,
-        existingPaymentsRef.current
+        existingPaymentsRef.current,
+        overheadExpensesRef.current
       );
 
       // Auto-recover buyerName if missing from OCR but available in matched Google Sheet row!
@@ -1199,6 +1253,53 @@ export default function App() {
             matchedData,
           };
         }
+
+        // Check matching in workshop overhead tab ("Цех")
+        const currentOverhead = overheadExpensesRef.current;
+        const oMatch = currentOverhead.find((exp) => {
+          if (!exp.supplier && !exp.buyer && !exp.amount && !exp.invoiceNumber) return false;
+          // 1. Direct drive link or file name match
+          if (exp.driveLink && f.webViewLink && exp.driveLink.includes(f.id)) return true;
+          if (exp.fileName && exp.fileName.trim().length > 3 && cleanName.length > 3 && exp.fileName.toLowerCase().trim() === cleanName) return true;
+
+          // 2. Invoice number inside file name
+          const cleanInv = OCRService.sanitizeInvoiceNumber(exp.invoiceNumber || '');
+          if (cleanInv && cleanInv.length >= 2) {
+            const cleanFn = OCRService.sanitizeInvoiceNumber(cleanName);
+            if (cleanFn.includes(cleanInv)) {
+              return true;
+            }
+          }
+
+          return false;
+        });
+
+        if (oMatch) {
+          const matchedData: OCRResult = {
+            documentType: 'invoice',
+            documentTypeUkrainian: 'Рахунок на оплату',
+            invoiceNumber: oMatch.invoiceNumber || '',
+            invoiceDate: oMatch.date || '',
+            supplierName: oMatch.supplier || '',
+            buyerName: oMatch.buyer || '',
+            totalAmount: oMatch.amount || 0,
+            amountPaid: oMatch.paidAmount || (oMatch.paymentStatus === 'Оплачено' ? oMatch.amount : 0),
+            currency: oMatch.currency || 'UAH',
+            handwrittenOrderNumber: 'ЦЕХ',
+            handwrittenConfidence: 'high',
+            confidenceScore: 100,
+            paymentStatus: oMatch.paymentStatus || 'Не оплачено',
+            expenseCategory: 'OVERHEAD',
+            isOverhead: true,
+          };
+          return {
+            inSheet: true,
+            tab: 'Цех',
+            rowIndex: oMatch.rowIndex,
+            matchedData,
+          };
+        }
+
         return { inSheet: false };
       };
 
@@ -1480,12 +1581,15 @@ export default function App() {
     const doubleCheck = OCRService.checkExistingDocumentInSheet(
       dataToSync,
       freshInvoices,
-      freshPayments
+      freshPayments,
+      overheadExpensesRef.current
     );
 
     const rowPhysicallyExists = doubleCheck.rowIndex
       ? doubleCheck.tabName === 'Платіжки'
         ? freshPayments.some((p) => p.rowIndex === doubleCheck.rowIndex)
+        : doubleCheck.tabName === 'Цех'
+        ? overheadExpensesRef.current.some((exp) => exp.rowIndex === doubleCheck.rowIndex)
         : freshInvoices.some((inv) => inv.rowIndex === doubleCheck.rowIndex)
       : false;
 
@@ -1788,8 +1892,11 @@ export default function App() {
 
       // Refresh live view
       await refreshSheetData();
+      const isOverheadDoc = OCRService.isOverheadDocument(dataToSync, doc.fileName);
       notify(
-        `Документ "${doc.fileName}" успішно записано у Google Таблицю!${matchInfoMsg}`,
+        isOverheadDoc
+          ? `✅ Рахунок "${doc.fileName}" успішно записано у вкладку «Цех» Google Таблиці як накладні витрати!`
+          : `Документ "${doc.fileName}" успішно записано у Google Таблицю!${matchInfoMsg}`,
         'success'
       );
     } catch (err: any) {
@@ -3114,6 +3221,7 @@ export default function App() {
         }}
         totalPendingCount={documents.filter((d) => d.status === 'pending').length}
         totalReadyCount={documents.filter((d) => d.status === 'ready_for_review').length}
+        overheadCount={overheadExpenses.length}
       />
 
       {/* Floating Notification */}
@@ -3279,6 +3387,18 @@ export default function App() {
                 window.open(sheetConfig.spreadsheetUrl, '_blank');
               }
             }}
+          />
+        )}
+
+        {/* View Mode: Workshop Overhead Expenses (Вкладка "Цех") */}
+        {activeTab === 'overhead' && (
+          <OverheadTab
+            overheadExpenses={overheadExpenses}
+            sheetConfig={sheetConfig}
+            accessToken={authState.accessToken || undefined}
+            companyLists={companyLists}
+            onRefresh={refreshSheetData}
+            onNotify={notify}
           />
         )}
       </main>

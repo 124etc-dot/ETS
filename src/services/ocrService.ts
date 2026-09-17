@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
-import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument, DuplicateRowMatch } from '../types';
+import { OCRResult, InvoicePaymentStatus, ExistingSheetRow, ExistingPaymentRow, ProcessedDocument, DuplicateRowMatch, OverheadExpenseRow } from '../types';
 import { DEFAULT_OUR_COMPANIES, KNOWN_PROJECT_ORDERS } from '../data/sampleDocuments';
 import { ensureOcrDates, normalizeDateToIso, extractDateFromText } from '../utils/dateUtils';
 
@@ -88,9 +88,18 @@ const ocrResponseSchema: Schema = {
       type: Type.STRING,
       description: 'Bank processing/execution stamps or digital signature markers if present, e.g. "Дата виконання БАНК 09.09.2026", "iBank2UA ЕП Є КОРЕКТНИМ", "Проведено банком", "UETR"',
     },
+    expenseCategory: {
+      type: Type.STRING,
+      enum: ['PROJECT', 'OVERHEAD'],
+      description: 'Category of expense: "OVERHEAD" if marked with "ЦЕХ", "ЦУХ", "цех", "цух" (ручна чи друкована позначка ЦЕХ/ЦУХ, накладні витрати цеху без номера проекту, або в назві файлу/нотатках). Otherwise "PROJECT" if having project order number (e.g. 142-26) or regular project expense.',
+    },
+    isOverhead: {
+      type: Type.BOOLEAN,
+      description: 'Set to true if document has a handwritten or printed mark "ЦЕХ", "ЦУХ" (цех, цух, накладні витрати цеху), false otherwise.',
+    },
     handwrittenOrderNumber: {
       type: Type.STRING,
-      description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26"). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
+      description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26") OR "ЦЕХ" if marked with "ЦЕХ" / "ЦУХ" (рукописне слово цех/цух/цехові/накладні). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
     },
     handwrittenRawText: {
       type: Type.STRING,
@@ -266,6 +275,17 @@ ${ourCompaniesPromptList}
 ${suppliersPromptList}
 ${knownOrdersPromptList}
 ${docTypeHintInstruction}
+
+КРИТИЧНО: ПОЗНАЧКА «ЦЕХ» / «ЦУХ» ТА ЗАГАЛЬНОВИРОБНИЧІ НАКЛАДНІ ВИТРАТИ:
+Якщо на документі чи фото рахунку є ручна чи друкована позначка «ЦЕХ», «ЦУХ», «цех», «цух», «ЦЄХ», «ЦЭХ», «цехові», «цехова», «цехове», «цеховий», «цехові витрати», «на цех», «для цеху», «в цех» (написана ручкою, маркером чи олівцем у будь-якому місці: вгорі, внизу, на полях, біля суми, біля шапки), або якщо в назві файлу є слово «цех» чи «цух», або якщо в документі немає номера замовлення проекту (xxx-xx), але розпізнано слово «ЦЕХ» / «ЦУХ» / «цехові» (зверни увагу: літера «е» в рукописному слові «цех» часто пишеться чи розпізнається схожою на «у» / «цух») — ОБОВ'ЯЗКОВО встанови:
+- expenseCategory: "OVERHEAD"
+- isOverhead: true
+- handwrittenOrderNumber: "ЦЕХ"
+- handwrittenRawText: точний розпізнаний напис (наприклад "ЦУХ", "ЦЕХ", "цех" тощо)
+- handwrittenConfidence: "high"
+Якщо на рахунку звичайний номер замовлення проекту (наприклад "142-26", "232-26"), встанови:
+- expenseCategory: "PROJECT"
+- isOverhead: false
 
 КРИТИЧНІ ПРАВИЛА РОЗПІЗНАВАННЯ:
 1. ТИП ДОКУМЕНТА (invoice, payment, other) — СУВОРЕ РОЗМЕЖУВАННЯ:
@@ -475,14 +495,50 @@ ${docTypeHintInstruction}
     throw new Error(lastError?.message || 'Не вдалося розпізнати документ за допомогою Gemini AI. Перевірте якість файлу або формат.');
   }
 
-  // 1. Strictly format handwritten order number as xxx-xx without №
+  // 1. Strictly format handwritten order number as xxx-xx without № (or "ЦЕХ" for overhead)
   if (parsedResult.handwrittenOrderNumber) {
     parsedResult.handwrittenOrderNumber = OCRService.normalizeOrderNumber(parsedResult.handwrittenOrderNumber);
   } else if (parsedResult.handwrittenRawText) {
     const candidate = OCRService.normalizeOrderNumber(parsedResult.handwrittenRawText);
-    if (/^\d{1,6}-\d{2}$/.test(candidate)) {
-      parsedResult.handwrittenOrderNumber = candidate;
+    if (/^\d{1,6}-\d{2}$/.test(candidate) || OCRService.isOverheadMarker(candidate)) {
+      parsedResult.handwrittenOrderNumber = candidate === 'ЦЕХ' ? 'ЦЕХ' : candidate;
     }
+  }
+
+  // 1.1 Robust Detection of OVERHEAD / Workshop Expense ("ЦЕХ" / "ЦУХ"):
+  const allOcrCandidateTexts = [
+    parsedResult.handwrittenRawText,
+    parsedResult.handwrittenOrderNumber,
+    parsedResult.handwrittenLocation,
+    parsedResult.notes,
+    parsedResult.documentTitle,
+    parsedResult.paymentPurpose,
+    parsedResult.lineItems?.map((l: any) => l.description).join(' '),
+    fileName,
+  ].filter(Boolean).join(' ');
+
+  const hasExplicitCeHMark = OCRService.isOverheadMarker(allOcrCandidateTexts) ||
+    OCRService.isOverheadMarker(parsedResult.handwrittenOrderNumber) ||
+    OCRService.isOverheadMarker(parsedResult.handwrittenRawText) ||
+    OCRService.isOverheadMarker(fileName);
+
+  const hasProjectOrderNumber = /^\d{1,6}-\d{2}$/.test(parsedResult.handwrittenOrderNumber || '') &&
+    parsedResult.handwrittenOrderNumber !== 'ЦЕХ';
+
+  if (hasExplicitCeHMark || parsedResult.expenseCategory === 'OVERHEAD' || parsedResult.isOverhead) {
+    parsedResult.expenseCategory = 'OVERHEAD';
+    parsedResult.isOverhead = true;
+    if (!hasProjectOrderNumber || parsedResult.handwrittenOrderNumber === 'ЦЕХ') {
+      parsedResult.handwrittenOrderNumber = 'ЦЕХ';
+      parsedResult.handwrittenConfidence = parsedResult.handwrittenConfidence && parsedResult.handwrittenConfidence !== 'none' ? parsedResult.handwrittenConfidence : 'high';
+      parsedResult.handwrittenLocation = parsedResult.handwrittenLocation || 'Позначка на рахунку';
+    }
+  } else if (hasProjectOrderNumber) {
+    parsedResult.expenseCategory = 'PROJECT';
+    parsedResult.isOverhead = false;
+  } else {
+    parsedResult.expenseCategory = parsedResult.expenseCategory || 'PROJECT';
+    parsedResult.isOverhead = false;
   }
 
   // 2. Strictly format all company names to "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES)
@@ -1593,17 +1649,80 @@ export class OCRService {
   }
 
   /**
+   * Check if a text string matches workshop overhead marker ("ЦЕХ", "ЦУХ", "цехові", etc.)
+   * Covers typos and variations like "ЦУХ" (common handwriting misread of "ЦЕХ"),
+   * spaced letters ("ц е х", "ц у х"), prefixes ("на цех", "для цеху", "в цех"),
+   * case variations, and transliteration ("ceh", "cuh", "tseh", "tsekh").
+   */
+  public static isOverheadMarker(input?: string | null): boolean {
+    if (!input) return false;
+    const raw = String(input).trim();
+    if (!raw) return false;
+    const s = raw.toLowerCase();
+
+    // Direct exact keywords
+    if (/^(?:цех|цух|цєх|цэх|ceh|cuh|tseh|tsekh)$/i.test(s)) return true;
+
+    // Spaced or punctuated variations: "ц е х", "ц у х", "ц.е.х.", "ц.у.х.", "ц-е-х", "ц-у-х", "ц_е_х", "ц_у_х"
+    if (/^ц[\s._-]*[еуэє][\s._-]*х[\s._-]*$/i.test(s)) return true;
+
+    // Whole-word regex for word boundaries in Ukrainian / Cyrillic / Latin
+    if (/(?:^|[^а-яіїєґa-z0-9])(цех|цух|цєх|цэх|цеху|цуху|цехові|цехова|цехове|цеховий|цеховой|цеховые|цехових|цеховими)(?:$|[^а-яіїєґa-z0-9])/i.test(s)) {
+      return true;
+    }
+
+    // Contextual phrases: "на цех", "для цеху", "в цех", "під цех", "цехові витрати", "матеріали на цех"
+    if (/(?:на|для|в|до|під)\s+(?:цех|цух|цеху|цуху)/i.test(s)) return true;
+    if (/(?:цех|цух|цехові|цехова|цехове)\s+(?:витрати|потреби|матеріали|розхідники)/i.test(s)) return true;
+
+    // Latin keywords as standalone words
+    if (/(?:^|[^a-z0-9])(ceh|cuh|tseh|tsekh)(?:$|[^a-z0-9])/i.test(s)) return true;
+
+    return false;
+  }
+
+  /**
+   * Check if a document is an overhead / workshop expense ("ЦЕХ" tab candidate).
+   */
+  public static isOverheadDocument(
+    ocr?: Partial<OCRResult> | null,
+    fileName?: string
+  ): boolean {
+    if (!ocr && !fileName) return false;
+    if (ocr?.expenseCategory === 'OVERHEAD' || ocr?.isOverhead === true) return true;
+    if (this.isOverheadMarker(ocr?.handwrittenOrderNumber)) return true;
+    if (this.isOverheadMarker(ocr?.handwrittenRawText)) return true;
+    if (this.isOverheadMarker(ocr?.handwrittenLocation)) return true;
+    if (this.isOverheadMarker(ocr?.notes)) return true;
+    if (this.isOverheadMarker(ocr?.documentTitle)) return true;
+    if (this.isOverheadMarker(ocr?.paymentPurpose)) return true;
+    if (fileName && this.isOverheadMarker(fileName)) return true;
+    return false;
+  }
+
+  /**
    * Clean and normalize handwritten order number strictly to format xxx-xx WITHOUT symbol №
    * E.g. "№142-26" -> "142-26", "зам. 89-26" -> "89-26", "12326" -> "123-26"
+   * For workshop markers ("ЦЕХ", "ЦУХ", "цехові") -> strictly returns "ЦЕХ"
    */
   public static normalizeOrderNumber(input: string): string {
     if (!input) return '';
     let val = input.trim();
     
+    // Support workshop overhead marker ("ЦЕХ", "ЦУХ", "цехові", etc.)
+    if (this.isOverheadMarker(val)) {
+      return 'ЦЕХ';
+    }
+
     // Remove leading symbols and keywords: №, No, N, #, зам, замовлення, код, з., з-
     val = val.replace(/^(?:№|No|N|#|зам\.?|замовлення|замовл\.?|код|з\.?|з-)\s*/i, '');
     val = val.replace(/[№#]/g, '');
     val = val.replace(/\s+/g, '');
+    
+    // Check again after removing № prefix (e.g. "№ ЦЕХ", "№ ЦУХ")
+    if (this.isOverheadMarker(val)) {
+      return 'ЦЕХ';
+    }
     
     // If format is like "232/26" or "232.26"
     val = val.replace(/^(\d+)[/.](\d{2})$/, '$1-$2');
@@ -2776,11 +2895,13 @@ export class OCRService {
    * Check if a document is already present in Google Sheets:
    * - For Invoices: checks by (InvoiceNumber + Supplier) OR (OrderNumber + InvoiceNumber + Amount)
    * - For Payments: checks by (PaymentNumber + Payee + Amount) OR (PaymentDate + Amount + Payee)
+   * - For Overhead ("Цех"): checks in existingOverheadExpenses by (InvoiceNumber + Supplier) OR (Date + Amount + Supplier)
    */
   public static checkExistingDocumentInSheet(
     docOcr: OCRResult,
     existingInvoices: ExistingSheetRow[] = [],
-    existingPayments: any[] = []
+    existingPayments: any[] = [],
+    existingOverheadExpenses: OverheadExpenseRow[] = []
   ): {
     alreadyInSheet: boolean;
     rowIndex?: number;
@@ -2788,6 +2909,7 @@ export class OCRService {
     reason?: string;
     matchedInvoice?: ExistingSheetRow;
     matchedPayment?: any;
+    matchedOverhead?: OverheadExpenseRow;
   } {
     const isPlaceholderNumber = (num: string): boolean => {
       if (!num) return true;
@@ -2941,6 +3063,49 @@ export class OCRService {
             reason: `Рахунок від ${existSupplier} на суму ${amount} грн від ${existDate} вже є у вкладці "Рахунки" (рядок ${inv.rowIndex})`,
             matchedInvoice: inv,
           };
+        }
+      }
+
+      // Check existing overhead expenses ("Цех" tab)
+      if (existingOverheadExpenses && existingOverheadExpenses.length > 0) {
+        for (const exp of existingOverheadExpenses) {
+          const existInvNum = (exp.invoiceNumber || '').trim();
+          const cleanExistInvNum = this.normalizeInvoiceNumber(existInvNum);
+          const isExistInvPlaceholder = isPlaceholderNumber(cleanExistInvNum);
+          const existSupplier = this.normalizeCompanyName(exp.supplier || '');
+          const existAmount = exp.amount || 0;
+          const existDate = (exp.date || '').trim();
+
+          if (!cleanExistInvNum && !existAmount && !existSupplier) continue;
+
+          const supplierMatch = supplier && existSupplier && this.isCompanyNameMatch(supplier, existSupplier);
+          const amountMatch = amount > 0 && existAmount > 0 && Math.abs(amount - existAmount) <= 0.50;
+          const dateMatch = Boolean(invDate && existDate && invDate === existDate);
+
+          const validInvNumbersMatch =
+            !isCleanInvPlaceholder &&
+            !isExistInvPlaceholder &&
+            cleanInvNum === cleanExistInvNum;
+
+          if (supplierMatch && validInvNumbersMatch && (amountMatch || amount === 0 || existAmount === 0)) {
+            return {
+              alreadyInSheet: true,
+              rowIndex: exp.rowIndex,
+              tabName: 'Цех',
+              reason: `Рахунок №${exp.invoiceNumber} від ${existSupplier} на суму ${existAmount || amount} грн вже є у вкладці "Цех" (рядок ${exp.rowIndex})`,
+              matchedOverhead: exp,
+            };
+          }
+
+          if (supplierMatch && amountMatch && dateMatch) {
+            return {
+              alreadyInSheet: true,
+              rowIndex: exp.rowIndex,
+              tabName: 'Цех',
+              reason: `Рахунок від ${existSupplier} на суму ${amount} грн від ${existDate} вже є у вкладці "Цех" (рядок ${exp.rowIndex})`,
+              matchedOverhead: exp,
+            };
+          }
         }
       }
     }

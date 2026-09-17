@@ -22,7 +22,8 @@ import {
   RotateCcw,
   AlertCircle,
   ArrowUpDown,
-  Download
+  Download,
+  Factory
 } from 'lucide-react';
 import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
@@ -227,8 +228,21 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
   const handleOrderNumberBlur = () => {
     if (formData.handwrittenOrderNumber) {
-      const normalized = OCRService.normalizeOrderNumber(formData.handwrittenOrderNumber);
-      handleChange('handwrittenOrderNumber', normalized);
+      const val = formData.handwrittenOrderNumber.trim();
+      if (OCRService.isOverheadMarker(val)) {
+        handleChange('expenseCategory', 'OVERHEAD');
+        handleChange('isOverhead', true);
+        handleChange('handwrittenOrderNumber', 'ЦЕХ');
+      } else {
+        const normalized = OCRService.normalizeOrderNumber(val);
+        if (normalized === 'ЦЕХ') {
+          handleChange('expenseCategory', 'OVERHEAD');
+          handleChange('isOverhead', true);
+          handleChange('handwrittenOrderNumber', 'ЦЕХ');
+        } else {
+          handleChange('handwrittenOrderNumber', normalized);
+        }
+      }
     }
   };
 
@@ -1077,65 +1091,140 @@ export const DocumentReviewModal: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Handwritten Order Number (For Invoices) */}
+            {/* Handwritten Order Number & Expense Category (For Invoices) */}
             {!isPaymentDoc && (
-              <div className="border-2 border-dashed border-amber-300 bg-amber-50/50 rounded-xl p-4 shadow-xs">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center space-x-1.5">
-                    <PenTool className="w-4 h-4 text-amber-600" />
-                    <span>Внутрішній номер замовлення (Рукописний)</span>
-                  </label>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded">
-                    Формат: ххх-хх (без №)
-                  </span>
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={formData.handwrittenOrderNumber || ''}
-                    onChange={(e) => handleChange('handwrittenOrderNumber', e.target.value)}
-                    onBlur={handleOrderNumberBlur}
-                    placeholder="наприклад: 142-26 або 228-26"
-                    className="w-full text-sm font-bold font-mono px-3 py-2 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 text-amber-950"
-                  />
+              <div className="border-2 border-dashed border-amber-300 bg-amber-50/50 rounded-xl p-4 shadow-xs space-y-3">
+                {/* Category Switch: Project Order vs Workshop Overhead */}
+                <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-amber-200">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-bold text-amber-950 uppercase tracking-wider">Категорія витрати:</span>
+                  </div>
+                  <div className="flex items-center bg-white/90 p-0.5 rounded-lg border border-amber-300 shadow-2xs">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isCurrentlyOverhead = Boolean(
+                          formData.isOverhead ||
+                          formData.expenseCategory === 'OVERHEAD' ||
+                          formData.handwrittenOrderNumber === 'ЦЕХ' ||
+                          OCRService.isOverheadMarker(formData.handwrittenOrderNumber) ||
+                          OCRService.isOverheadDocument(formData, doc?.fileName)
+                        );
+                        if (isCurrentlyOverhead) {
+                          handleChange('expenseCategory', 'PROJECT');
+                          handleChange('isOverhead', false);
+                          handleChange('handwrittenOrderNumber', '');
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                        !(formData.isOverhead || formData.expenseCategory === 'OVERHEAD' || formData.handwrittenOrderNumber === 'ЦЕХ' || OCRService.isOverheadMarker(formData.handwrittenOrderNumber) || OCRService.isOverheadDocument(formData, doc?.fileName))
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🎯 Прямі витрати проекту
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleChange('expenseCategory', 'OVERHEAD');
+                        handleChange('isOverhead', true);
+                        handleChange('handwrittenOrderNumber', 'ЦЕХ');
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                        formData.isOverhead || formData.expenseCategory === 'OVERHEAD' || formData.handwrittenOrderNumber === 'ЦЕХ' || OCRService.isOverheadMarker(formData.handwrittenOrderNumber) || OCRService.isOverheadDocument(formData, doc?.fileName)
+                          ? 'bg-amber-600 text-white shadow-2xs'
+                          : 'text-amber-900 hover:bg-amber-100/60'
+                      }`}
+                    >
+                      <Factory className="w-3.5 h-3.5" />
+                      <span>🏭 Накладні (ЦЕХ)</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Quick select pills from active orders */}
-                {availableOrderSuggestions.length > 0 && !formData.handwrittenOrderNumber && (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="text-[10px] font-semibold text-amber-900">Швидкий вибір:</span>
-                    {availableOrderSuggestions.map((ord) => (
+                {/* If marked as OVERHEAD */}
+                {(formData.isOverhead || formData.expenseCategory === 'OVERHEAD' || formData.handwrittenOrderNumber === 'ЦЕХ' || OCRService.isOverheadMarker(formData.handwrittenOrderNumber) || OCRService.isOverheadDocument(formData, doc?.fileName)) ? (
+                  <div className="p-3 bg-amber-100/90 border border-amber-300 rounded-lg text-xs space-y-1.5 shadow-2xs">
+                    <div className="flex items-center space-x-2 text-amber-950 font-bold">
+                      <Factory className="w-4 h-4 text-amber-700" />
+                      <span>Рахунок позначено як загальновиробничі накладні витрати «ЦЕХ»</span>
+                    </div>
+                    <p className="text-[11px] text-amber-900">
+                      Цей рахунок буде автоматично збережено у вкладку <b>«Цех»</b> Google Таблиці у відповідні колонки: <i>A - Постачальник, B - Платник, C - Номер рахунку, D - Дата рахунку, E - Сума, F - Валюта, G - Статус, H - Час завантаження, I - Сума оплати</i>.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-amber-950 uppercase tracking-wider flex items-center space-x-1.5">
+                        <PenTool className="w-4 h-4 text-amber-600" />
+                        <span>Внутрішній номер замовлення (Рукописний)</span>
+                      </label>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900 bg-amber-200/80 px-2 py-0.5 rounded">
+                        Формат: ххх-хх (без №)
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={formData.handwrittenOrderNumber || ''}
+                        onChange={(e) => handleChange('handwrittenOrderNumber', e.target.value)}
+                        onBlur={handleOrderNumberBlur}
+                        placeholder="наприклад: 142-26 або 228-26 (або ЦЕХ / ЦУХ)"
+                        className="w-full text-sm font-bold font-mono px-3 py-2 bg-white border border-amber-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 text-amber-950"
+                      />
+                    </div>
+
+                    {/* Quick select pills from active orders + ЦЕХ */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-semibold text-amber-900">Швидкий вибір:</span>
                       <button
-                        key={ord}
                         type="button"
                         onClick={() => {
-                          handleChange('handwrittenOrderNumber', ord);
+                          handleChange('expenseCategory', 'OVERHEAD');
+                          handleChange('isOverhead', true);
+                          handleChange('handwrittenOrderNumber', 'ЦЕХ');
                         }}
-                        className="text-[10px] font-mono font-bold bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300 px-1.5 py-0.5 rounded transition-colors shadow-2xs"
+                        className="text-[10px] font-mono font-bold bg-amber-600 hover:bg-amber-700 text-white px-2 py-0.5 rounded transition-colors shadow-2xs flex items-center gap-1"
+                        title="Позначити як загальновиробничі накладні витрати вкладки «Цех»"
                       >
-                        {ord}
+                        <Factory className="w-3 h-3" />
+                        <span>ЦЕХ (Накладні)</span>
                       </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Matched project title from Master Table */}
-                {matchedProjectOrder && (
-                  <div className="mt-2 p-2 bg-amber-100/80 border border-amber-300 rounded-lg flex items-center justify-between text-xs text-amber-950 font-semibold">
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <span className="text-amber-700 font-bold">🎯 Об'єкт:</span>
-                      <span className="font-bold text-amber-900 truncate">{matchedProjectOrder.title}</span>
+                      {availableOrderSuggestions.length > 0 && !formData.handwrittenOrderNumber && availableOrderSuggestions.map((ord) => (
+                        <button
+                          key={ord}
+                          type="button"
+                          onClick={() => {
+                            handleChange('handwrittenOrderNumber', ord);
+                          }}
+                          className="text-[10px] font-mono font-bold bg-amber-100/90 hover:bg-amber-200 text-amber-950 border border-amber-300 px-1.5 py-0.5 rounded transition-colors shadow-2xs"
+                        >
+                          {ord}
+                        </button>
+                      ))}
                     </div>
-                    <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-amber-200 text-amber-900 font-medium shrink-0">
-                      {matchedProjectOrder.status}
-                    </span>
-                  </div>
-                )}
 
-                <p className="text-[11px] text-amber-800/80 mt-1.5 flex items-center">
-                  <Info className="w-3 h-3 mr-1 shrink-0" />
-                  Номер, написаний від руки. Формат: тільки цифри та дефіс (ххх-хх), без символу №.
-                </p>
+                    {/* Matched project title from Master Table */}
+                    {matchedProjectOrder && (
+                      <div className="mt-2 p-2 bg-amber-100/80 border border-amber-300 rounded-lg flex items-center justify-between text-xs text-amber-950 font-semibold">
+                        <div className="flex items-center space-x-1.5 truncate">
+                          <span className="text-amber-700 font-bold">🎯 Об'єкт:</span>
+                          <span className="font-bold text-amber-900 truncate">{matchedProjectOrder.title}</span>
+                        </div>
+                        <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-amber-200 text-amber-900 font-medium shrink-0">
+                          {matchedProjectOrder.status}
+                        </span>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-amber-800/80 mt-1.5 flex items-center">
+                      <Info className="w-3 h-3 mr-1 shrink-0" />
+                      Номер, написаний від руки. Формат: тільки цифри та дефіс (ххх-хх), без символу №.
+                    </p>
+                  </>
+                )}
               </div>
             )}
 

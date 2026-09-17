@@ -1,6 +1,29 @@
 <!doctype html>
 <html lang="uk">
   <head>
+    <script>
+      // Suppress benign [vite] websocket connection warnings in the preview environment
+      (function() {
+        const origError = console.error;
+        const origWarn = console.warn;
+        console.error = function(...args) {
+          if (args.some(function(arg) {
+            return typeof arg === 'string' && (arg.indexOf('[vite]') !== -1 || arg.indexOf('failed to connect to websocket') !== -1);
+          })) {
+            return;
+          }
+          return origError.apply(console, args);
+        };
+        console.warn = function(...args) {
+          if (args.some(function(arg) {
+            return typeof arg === 'string' && (arg.indexOf('[vite]') !== -1 || arg.indexOf('failed to connect to websocket') !== -1);
+          })) {
+            return;
+          }
+          return origWarn.apply(console, args);
+        };
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ETS PROJECTS</title>

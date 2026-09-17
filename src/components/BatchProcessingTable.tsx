@@ -93,6 +93,8 @@ export const BatchProcessingTable: React.FC<Props> = ({
       const q = searchQuery.trim().toLowerCase();
       const ocr = doc.editedData || doc.ocrResult;
       const matchName = doc.fileName.toLowerCase().includes(q);
+      const isOverhead = OCRService.isOverheadDocument(ocr, doc.fileName);
+      const matchOverhead = (q === 'цех' || q === 'цух' || q === 'ceh' || q === 'cuh' || q === 'накладні') && isOverhead;
       const matchOrder = ocr?.handwrittenOrderNumber?.toLowerCase().includes(q);
       const matchSupplier = ocr?.supplierName?.toLowerCase().includes(q);
       const matchSupplierEdrpou = ocr?.supplierEdrpou?.toLowerCase().includes(q);
@@ -107,6 +109,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
 
       return (
         matchName ||
+        matchOverhead ||
         matchOrder ||
         matchSupplier ||
         matchSupplierEdrpou ||
@@ -776,7 +779,22 @@ export const BatchProcessingTable: React.FC<Props> = ({
 
                     {/* Handwritten Order # */}
                     <td className="p-3 bg-amber-50/30 border-x border-amber-100/80 font-mono">
-                      {data?.handwrittenOrderNumber ? (
+                      {OCRService.isOverheadDocument(data, doc.fileName) ? (
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center space-x-1.5">
+                            <span className="px-2 py-0.5 rounded bg-amber-600 text-white font-bold text-xs shadow-2xs flex items-center gap-1" title="Загальновиробничі накладні витрати (запис у вкладку «Цех» Google Таблиці)">
+                              <span>🏭</span>
+                              <span>ЦЕХ</span>
+                            </span>
+                            <span className="text-[9px] uppercase px-1 rounded font-bold text-amber-900 bg-amber-100 border border-amber-300">
+                              Накладні
+                            </span>
+                          </div>
+                          <span className="text-[9px] text-amber-800 font-semibold" title="Документ буде внесено у вкладку «Цех»">
+                            Вкладка «Цех»
+                          </span>
+                        </div>
+                      ) : data?.handwrittenOrderNumber ? (
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center space-x-1.5">
                             <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-950 font-bold text-xs border border-amber-300">

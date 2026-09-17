@@ -201,6 +201,15 @@ const ocrResponseSchema: Schema = {
       type: Type.STRING,
       description: 'Bank processing/execution stamps or digital signature markers if present, e.g. "Дата виконання БАНК 09.09.2026", "iBank2UA ЕП Є КОРЕКТНИМ", "Проведено банком", "UETR"',
     },
+    expenseCategory: {
+      type: Type.STRING,
+      enum: ['PROJECT', 'OVERHEAD'],
+      description: 'Category of expense: "OVERHEAD" if marked with "ЦЕХ" (ручна позначка ЦЕХ, накладні витрати цеху без конкретного номера проекту). Otherwise "PROJECT" if having project order number (e.g. 142-26) or regular project expense.',
+    },
+    isOverhead: {
+      type: Type.BOOLEAN,
+      description: 'Set to true if document has a handwritten or printed mark "ЦЕХ" (цех, накладні витрати цеху), false otherwise.',
+    },
     handwrittenOrderNumber: {
       type: Type.STRING,
       description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26"). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
@@ -385,6 +394,17 @@ export async function processOcrDocument(params: {
 ${ourCompaniesPromptList}
 ${suppliersPromptList}
 ${knownOrdersPromptList}
+
+КРИТИЧНО: ПОЗНАЧКА «ЦЕХ» ТА ЗАГАЛЬНОВИРОБНИЧІ ВИТРАТИ:
+Якщо на документі чи фото рахунку є ручна позначка «ЦЕХ» / «цех» (написана ручкою чи олівцем у будь-якому місці), або якщо немає номера конкретного замовлення проекту (xxx-xx), але розпізнано слово «ЦЕХ» / «цехові» — обов'язково встанови:
+- expenseCategory: "OVERHEAD"
+- isOverhead: true
+- handwrittenOrderNumber: "ЦЕХ"
+- handwrittenRawText: "ЦЕХ"
+- handwrittenConfidence: "high"
+Якщо на рахунку звичайний номер замовлення проекту (наприклад "142-26", "232-26"), встанови:
+- expenseCategory: "PROJECT"
+- isOverhead: false
 
 КРИТИЧНІ ПРАВИЛА РОЗПІЗНАВАННЯ:
 1. ТИП ДОКУМЕНТА (invoice, payment, other) — СУВОРЕ РОЗМЕЖУВАННЯ:
@@ -600,6 +620,9 @@ ${knownOrdersPromptList}
   const normalizeOrderNumberStr = (raw: string): string => {
     if (!raw) return '';
     let norm = String(raw).trim();
+    if (/^цех$/i.test(norm) || /^цехові$/i.test(norm) || /^цеху$/i.test(norm)) {
+      return 'ЦЕХ';
+    }
     norm = norm.replace(/^(?:№|No|N|#|зам\.?|замовлення|замовл\.?|код|з\.?|з-)\s*/i, '');
     norm = norm.replace(/[№#]/g, '');
     norm = norm.replace(/\s+/g, '');
@@ -625,9 +648,40 @@ ${knownOrdersPromptList}
   } else if (parsedResult.handwrittenRawText) {
     // If rawText has a candidate number
     const candidate = normalizeOrderNumberStr(parsedResult.handwrittenRawText);
-    if (/^\d{1,6}-\d{2}$/.test(candidate)) {
+    if (/^\d{1,6}-\d{2}$/.test(candidate) || /^цех$/i.test(candidate)) {
       parsedResult.handwrittenOrderNumber = candidate;
     }
+  }
+
+  // 1.1 Detection of OVERHEAD / Workshop Expense ("ЦЕХ"):
+  const allOcrCandidateTexts = [
+    parsedResult.handwrittenRawText,
+    parsedResult.handwrittenOrderNumber,
+    parsedResult.notes,
+    parsedResult.documentTitle,
+    fileName,
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const isExplicitCeHMark = /\b(цех|цеху|цехові|цехова|цеховые)\b/i.test(allOcrCandidateTexts) ||
+    /^(цех|цеху)$/i.test((parsedResult.handwrittenOrderNumber || '').trim()) ||
+    /^(цех|цеху)$/i.test((parsedResult.handwrittenRawText || '').trim());
+
+  const hasProjectOrderNumber = /^\d{1,6}-\d{2}$/.test(parsedResult.handwrittenOrderNumber || '');
+
+  if (isExplicitCeHMark || parsedResult.expenseCategory === 'OVERHEAD' || parsedResult.isOverhead) {
+    parsedResult.expenseCategory = 'OVERHEAD';
+    parsedResult.isOverhead = true;
+    if (!hasProjectOrderNumber) {
+      parsedResult.handwrittenOrderNumber = 'ЦЕХ';
+      parsedResult.handwrittenConfidence = 'high';
+      parsedResult.handwrittenLocation = parsedResult.handwrittenLocation || 'Позначка на рахунку';
+    }
+  } else if (hasProjectOrderNumber) {
+    parsedResult.expenseCategory = 'PROJECT';
+    parsedResult.isOverhead = false;
+  } else {
+    parsedResult.expenseCategory = parsedResult.expenseCategory || 'PROJECT';
+    parsedResult.isOverhead = false;
   }
 
   // 2. Strictly format all company names to "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES)

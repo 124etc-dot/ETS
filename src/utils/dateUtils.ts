@@ -283,3 +283,61 @@ export function ensureOcrDates(
     }
   }
 }
+
+export const UKRAINIAN_MONTH_NAMES = [
+  'Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень',
+  'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'
+];
+
+/**
+ * Formats a date string into Ukrainian "Місяць РРРР" (e.g. "Вересень 2026", "Серпень 2026")
+ */
+export function formatMonthYearUk(dateStr?: string): string {
+  const now = new Date();
+  if (!dateStr || !dateStr.trim()) {
+    return `${UKRAINIAN_MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
+  }
+
+  const str = dateStr.trim();
+
+  // Try ISO YYYY-MM or YYYY-MM-DD
+  const isoMatch = str.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10);
+    const month = parseInt(isoMatch[2], 10);
+    if (month >= 1 && month <= 12) {
+      return `${UKRAINIAN_MONTH_NAMES[month - 1]} ${year}`;
+    }
+  }
+
+  // Try DD.MM.YYYY
+  const ddmmyyyyMatch = str.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (ddmmyyyyMatch) {
+    const month = parseInt(ddmmyyyyMatch[2], 10);
+    let year = parseInt(ddmmyyyyMatch[3], 10);
+    if (year < 100) year = 2000 + year;
+    if (month >= 1 && month <= 12) {
+      return `${UKRAINIAN_MONTH_NAMES[month - 1]} ${year}`;
+    }
+  }
+
+  // Try text month e.g. "15 вересня 2026"
+  const lower = str.toLowerCase();
+  for (let i = 0; i < UKRAINIAN_MONTH_NAMES.length; i++) {
+    const mName = UKRAINIAN_MONTH_NAMES[i].toLowerCase();
+    const stem = mName.slice(0, 3);
+    if (lower.includes(stem)) {
+      const yearMatch = str.match(/\b(20\d{2})\b/);
+      const year = yearMatch ? parseInt(yearMatch[1], 10) : now.getFullYear();
+      return `${UKRAINIAN_MONTH_NAMES[i]} ${year}`;
+    }
+  }
+
+  // Try standard parse
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    return `${UKRAINIAN_MONTH_NAMES[parsed.getMonth()]} ${parsed.getFullYear()}`;
+  }
+
+  return `${UKRAINIAN_MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
+}

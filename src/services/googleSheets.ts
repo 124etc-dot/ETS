@@ -1,12 +1,25 @@
-import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, InvoiceApprovalStatus, ProjectSheetRow, ProjectColumnHeader } from '../types';
+import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, InvoiceApprovalStatus, ProjectSheetRow, ProjectColumnHeader, OverheadExpenseRow } from '../types';
 import { OCRService } from './ocrService';
 import { googleAuth } from './googleAuth';
+import { formatMonthYearUk } from '../utils/dateUtils';
 
 export class GoogleSheetsService {
   /**
    * Protected sheet tabs that must NEVER be overwritten, modified, or cleared.
    */
   private static readonly FORBIDDEN_TABS = ['лист1', 'sheet1', 'аркуш1', 'лист 1', 'sheet 1', 'аркуш 1'];
+
+  public static readonly OVERHEAD_HEADERS = [
+    'Постачальник',
+    'Платник',
+    'Номер рахунку',
+    'Дата рахунку',
+    'Сума',
+    'Валюта',
+    'Статус',
+    'Час завантаження',
+    'Сума оплати',
+  ];
 
   public static readonly INVOICE_HEADERS = [
     'Номер замовлення',
@@ -386,6 +399,30 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Find the exact first available empty row index (1-based) in "Цех" (Overhead tab).
+   * Scans rows sequentially from row 2 downwards.
+   */
+  public static async findFirstAvailableOverheadRow(
+    cleanId: string,
+    accessToken: string,
+    tabName: string
+  ): Promise<number> {
+    try {
+      const expenses = await this.loadExistingOverheadExpenses(cleanId, accessToken, tabName);
+      const occupiedRowIndices = new Set(expenses.map((e) => e.rowIndex).filter(Boolean) as number[]);
+
+      let targetRow = 2;
+      while (occupiedRowIndices.has(targetRow)) {
+        targetRow++;
+      }
+      return targetRow;
+    } catch (e) {
+      console.warn('Error determining first empty overhead row, defaulting to row 2:', e);
+      return 2;
+    }
+  }
+
+  /**
    * Find the exact next available row index (1-based) in a sheet tab.
    * Scans rows from top to bottom to guarantee appending strictly into the first empty gap.
    */
@@ -394,7 +431,11 @@ export class GoogleSheetsService {
     accessToken: string,
     tabName: string
   ): Promise<number> {
-    const isPayments = tabName.toLowerCase().includes('платіж') || tabName.toLowerCase().includes('payment');
+    const lower = tabName.toLowerCase();
+    if (lower.includes('цех') || lower.includes('overhead')) {
+      return this.findFirstAvailableOverheadRow(cleanId, accessToken, tabName);
+    }
+    const isPayments = lower.includes('платіж') || lower.includes('payment');
     if (isPayments) {
       return this.findFirstAvailablePaymentRow(cleanId, accessToken, tabName);
     }
@@ -1327,6 +1368,335 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Load existing Workshop Overhead Expenses ("Цех") from Google Sheets.
+   * Columns A-I:
+   * A - Постачальник
+   * B - Платник
+   * C - Номер рахунку
+   * D - Дата рахунку
+   * E - Сума
+   * F - Валюта
+   * G - Статус оплачено чи ні
+   * H - Час завантаження
+   * I - Сума оплати
+   */
+  public static async loadExistingOverheadExpenses(
+    spreadsheetId: string,
+    accessToken: string,
+    overheadTab = 'Цех',
+    availableSheetsHint?: string[]
+  ): Promise<OverheadExpenseRow[]> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    let targetTab = overheadTab;
+
+    if (availableSheetsHint && availableSheetsHint.length > 0) {
+      targetTab = this.resolveMatchingSheetTab(
+        availableSheetsHint,
+        overheadTab,
+        ['цех', 'цехові', 'overhead', 'загальновиробничі', 'накладні']
+      );
+    }
+
+    try {
+      const safeTab = targetTab.replace(/'/g, "''");
+      const range = encodeURIComponent(`'${safeTab}'!A1:Z2500`);
+      const data = await this.request<any>(
+        `${cleanId}/values/${range}`,
+        accessToken
+      );
+
+      const rows: any[][] = data.values || [];
+      if (rows.length === 0) return [];
+
+      let headerRowIdx = -1;
+      // Default column indices per user specification (A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7, I=8)
+      let colSupplier = 0;   // A: Постачальник
+      let colBuyer = 1;      // B: Платник
+      let colInvoiceNum = 2; // C: Номер рахунку
+      let colDate = 3;       // D: Дата рахунку
+      let colAmount = 4;     // E: Сума
+      let colCurrency = 5;   // F: Валюта
+      let colStatus = 6;     // G: Статус оплачено чи ні
+      let colUploadedAt = 7; // H: Час завантаження
+      let colPaidAmount = 8; // I: Сума оплати
+      let colDesc = -1;
+      let colMonth = -1;
+
+      for (let i = 0; i < Math.min(rows.length, 5); i++) {
+        const row = rows[i];
+        if (!row || !Array.isArray(row)) continue;
+        const line = row.map((c) => String(c || '').toLowerCase()).join(' ');
+        if (
+          line.includes('постачальник') ||
+          line.includes('платник') ||
+          line.includes('рахунк') ||
+          line.includes('сума') ||
+          line.includes('статус')
+        ) {
+          headerRowIdx = i;
+          row.forEach((cell, colIdx) => {
+            const str = String(cell || '').toLowerCase().trim();
+            if (str.includes('сума оплати') || str.includes('оплачено сума') || str.includes('paid amount')) {
+              colPaidAmount = colIdx;
+            } else if (str.includes('сума') || str.includes('ціна') || str.includes('вартість') || str === 'amount' || str === 'total') {
+              colAmount = colIdx;
+            } else if (str.includes('постачальник') || str.includes('контрагент') || str.includes('продавець') || str === 'supplier') {
+              colSupplier = colIdx;
+            } else if (str.includes('платник') || str.includes('покупець') || str.includes('замовник') || str === 'buyer' || str === 'payer') {
+              colBuyer = colIdx;
+            } else if (str.includes('номер рахунк') || str.includes('№ рахунк') || str.includes('ном. рахунк') || str.includes('invoice') || str === 'номер') {
+              colInvoiceNum = colIdx;
+            } else if (str.includes('дата рахунк') || str.includes('дата') || str.includes('день') || str === 'date') {
+              colDate = colIdx;
+            } else if (str.includes('валюта') || str === 'currency') {
+              colCurrency = colIdx;
+            } else if (str.includes('статус') || str === 'status') {
+              colStatus = colIdx;
+            } else if (str.includes('час') || str.includes('завантаження') || str.includes('внесення') || str === 'timestamp') {
+              colUploadedAt = colIdx;
+            } else if (str.includes('опис') || str.includes('призначення') || str.includes('найменування') || str === 'description') {
+              colDesc = colIdx;
+            } else if (str.includes('місяць') || str.includes('період') || str === 'month') {
+              colMonth = colIdx;
+            }
+          });
+          break;
+        }
+      }
+
+      const dataRows = headerRowIdx >= 0 ? rows.slice(headerRowIdx + 1) : rows;
+      const startRowIndex = (headerRowIdx >= 0 ? headerRowIdx + 1 : 0) + 1;
+
+      const expenses: OverheadExpenseRow[] = [];
+
+      dataRows.forEach((row, idx) => {
+        if (!row || !Array.isArray(row)) return;
+        const hasContent = row.some((cell) => cell !== undefined && cell !== null && String(cell).trim() !== '');
+        if (!hasContent) return;
+
+        const rawAmountStr = String(colAmount >= 0 ? (row[colAmount] ?? '') : '').trim();
+        const amount = parseFloat(rawAmountStr.replace(/\s/g, '').replace(',', '.')) || 0;
+
+        const supplier = OCRService.normalizeCompanyName(String(colSupplier >= 0 ? (row[colSupplier] ?? '') : ''));
+        const buyer = OCRService.normalizeCompanyName(String(colBuyer >= 0 ? (row[colBuyer] ?? '') : ''));
+        const invoiceNumber = String(colInvoiceNum >= 0 ? (row[colInvoiceNum] ?? '') : '').trim();
+        const date = String(colDate >= 0 ? (row[colDate] ?? '') : '').trim();
+        const currency = String(colCurrency >= 0 ? (row[colCurrency] ?? '') : 'UAH').trim() || 'UAH';
+
+        const rawStatus = String(colStatus >= 0 ? (row[colStatus] ?? '') : '').trim();
+        const paymentStatus: InvoicePaymentStatus =
+          rawStatus === 'Оплачено' || rawStatus === 'Оплачено частково'
+            ? rawStatus
+            : 'Не оплачено';
+
+        const uploadedAt = String(colUploadedAt >= 0 ? (row[colUploadedAt] ?? '') : '').trim();
+
+        const rawPaidStr = String(colPaidAmount >= 0 ? (row[colPaidAmount] ?? '') : '').trim();
+        const paidAmount = parseFloat(rawPaidStr.replace(/\s/g, '').replace(',', '.')) || (paymentStatus === 'Оплачено' ? amount : 0);
+
+        let description = colDesc >= 0 ? String(row[colDesc] ?? '').trim() : '';
+        if (!description && invoiceNumber) {
+          description = `Рахунок № ${invoiceNumber}`;
+        }
+
+        let month = colMonth >= 0 ? String(row[colMonth] ?? '').trim() : '';
+        if (!month && date) {
+          month = formatMonthYearUk(date);
+        }
+
+        if (amount > 0 || supplier || invoiceNumber) {
+          expenses.push({
+            id: `overhead-row-${startRowIndex + idx}`,
+            rowIndex: startRowIndex + idx,
+            supplier,
+            buyer,
+            invoiceNumber,
+            date,
+            amount,
+            currency,
+            paymentStatus,
+            uploadedAt,
+            paidAmount,
+            description,
+            month: month || formatMonthYearUk(date),
+          });
+        }
+      });
+
+      return expenses;
+    } catch (e: any) {
+      console.warn('Could not load overhead expenses from sheet tab:', e?.message || e);
+      return [];
+    }
+  }
+
+  /**
+   * Append an Overhead Expense to the "Цех" tab.
+   * Mapping per user specification (Columns A-I):
+   * A - Постачальник
+   * B - Платник
+   * C - Номер рахунку
+   * D - Дата рахунку
+   * E - Сума
+   * F - Валюта
+   * G - Статус оплачено чи ні
+   * H - Час завантаження
+   * I - Сума оплати
+   */
+  public static async appendOverheadExpense(
+    spreadsheetId: string,
+    accessToken: string,
+    data: {
+      ocr?: OCRResult;
+      supplier?: string;
+      buyer?: string;
+      invoiceNumber?: string;
+      date?: string;
+      amount?: number;
+      currency?: string;
+      status?: InvoicePaymentStatus;
+      uploadedAt?: string;
+      paidAmount?: number;
+      description?: string;
+      month?: string;
+      fileName?: string;
+      driveLink?: string;
+      overheadTab?: string;
+    }
+  ): Promise<{ updatedRange: string }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    const tabName = data.overheadTab || 'Цех';
+
+    if (this.isProtectedTab(tabName)) {
+      throw new Error(`Внесення даних у "${tabName}" заблоковано для збереження існуючих даних.`);
+    }
+
+    const now = new Date();
+    const formattedTimestamp = data.uploadedAt || now.toLocaleString('uk-UA', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    // Extract fields with the same normalization and logic as appendInvoice
+    const supplier = OCRService.normalizeCompanyName(
+      data.supplier || data.ocr?.supplierName || ''
+    );
+    const buyer = OCRService.normalizeCompanyName(
+      data.buyer || data.ocr?.buyerName || data.ocr?.payerName || ''
+    );
+    const invoiceNumber = (
+      data.invoiceNumber || data.ocr?.invoiceNumber || ''
+    ).trim();
+    const invoiceDate = (
+      data.date || data.ocr?.invoiceDate || now.toISOString().slice(0, 10)
+    ).trim();
+    const amount = data.amount ?? data.ocr?.totalAmount ?? 0;
+    const currency = (data.currency || data.ocr?.currency || 'UAH').toUpperCase();
+    const status: InvoicePaymentStatus =
+      data.status || data.ocr?.paymentStatus || 'Не оплачено';
+
+    const paidAmount =
+      data.paidAmount ??
+      (status === 'Оплачено' ? amount : 0);
+
+    // Exact row structure Columns A-I:
+    // A: Постачальник
+    // B: Платник
+    // C: Номер рахунку
+    // D: Дата рахунку
+    // E: Сума
+    // F: Валюта
+    // G: Статус оплачено чи ні
+    // H: Час завантаження
+    // I: Сума оплати
+    const row = [
+      supplier,           // A - Постачальник
+      buyer,              // B - Платник
+      invoiceNumber,      // C - Номер рахунку
+      invoiceDate,        // D - Дата рахунку
+      amount,             // E - сума
+      currency,           // F - Валюта
+      status,             // G - Статус оплачено чи ні
+      formattedTimestamp, // H - час завантаження
+      paidAmount,         // I - Cума оплати
+    ];
+
+    await this.ensureTabExists(cleanId, accessToken, tabName, this.OVERHEAD_HEADERS);
+    const safeTab = tabName.replace(/'/g, "''");
+    const targetRow = await this.findFirstAvailableOverheadRow(cleanId, accessToken, tabName);
+    const range = `'${safeTab}'!A${targetRow}:I${targetRow}`;
+
+    await this.request<any>(
+      `${cleanId}/values:batchUpdate`,
+      accessToken,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: [
+            {
+              range,
+              values: [row],
+            },
+          ],
+        }),
+      }
+    );
+
+    return { updatedRange: range };
+  }
+
+  /**
+   * Update payment status (Column G) and paid amount (Column I) for an overhead expense in "Цех"
+   */
+  public static async updateOverheadPaymentInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    newStatus: InvoicePaymentStatus,
+    paidAmount?: number,
+    overheadTab = 'Цех'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(overheadTab)) {
+      throw new Error(`Внесення даних у "${overheadTab}" заблоковано для збереження існуючих даних.`);
+    }
+
+    await this.ensureTabExists(cleanId, accessToken, overheadTab, this.OVERHEAD_HEADERS);
+
+    const safeTab = overheadTab.replace(/'/g, "''");
+    const updates: Array<{ range: string; values: any[][] }> = [
+      {
+        range: `'${safeTab}'!G${rowIndex}`,
+        values: [[newStatus]],
+      },
+    ];
+
+    if (paidAmount !== undefined) {
+      updates.push({
+        range: `'${safeTab}'!I${rowIndex}`,
+        values: [[paidAmount]],
+      });
+    }
+
+    await this.request<any>(
+      `${cleanId}/values:batchUpdate`,
+      accessToken,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: updates,
+        }),
+      }
+    );
+  }
+
+  /**
    * Append an Invoice to the "Рахунки" sheet tab.
    * STRICT GUARANTEE: Never touches or modifies "Лист1".
    * Exact Columns A to J:
@@ -1363,6 +1733,23 @@ export class GoogleSheetsService {
 
     // Format order number strictly as xxx-xx WITHOUT symbol №
     const orderNum = OCRService.normalizeOrderNumber(data.ocr.handwrittenOrderNumber || '');
+
+    // If marked as OVERHEAD ("ЦЕХ" / "ЦУХ"), route to the workshop overhead tab
+    if (
+      data.ocr.expenseCategory === 'OVERHEAD' ||
+      data.ocr.isOverhead ||
+      orderNum === 'ЦЕХ' ||
+      OCRService.isOverheadDocument(data.ocr, data.fileName)
+    ) {
+      return this.appendOverheadExpense(spreadsheetId, accessToken, {
+        ocr: data.ocr,
+        fileName: data.fileName,
+        driveLink: data.driveLink,
+        status: data.status,
+        paidAmount: data.paidAmount,
+        overheadTab: 'Цех',
+      });
+    }
 
     // Format current timestamp e.g. 31.08.2026, 22:52:06
     const now = new Date();

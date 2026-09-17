@@ -11,7 +11,8 @@ import {
   ExternalLink,
   FolderSync,
   Server,
-  Briefcase
+  Briefcase,
+  Factory
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
 import { SheetConfig } from '../types';
@@ -22,12 +23,13 @@ import { ServerStatusModal } from './ServerStatusModal';
 interface Props {
   authState: AuthState;
   sheetConfig: SheetConfig | null;
-  activeTab: 'process' | 'sheet' | 'companies' | 'history' | 'projects';
-  onSelectTab: (tab: 'process' | 'sheet' | 'companies' | 'history' | 'projects') => void;
+  activeTab: 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead';
+  onSelectTab: (tab: 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead') => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   totalPendingCount: number;
   totalReadyCount: number;
+  overheadCount?: number;
 }
 
 export const Header: React.FC<Props> = ({
@@ -39,6 +41,7 @@ export const Header: React.FC<Props> = ({
   onLogout,
   totalPendingCount,
   totalReadyCount,
+  overheadCount,
 }) => {
   const [isServerModalOpen, setIsServerModalOpen] = useState(false);
   const [serverStatus, setServerStatus] = useState<{
@@ -131,6 +134,25 @@ export const Header: React.FC<Props> = ({
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Рахунки & Оплати</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('overhead')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  activeTab === 'overhead'
+                    ? 'bg-amber-600 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-amber-100/60'
+                }`}
+              >
+                <Factory className={`w-3.5 h-3.5 ${activeTab === 'overhead' ? 'text-white' : 'text-amber-600'}`} />
+                <span>Витрати Цеху</span>
+                {overheadCount !== undefined && overheadCount > 0 && (
+                  <span className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full ${
+                    activeTab === 'overhead' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-900'
+                  }`}>
+                    {overheadCount}
+                  </span>
+                )}
               </button>
 
               <button
@@ -242,7 +264,26 @@ export const Header: React.FC<Props> = ({
               }`}
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-              <span>Рахунки & Оплати</span>
+              <span>Рахунки</span>
+            </button>
+
+            <button
+              onClick={() => onSelectTab('overhead')}
+              className={`flex-1 min-w-max px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                activeTab === 'overhead'
+                  ? 'bg-amber-600 text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+              }`}
+            >
+              <Factory className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'overhead' ? 'text-white' : 'text-amber-600'}`} />
+              <span>Цех</span>
+              {overheadCount !== undefined && overheadCount > 0 && (
+                <span className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full shrink-0 ${
+                  activeTab === 'overhead' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-900'
+                }`}>
+                  {overheadCount}
+                </span>
+              )}
             </button>
 
             <button

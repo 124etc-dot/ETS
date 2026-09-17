@@ -1,6 +1,7 @@
 export type DocumentType = 'invoice' | 'payment' | 'other';
 export type InvoicePaymentStatus = 'Оплачено' | 'Не оплачено' | 'Оплачено частково';
 export type InvoiceApprovalStatus = 'ПОГОДЖЕНО' | 'НЕ ПОГОДЖЕНО';
+export type ExpenseCategory = 'PROJECT' | 'OVERHEAD';
 
 export interface ExtractedLineItem {
   name: string;
@@ -13,8 +14,12 @@ export interface OCRResult {
   documentType: DocumentType;
   documentTypeUkrainian: string; // "Рахунок на оплату" | "Платіжна інструкція"
   
-  // Critical Handwritten Order Number (format: xxx-xx without №)
-  handwrittenOrderNumber: string; // e.g. "123-26" or empty if none
+  // Category of expense: OVERHEAD (ЦЕХ / загальновиробничі витрати) vs PROJECT (прямі витрати замовлення)
+  expenseCategory?: ExpenseCategory;
+  isOverhead?: boolean;
+
+  // Critical Handwritten Order Number (format: xxx-xx without №, or "ЦЕХ")
+  handwrittenOrderNumber: string; // e.g. "123-26", "ЦЕХ" or empty if none
   handwrittenRawText?: string; // Exact text as written
   handwrittenLocation?: string; // "Top right", "Bottom corner", "Near total amount", etc.
   handwrittenConfidence: 'high' | 'medium' | 'low' | 'none';
@@ -98,6 +103,8 @@ export interface ProcessedDocument {
   paymentStatus?: InvoicePaymentStatus; // "Не оплачено" | "Оплачено" | "Оплачено частково"
   approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО"
   errorMessage?: string;
+  expenseCategory?: ExpenseCategory;
+  isOverhead?: boolean;
   ocrResult?: OCRResult;
   editedData?: OCRResult;
   syncedRowIndex?: number;
@@ -154,6 +161,7 @@ export interface SheetConfig {
   paymentsSheetName: string; // "Платіжки"
   ourCompaniesSheetName: string; // "Наші компанії"
   suppliersSheetName: string; // "Постачальники"
+  overheadSheetName?: string; // "Цех" (загальновиробничі накладні витрати)
   availableSheets?: string[];
   isConfigured: boolean;
 }
@@ -176,6 +184,27 @@ export interface ExistingSheetRow {
   fileName?: string;
   driveLink?: string;
   notes?: string;
+  expenseCategory?: ExpenseCategory;
+  isOverhead?: boolean;
+}
+
+export interface OverheadExpenseRow {
+  rowIndex?: number;
+  supplier: string; // A: Постачальник
+  buyer?: string; // B: Платник
+  invoiceNumber?: string; // C: Номер рахунку
+  date: string; // D: Дата рахунку (YYYY-MM-DD або DD.MM.YYYY)
+  amount: number; // E: Сума
+  currency?: string; // F: Валюта
+  paymentStatus?: InvoicePaymentStatus; // G: Статус оплачено чи ні
+  uploadedAt?: string; // H: Час завантаження
+  paidAmount?: number; // I: Сума оплати
+  description?: string; // Опис / Призначення
+  month?: string; // Місяць (наприклад: "Вересень 2026")
+  fileName?: string;
+  driveLink?: string;
+  id?: string;
+  isPendingSync?: boolean;
 }
 
 export interface ExistingPaymentRow {
