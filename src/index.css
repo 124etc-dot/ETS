@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+html, body {
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+/* Hide scrollbar for smooth mobile tab scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* High-visibility horizontal scrollbar for wide data tables */
 .custom-scrollbar::-webkit-scrollbar {
   height: 14px;
