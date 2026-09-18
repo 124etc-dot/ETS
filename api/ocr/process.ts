@@ -72,6 +72,32 @@ function detectAndNormalizeMimeType(base64: string, fallbackMime: string, fileNa
   return 'image/jpeg';
 }
 
+// Check if a text string matches workshop overhead marker ("ЦЕХ", "ЦУХ", "цехові", etc.) with fuzzy matching
+function isOverheadMarker(input?: string | null): boolean {
+  if (!input) return false;
+  const raw = String(input).trim();
+  if (!raw) return false;
+  const s = raw.toLowerCase();
+
+  // Direct exact keywords and fuzzy variations (Cyrillic + Latin)
+  if (/^(?:цех|цух|цєх|цэх|цек|цук|цєк|цэk|ceh|cuh|cex|cek|cuk|tseh|tsekh)$/i.test(s)) return true;
+
+  // Mixed Cyrillic / Latin character variations: [ц or c] + [е, є, э, e, у, y, u] + [х, x, k, к]
+  // with optional spaces/dots/dashes in between (e.g. "Ц.Е.Х.", "Ц Е Х", "Ц Е К", "C E X", "Ц-Е-Х")
+  if (/^[цc][\s._-]*[еєэeуyu][\s._-]*[хxkк][\s._-]*$/i.test(s)) return true;
+
+  // Whole-word regex for word boundaries in Ukrainian / Cyrillic / Latin
+  if (/(?:^|[^а-яіїєґa-z0-9])([цc][еєэeуyu][хxkк]|[цc][еєэeуyu][хxkк][а-яіїєґa-z]*|tseh|tsekh)(?:$|[^а-яіїєґa-z0-9])/i.test(s)) {
+    return true;
+  }
+
+  // Contextual phrases: "на цех", "для цеху", "в цех", "під цех", "цехові витрати", "матеріали на цех"
+  if (/(?:на|для|в|до|під)\s+(?:[цc][еєэeуyu][хxkк]|[цc][еєэeуyu][хxkк]у)/i.test(s)) return true;
+  if (/(?:[цc][еєэeуyu][хxkк]|[цc][еєэeуyu][хxkк]ові|[цc][еєэeуyu][хxkк]ова|[цc][еєэeуyu][хxkк]ове)\s+(?:витрати|потреби|матеріали|розхідники)/i.test(s)) return true;
+
+  return false;
+}
+
 // Clean and normalize company name strictly to format "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES)
 function normalizeCompanyName(input: string): string {
   if (!input) return '';
@@ -204,15 +230,15 @@ const ocrResponseSchema: Schema = {
     expenseCategory: {
       type: Type.STRING,
       enum: ['PROJECT', 'OVERHEAD'],
-      description: 'Category of expense: "OVERHEAD" if marked with "ЦЕХ" (ручна позначка ЦЕХ, накладні витрати цеху без конкретного номера проекту). Otherwise "PROJECT" if having project order number (e.g. 142-26) or regular project expense.',
+      description: 'Category of expense: "OVERHEAD" if marked with "ЦЕХ", "Цєх", "ЦЕК", "ЦEХ", "ЦУХ", "цехові", "на цех" etc. (рукописна позначка Цех або загальновиробничі накладні витрати цеху без конкретного номера проекту). Otherwise "PROJECT" if having project order number (e.g. 142-26) or regular project expense.',
     },
     isOverhead: {
       type: Type.BOOLEAN,
-      description: 'Set to true if document has a handwritten or printed mark "ЦЕХ" (цех, накладні витрати цеху), false otherwise.',
+      description: 'Set to true if document has a handwritten or printed mark "ЦЕХ" or fuzzy handwriting variations ("Цєх", "ЦЕК", "ЦEХ", "ЦУХ", "цехові", etc.) indicating workshop overhead expense. Otherwise false.',
     },
     handwrittenOrderNumber: {
       type: Type.STRING,
-      description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26"). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
+      description: 'Handwritten internal order number strictly in format "xxx-xx" without the "№" symbol (e.g. "142-26", "089-26", "45-26", "1054-26") OR "ЦЕХ" if marked with "ЦЕХ" / "Цєх" / "ЦЕК" / "ЦEХ" / "ЦУХ" / "цехові" / "на цех" (рукописні варіації слова цех/цехові/накладні). Look for pen/pencil handwriting anywhere on the document. If no handwriting is found, return empty string "".',
     },
     handwrittenRawText: {
       type: Type.STRING,
@@ -320,6 +346,8 @@ const ocrResponseSchema: Schema = {
   required: [
     'documentType',
     'documentTypeUkrainian',
+    'expenseCategory',
+    'isOverhead',
   ],
 };
 
@@ -395,18 +423,46 @@ ${ourCompaniesPromptList}
 ${suppliersPromptList}
 ${knownOrdersPromptList}
 
-КРИТИЧНО: ПОЗНАЧКА «ЦЕХ» ТА ЗАГАЛЬНОВИРОБНИЧІ ВИТРАТИ:
-Якщо на документі чи фото рахунку є ручна позначка «ЦЕХ» / «цех» (написана ручкою чи олівцем у будь-якому місці), або якщо немає номера конкретного замовлення проекту (xxx-xx), але розпізнано слово «ЦЕХ» / «цехові» — обов'язково встанови:
-- expenseCategory: "OVERHEAD"
-- isOverhead: true
-- handwrittenOrderNumber: "ЦЕХ"
-- handwrittenRawText: "ЦЕХ"
-- handwrittenConfidence: "high"
-Якщо на рахунку звичайний номер замовлення проекту (наприклад "142-26", "232-26"), встанови:
-- expenseCategory: "PROJECT"
-- isOverhead: false
+================================================================================
+ЕТАП 1 (НАЙВИЩИЙ ПРІОРИТЕТ): ПЕРВИННИЙ СКАНІНГ РУКОПИСНОГО ТЕКСТУ ТА КЛАСИФІКАЦІЯ «ЦЕХ» (OVERHEAD) ПРОТИ «ЗАМОВЛЕННЯ ПРОЕКТУ»:
+================================================================================
+1. ПРІОРИТЕТ АНАЛІЗУ РУКОПИСНОГО ТЕКСТУ:
+   - Перед розпізнаванням друкованого тексту рахунку, ЗРОБИ ПЕРВИННИЙ СКАЙНИНГ ЗОБРАЖЕННЯ на наявність будь-яких рукописних позначок (зроблених маркером, ручкою будь-якого кольору, олівцем).
+   - Шукай слово "ЦЕХ" (у будь-якому регістрі: "Цех", "цех", "ЦЕХ") або схожі рукописні варіації у кутках (особливо верхній правий або верхній лівий кут), на полях (margins) або зверху документа над назвою чи біля суми.
 
-КРИТИЧНІ ПРАВИЛА РОЗПІЗНАВАННЯ:
+2. ПОКРАЩЕННЯ ТОЧНОСТІ (FUZZY MATCHING / ВРАХУВАННЯ ПОЧЕРКУ):
+   - Враховуй особливості людського почерку: якщо бачиш рукописні літери, схожі на "ЦЕХ", "Цєх", "ЦЕК", "ЦEХ" (із заміною латинськими літерами C, E, X, K), "ЦУХ", "Цэx", "Цук", "Цек", "CEX", "CEK", "CEH", "CUH", "TSEH", або фрази "на цех", "для цеху", "в цех", "цехові", "цехові витрати" — НЕ ВИМАГАЙ ідеальної друкарської точності від рукописного слова!
+   - АВТОМАТИЧНО класифікуй такий документ як категорію OVERHEAD (Цех / Загальновиробничі накладні витрати цеху).
+   - При виявленні позначки «ЦЕХ» / схожих рукописних варіацій ОБОВ'ЯЗКОВО встанови:
+     * "isOverhead": true
+     * "expenseCategory": "OVERHEAD"
+     * "handwrittenOrderNumber": "ЦЕХ"
+     * "handwrittenRawText": точний рукописний напис, який ти бачиш (наприклад "ЦЕХ", "Цех", "ЦУХ", "Цєх", "ЦЕК", "ЦEХ")
+     * "handwrittenLocation": місце знаходження позначки (наприклад "Верхній правий кут", "На полях", "Вгорі над заголовком")
+     * "handwrittenConfidence": "high"
+
+3. РУКОПИСНИЙ НОМЕР ЗАМОВЛЕННЯ ПРОЕКТУ (ЯКЩО ПОЗНАЧКИ «ЦЕХ» НЕМАЄ):
+   - Якщо на рахунку від руки написано номер замовлення проекту (наприклад "142-26", "232-26", "089-26", "45-26", або число "232" -> "232-26"):
+     * "isOverhead": false
+     * "expenseCategory": "PROJECT"
+     * "handwrittenOrderNumber": "ххх-26" (стандартизовано до формату з роком)
+     * "handwrittenRawText": точний напис (наприклад "№ 232-26")
+     * "handwrittenConfidence": "high" або "medium"
+
+4. ВІДСУТНІСТЬ РУКОПИСНИХ ПОЗНАЧОК:
+   - Якщо на рахунку немає жодних рукописних позначок:
+     * "isOverhead": false
+     * "expenseCategory": "PROJECT"
+     * "handwrittenOrderNumber": ""
+     * "handwrittenConfidence": "none"
+
+5. СУВОРА ЕКОНОМІЯ API ЗАПИТІВ:
+   - Здійсни аналіз зображення, класифікацію (Замовлення/Цех) та розпізнавання всіх реквізитів за ОДИН ЄДИНИЙ ЗАПИТ до Gemini API, без повторних спроб або перерозпізнавання!
+   - Повертай підсумковий валідний JSON строго за схемою з обов'язковим прапорцем "isOverhead": true або false та "expenseCategory": "OVERHEAD" або "PROJECT".
+
+================================================================================
+ЕТАП 2: ОСНОВНІ ПРАВИЛА РОЗПІЗНАВАННЯ ДОКУМЕНТА:
+================================================================================
 1. ТИП ДОКУМЕНТА (invoice, payment, other) — СУВОРЕ РОЗМЕЖУВАННЯ:
    - "invoice" (Рахунок на оплату, Рахунок-фактура, Акт виконаних робіт, Видаткова накладна):
      * Якщо на документі є заголовок "Рахунок", "Рахунок на оплату", "Рахунок-фактура", "Invoice" — це СТРОГО "invoice"!
@@ -653,25 +709,28 @@ ${knownOrdersPromptList}
     }
   }
 
-  // 1.1 Detection of OVERHEAD / Workshop Expense ("ЦЕХ"):
+  // 1.1 Detection of OVERHEAD / Workshop Expense ("ЦЕХ" / "ЦУХ"):
   const allOcrCandidateTexts = [
     parsedResult.handwrittenRawText,
     parsedResult.handwrittenOrderNumber,
     parsedResult.notes,
     parsedResult.documentTitle,
+    parsedResult.paymentPurpose,
     fileName,
-  ].filter(Boolean).join(' ').toLowerCase();
+  ].filter(Boolean).join(' ');
 
-  const isExplicitCeHMark = /\b(цех|цеху|цехові|цехова|цеховые)\b/i.test(allOcrCandidateTexts) ||
-    /^(цех|цеху)$/i.test((parsedResult.handwrittenOrderNumber || '').trim()) ||
-    /^(цех|цеху)$/i.test((parsedResult.handwrittenRawText || '').trim());
+  const hasExplicitCeHMark = isOverheadMarker(allOcrCandidateTexts) ||
+    isOverheadMarker(parsedResult.handwrittenOrderNumber) ||
+    isOverheadMarker(parsedResult.handwrittenRawText) ||
+    isOverheadMarker(fileName);
 
-  const hasProjectOrderNumber = /^\d{1,6}-\d{2}$/.test(parsedResult.handwrittenOrderNumber || '');
+  const hasProjectOrderNumber = /^\d{1,6}-\d{2}$/.test(parsedResult.handwrittenOrderNumber || '') &&
+    parsedResult.handwrittenOrderNumber !== 'ЦЕХ';
 
-  if (isExplicitCeHMark || parsedResult.expenseCategory === 'OVERHEAD' || parsedResult.isOverhead) {
+  if (hasExplicitCeHMark || parsedResult.expenseCategory === 'OVERHEAD' || parsedResult.isOverhead) {
     parsedResult.expenseCategory = 'OVERHEAD';
     parsedResult.isOverhead = true;
-    if (!hasProjectOrderNumber) {
+    if (!hasProjectOrderNumber || parsedResult.handwrittenOrderNumber === 'ЦЕХ') {
       parsedResult.handwrittenOrderNumber = 'ЦЕХ';
       parsedResult.handwrittenConfidence = 'high';
       parsedResult.handwrittenLocation = parsedResult.handwrittenLocation || 'Позначка на рахунку';
@@ -1124,244 +1183,32 @@ ${knownOrdersPromptList}
     }
   }
 
-  // 3. Targeted Amount Rescue if 0
+  // 3. Local Amount fallback if 0 (single-pass, no secondary API queries)
   if ((parsedResult.totalAmount || 0) <= 0 && (parsedResult.amountPaid || 0) <= 0) {
-    try {
-      console.log(`[OCR Rescue] Document has 0 amount. Running targeted amount extraction with Gemini Flash...`);
-      const rescuePrompt = `КРИТИЧНО: Первинний аналіз повернув суму 0 грн, але в нашій системі АПРІОРІ НЕ МОЖЕ БУТИ РАХУНКІВ АБО ПЛАТІЖОК З НУЛЬОВОЮ СУМОЮ (0 грн)!
-Уважно проскануй зображення цього документа і знайди ТОЧНУ ЧИСЛОВУ СУМУ ДО СПЛАТИ / СУМУ ПЛАТЕЖУ.
-Шукай у полях 'Сума', 'Разом', 'Всього до сплати', 'Сума платежу', 'Списано', 'Всього з ПДВ', або 'Сума словами' (прописом).
-Поверни JSON строго такого формату:
-{
-  "amount": 96932.88,
-  "currency": "UAH"
-}`;
-      const rescueResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: [
-          {
-            inlineData: {
-              mimeType: finalMimeType,
-              data: cleanBase64,
-            },
-          },
-          { text: rescuePrompt },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-
-      let rText = rescueResponse.text || '';
-      rText = rText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
-      if (rText) {
-        const parsedRescue = JSON.parse(rText);
-        const rescuedAmount = parseAmountToNumber(parsedRescue.amount);
-        if (rescuedAmount > 0) {
-          parsedResult.totalAmount = rescuedAmount;
-          parsedResult.amountPaid = rescuedAmount;
-          if (parsedRescue.currency) {
-            parsedResult.currency = parsedRescue.currency;
-          }
-        }
+    const textToScan = `${parsedResult.paymentPurpose || ''} ${parsedResult.notes || ''} ${parsedResult.documentTitle || ''}`;
+    const amountRegex = /(?:сума|в сумі|на суму|у т\.ч\.|разом|списано|грн\.?|UAH)\s*[:=]?\s*([0-9\s]{1,12}[,\.][0-9]{2})/i;
+    const match = textToScan.match(amountRegex);
+    if (match && match[1]) {
+      const parsed = parseAmountToNumber(match[1]);
+      if (parsed > 0) {
+        parsedResult.totalAmount = parsed;
+        parsedResult.amountPaid = parsed;
       }
-    } catch (rescueErr) {
-      console.warn('Targeted amount rescue error:', rescueErr);
     }
   }
 
-  // 4. Targeted Handwritten Order Number Rescue if missing on an invoice
+  // 4. Local Handwritten Order Number / Overhead fallback if empty
   if (parsedResult.documentType === 'invoice' && !parsedResult.handwrittenOrderNumber) {
-    try {
-      console.log(`[OCR Order Rescue] Invoice is missing handwritten order number. Running targeted visual scan with Gemini...`);
-      const rescueOrderPrompt = `КРИТИЧНЕ ЗАВДАННЯ ДЛЯ ЗОБРАЖЕННЯ РАХУНКУ:
-У первинному аналізі номер замовлення не виявлено. Але на рахунках у нашій компанії менеджер обов'язково пише номер замовлення ВІД РУКИ (ручкою — синьою, фіолетовою чи чорною, олівцем, або маркером).
-
-Уважно оглянь кожен міліметр документа:
-1. Верхній правий кут (найчастіше місце написання!)
-2. Верхній лівий кут, поруч з логотипом чи реквізитами постачальника
-3. На полях (бічних відступах зліва або справа, текст може бути написаний вертикально!)
-4. Безпосередньо біля або над назвою документа: "Рахунок на оплату", "Рахунок-фактура", "СФ-..."
-5. Внизу документа — біля загальної суми, печатки або підпису
-
-Як може виглядати номер:
-- "142-26", "232-26", "083-26", "229-26", "216-26", "207-26", "45-26", "108-26"
-- Або з префіксом чи символом: "№ 232-26", "№142-26", "зам. 232", "з. 232-26", "З-232"
-- Або через косу риску чи крапку: "232/26", "142/26", "232.26"
-- Або просто число без року (наприклад "232", "142", "45", "108", або обведене в кружечок) -> у цьому випадку стандартизуй до формату з поточним роком: "232-26"!
-
-Поверни JSON строго такого формату:
-{
-  "found": true,
-  "orderNumber": "232-26",
-  "rawText": "№ 232-26",
-  "location": "Верхній правий кут",
-  "confidence": "high"
-}`;
-
-      const rescueOrderResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: [
-          {
-            inlineData: {
-              mimeType: finalMimeType,
-              data: cleanBase64,
-            },
-          },
-          { text: rescueOrderPrompt },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-
-      let rOrderText = rescueOrderResponse.text || '';
-      rOrderText = rOrderText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
-      if (rOrderText) {
-        const parsedRescueOrder = JSON.parse(rOrderText);
-        if (parsedRescueOrder.found && (parsedRescueOrder.orderNumber || parsedRescueOrder.rawText)) {
-          const rawNum = parsedRescueOrder.orderNumber || parsedRescueOrder.rawText;
-          const normalized = normalizeOrderNumberStr(rawNum);
-          if (normalized) {
-            parsedResult.handwrittenOrderNumber = normalized;
-            parsedResult.handwrittenRawText = parsedRescueOrder.rawText || rawNum;
-            parsedResult.handwrittenLocation = parsedRescueOrder.location || 'Знайдено при повторному скануванні';
-            parsedResult.handwrittenConfidence = parsedRescueOrder.confidence || 'medium';
-            console.log(`[OCR Order Rescue] Successfully rescued handwritten order number: ${normalized}`);
-          }
-        }
+    const textToScan = `${parsedResult.handwrittenRawText || ''} ${parsedResult.notes || ''}`;
+    if (isOverheadMarker(textToScan)) {
+      parsedResult.handwrittenOrderNumber = 'ЦЕХ';
+      parsedResult.expenseCategory = 'OVERHEAD';
+      parsedResult.isOverhead = true;
+    } else {
+      const numMatch = textToScan.match(/(?:№|No|N|#|зам\.?|код)?\s*([0-9]{1,5}[-/.][0-9]{2})/i);
+      if (numMatch && numMatch[1]) {
+        parsedResult.handwrittenOrderNumber = normalizeOrderNumberStr(numMatch[1]);
       }
-    } catch (orderRescueErr) {
-      console.warn('Targeted order number rescue error:', orderRescueErr);
-    }
-  }
-
-  // 5. Targeted Buyer Name Rescue if missing on an invoice or invalid
-  if (parsedResult.documentType === 'invoice' && isInvalidBuyerName(parsedResult.buyerName, parsedResult.supplierName)) {
-    try {
-      console.log(`[OCR Buyer Rescue] Invoice is missing buyerName. Running targeted buyer scan with Gemini...`);
-      const allKnownComps = Array.from(new Set([...ourCompanies, ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
-      const formattedComps = allKnownComps.map((c: string) => `- ${c}`).join('\n');
-      const rescueBuyerPrompt = `КРИТИЧНЕ ЗАВДАННЯ ДЛЯ ЗОБРАЖЕННЯ РАХУНКУ:
-У первинному аналізі НЕ вдалося виділити назву покупця/платника (нашої компанії).
-Уважно проскануй ВСЕ зображення цього документа (включно з рукописними написами, шапкою, печатками, таблицею) і визнач, яка саме НАША КОМПАНІЯ є покупцем/платником:
-
-ДЕ ШУКАТИ:
-1. Рядок "Покупець:" (найчастіше розташований під або праворуч від "Постачальник:", може містити лапки «...» або ТзОВ).
-2. Рядок "Платник:" (якщо там написано "той самий", "той же" або прочерк — назва покупця вказана в рядку "Покупець:").
-3. Рядок "Замовник:", "Одержувач:", "Вантажоодержувач:", "Адресат:", "Кому:", "Клієнт:".
-4. Блок зразка платіжного доручення / реквізитів для оплати вгорі або внизу документа ("Платник: ...").
-5. РУКОПИСНІ ПОЗНАЧКИ МЕНЕДЖЕРА: часто від руки ручкою/олівцем зверху або знизу написано назву компанії або замовлення ("Шоп", "ШІ", "Престиж", "Престижбуд", "Голден", "Будмонтаж", "229-26", "227-26").
-6. Накладна перевізника / експрес-доставка (Нова Пошта тощо): поле "Одержувач" або "Замовник".
-
-СПИСОК НАШИХ КОМПАНІЙ:
-${formattedComps}
-
-ВКАЗІВКА:
-- Якщо знайдена назва покупця або рукописний напис відповідає одній з компаній зі списку, обери стандартизовану назву (наприклад "ТОВ ШОП ІНТЕРІОР", "ТОВ ПРЕСТИЖБУД", "ТОВ ГОЛДЕН ПОІНТ", "ТОВ БУДМОНТАЖ-2026").
-- Якщо на документі вказано іншого покупця, поверни точну назву покупця з документа у форматі "ТОВ НАЗВА" великими літерами без лапок.
-- НІКОЛИ не повертай постачальника ("${parsedResult.supplierName || ''}") як покупця!
-
-Поверни JSON строго такого формату:
-{
-  "found": true,
-  "buyerName": "ТОВ ШОП ІНТЕРІОР",
-  "rawText": "Покупець: ТОВ \\"Шоп Інтеріор\\"",
-  "confidence": "high"
-}`;
-
-      const rescueBuyerResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: [
-          {
-            inlineData: {
-              mimeType: finalMimeType,
-              data: cleanBase64,
-            },
-          },
-          { text: rescueBuyerPrompt },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-
-      let rBuyerText = rescueBuyerResponse.text || '';
-      rBuyerText = rBuyerText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
-      if (rBuyerText) {
-        const parsedRescueBuyer = JSON.parse(rBuyerText);
-        if (parsedRescueBuyer.found && parsedRescueBuyer.buyerName) {
-          const normBuyer = normalizeCompanyName(parsedRescueBuyer.buyerName);
-          if (normBuyer && (!parsedResult.supplierName || !isCompanyNameMatch(normBuyer, parsedResult.supplierName))) {
-            parsedResult.buyerName = normBuyer;
-            console.log(`[OCR Buyer Rescue] Successfully rescued buyerName: ${normBuyer}`);
-          }
-        }
-      }
-    } catch (buyerRescueErr) {
-      console.warn('Targeted buyer name rescue error:', buyerRescueErr);
-    }
-  }
-
-  // 6. Targeted Invoice Date Rescue if missing on an invoice
-  if (parsedResult.documentType === 'invoice' && !parsedResult.invoiceDate) {
-    try {
-      console.log(`[OCR Date Rescue] Invoice is missing invoiceDate. Running targeted date extraction...`);
-      const rescueDatePrompt = `КРИТИЧНЕ ЗАВДАННЯ ДЛЯ ЗОБРАЖЕННЯ РАХУНКУ НА ОПЛАТУ:
-Первинний аналіз не зміг розпізнати дату рахунку. На будь-якому рахунку на оплату / рахунку-фактурі ОБОВ'ЯЗКОВО надруковано дату складання або виставлення!
-Уважно оглянь зображення цього документа:
-1. Біля назви та номера документа у верхній частині:
-   - "Рахунок на оплату № ... від 15 вересня 2026 р."
-   - "Рахунок на оплату № ... від 15.09.2026" (або "від «15» вересня 2026")
-   - "Рахунок-фактура № ... від 15.09.26"
-   - "Рахунок № ... від ..."
-2. У рядках: "Дата:", "Дата рахунку:", "Дата складання:", "Дата виписки:", "Дата оформлення:", "Date:"
-3. У табличній частині чи реквізитах
-4. Якщо дата написана словами (наприклад "15 вересня 2026 р."), обов'язково переведи її у формат YYYY-MM-DD (наприклад "2026-09-15")!
-
-Поверни JSON строго такого формату:
-{
-  "found": true,
-  "invoiceDate": "2026-09-15",
-  "invoiceDateOriginal": "15 вересня 2026 р."
-}`;
-
-      const rescueDateResponse = await ai.models.generateContent({
-        model: 'gemini-flash-latest',
-        contents: [
-          {
-            inlineData: {
-              mimeType: finalMimeType,
-              data: cleanBase64,
-            },
-          },
-          { text: rescueDatePrompt },
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-
-      let rDateText = rescueDateResponse.text || '';
-      rDateText = rDateText.replace(/^```json\s*/i, '').replace(/\s*```$/, '').trim();
-      if (rDateText) {
-        const parsedRescueDate = JSON.parse(rDateText);
-        if (parsedRescueDate.found && (parsedRescueDate.invoiceDate || parsedRescueDate.invoiceDateOriginal)) {
-          const iso = normalizeDateToIso(parsedRescueDate.invoiceDate || parsedRescueDate.invoiceDateOriginal);
-          if (iso) {
-            parsedResult.invoiceDate = iso;
-            if (!parsedResult.paymentDate) parsedResult.paymentDate = iso;
-            if (parsedRescueDate.invoiceDateOriginal) parsedResult.invoiceDateOriginal = parsedRescueDate.invoiceDateOriginal;
-            console.log(`[OCR Date Rescue] Successfully rescued invoiceDate: ${iso}`);
-          }
-        }
-      }
-    } catch (dateRescueErr) {
-      console.warn('Targeted date rescue error:', dateRescueErr);
     }
   }
 
