@@ -139,7 +139,73 @@ function normalizeCompanyName(input: string): string {
   val = val.replace(/\s+/g, ' ').trim();
 
   // 6. Convert entirely to UPPERCASE
-  return val.toUpperCase();
+  val = val.toUpperCase();
+
+  // 7. Strict normalization to exactly 4 target entities (always with "ТОВ", removing duplicate "Преміум Шоп" without ТОВ)
+  const upper = val;
+  const core = upper
+    .replace(/^(ТОВ|ТОV|ТзОВ|ПП|ФОП|ТДВ|LLC)\s+/i, '')
+    .replace(/[-_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 1. "ТОВ ПРЕМІУМ ШОП" (strictly standardizes "Преміум Шоп", "ПРЕМІУМ ШОП", "PREMIUM SHOP", etc.)
+  if (
+    core === 'ПРЕМІУМ ШОП' ||
+    core === 'ПРЕМИУМ ШОП' ||
+    core === 'PREMIUM SHOP' ||
+    core === 'ПРЕМІУМШОП' ||
+    core.includes('ПРЕМІУМ ШОП') ||
+    core.includes('ПРЕМИУМ ШОП') ||
+    core.includes('PREMIUM SHOP') ||
+    upper.includes('ПРЕМІУМ ШОП') ||
+    upper.includes('ПРЕМИУМ ШОП')
+  ) {
+    return 'ТОВ ПРЕМІУМ ШОП';
+  }
+
+  // 2. "ТОВ ШОП ІНТЕРІОР" (strictly standardizes "Шоп Інтеріор", "ШОП ІНТЕРІОР", "SHOP INTERIOR", etc.)
+  if (
+    core === 'ШОП ІНТЕРІОР' ||
+    core === 'ШОП ИНТЕРИОР' ||
+    core === 'SHOP INTERIOR' ||
+    core.includes('ШОП ІНТЕРІОР') ||
+    core.includes('ШОП ИНТЕРИОР') ||
+    core.includes('SHOP INTERIOR') ||
+    upper.includes('ШОП ІНТЕРІОР')
+  ) {
+    return 'ТОВ ШОП ІНТЕРІОР';
+  }
+
+  // 3. "ТОВ ГАЛА ПРОДАКШН" (strictly standardizes "Гала Продакшн", "ГАЛА ПРОДАКШН", "GALA PRODUCTION", etc.)
+  if (
+    core === 'ГАЛА ПРОДАКШН' ||
+    core === 'ГАЛА ПРОДАКШИН' ||
+    core === 'ГАЛА ПРОДАКШЕН' ||
+    core === 'GALA PRODUCTION' ||
+    core.includes('ГАЛА ПРОДАКШН') ||
+    core.includes('ГАЛА ПРОДАКШИН') ||
+    core.includes('GALA PRODUCTION') ||
+    upper.includes('ГАЛА ПРОДАКШН')
+  ) {
+    return 'ТОВ ГАЛА ПРОДАКШН';
+  }
+
+  // 4. "ТОВ ІНОКС УКРАЇНА" (strictly standardizes "Інокс Україна", "ІНОКС УКРАЇНА", "INOX UKRAINE", etc.)
+  if (
+    core === 'ІНОКС УКРАЇНА' ||
+    core === 'ИНОКС УКРАИНА' ||
+    core === 'ІНОКС УКРАИНА' ||
+    core === 'INOX UKRAINE' ||
+    core.includes('ІНОКС УКРАЇНА') ||
+    core.includes('ИНОКС УКРАИНА') ||
+    core.includes('INOX UKRAINE') ||
+    upper.includes('ІНОКС УКРАЇНА')
+  ) {
+    return 'ТОВ ІНОКС УКРАЇНА';
+  }
+
+  return val;
 }
 
 function isCompanyNameMatch(name1: string, name2: string): boolean {
@@ -267,7 +333,7 @@ const ocrResponseSchema: Schema = {
     },
     buyerName: {
       type: Type.STRING,
-      description: 'Buyer / Our company name in strict format: "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES). Extract from "Покупець", "Платник" (if "той самий", take from "Покупець" or "Одержувач"), "Замовник", "Одержувач", "Вантажоодержувач", delivery block, or handwritten text/stamps. Prioritize matching our companies list (e.g. ТОВ ШОП ІНТЕРІОР, ТОВ ПРЕСТИЖБУД, ТОВ ГОЛДЕН ПОІНТ, ТОВ БУДМОНТАЖ-2026). Never leave empty if any buyer company is present.',
+      description: 'Buyer / Our company name in strict format: "ТОВ НАЗВА КОМПАНІЇ" (ALL UPPERCASE, NO QUOTES). Extract from "Покупець", "Платник" (if "той самий", take from "Покупець" or "Одержувач"), "Замовник", "Одержувач", "Вантажоодержувач", delivery block, or handwritten text/stamps. Prioritize matching our 4 companies: "ТОВ ПРЕМІУМ ШОП", "ТОВ ШОП ІНТЕРІОР", "ТОВ ГАЛА ПРОДАКШН", "ТОВ ІНОКС УКРАЇНА". Never leave empty if any buyer company is present.',
     },
     buyerTaxId: {
       type: Type.STRING,
@@ -518,7 +584,8 @@ ${knownOrdersPromptList}
        3. Рядки "Замовник:", "Одержувач:", "Вантажоодержувач:".
        4. У блоці реквізитів для оплати вгорі або внизу рахунку ("Платник: ...").
      * ЗІСТАВЛЕННЯ ЗІ СПИСКОМ НАШИХ КОМПАНІЙ:
-       - Навіть якщо на рахунку надруковано повну форму "Товариство з обмеженою відповідальністю «Шоп Інтеріор»" або "ТзОВ Шоп Інтеріор" чи назва без лапок — зістав її з компанією зі СПИСКУ НАШИХ КОМПАНІЙ і поверни стандартизований варіант: "ТОВ ШОП ІНТЕРІОР"!
+       - Наші компанії строго відповідають 4 юридичним особам: "ТОВ ПРЕМІУМ ШОП", "ТОВ ШОП ІНТЕРІОР", "ТОВ ГАЛА ПРОДАКШН", "ТОВ ІНОКС УКРАЇНА".
+       - Навіть якщо на рахунку надруковано повну форму "Товариство з обмеженою відповідальністю «Шоп Інтеріор»" або просто "Преміум Шоп" чи назва без лапок або без ТОВ — зістав її з компанією зі СПИСКУ НАШИХ КОМПАНІЙ і поверни стандартизований варіант обов'язково з ТОВ: "ТОВ ПРЕМІУМ ШОП", "ТОВ ШОП ІНТЕРІОР", "ТОВ ГАЛА ПРОДАКШН" або "ТОВ ІНОКС УКРАЇНА"!
        - Якщо компанії немає в списку, все одно поверни точну назву покупця з рахунку у форматі "ТОВ НАЗВА" чи "ФОП ПРІЗВИЩЕ І.Б." великими літерами.
        - КАТЕГОРИЧНО ЗАБОРОНЕНО залишати поле buyerName порожнім або ставити "той самий", якщо в рахунку зазначено покупця!
 
@@ -983,12 +1050,12 @@ ${knownOrdersPromptList}
       );
       if (orderConfig?.invoiceCode?.startsWith('ШІ-') || orderConfig?.title?.toLowerCase().includes('шоп')) {
         parsedResult.buyerName = 'ТОВ ШОП ІНТЕРІОР';
-      } else if (orderConfig?.invoiceCode?.startsWith('ПШ-') || orderConfig?.title?.toLowerCase().includes('престиж')) {
-        parsedResult.buyerName = 'ТОВ ПРЕСТИЖБУД';
-      } else if (orderConfig?.invoiceCode?.startsWith('ГП-')) {
-        parsedResult.buyerName = 'ТОВ ГОЛДЕН ПОІНТ';
-      } else if (orderConfig?.invoiceCode?.startsWith('УП-')) {
-        parsedResult.buyerName = 'ТОВ УКРПРОМБУД';
+      } else if (orderConfig?.invoiceCode?.startsWith('ПШ-') || orderConfig?.title?.toLowerCase().includes('преміум') || orderConfig?.title?.toLowerCase().includes('престиж')) {
+        parsedResult.buyerName = 'ТОВ ПРЕМІУМ ШОП';
+      } else if (orderConfig?.invoiceCode?.startsWith('ГП-') || orderConfig?.title?.toLowerCase().includes('гала')) {
+        parsedResult.buyerName = 'ТОВ ГАЛА ПРОДАКШН';
+      } else if (orderConfig?.invoiceCode?.startsWith('ІУ-') || orderConfig?.title?.toLowerCase().includes('інокс')) {
+        parsedResult.buyerName = 'ТОВ ІНОКС УКРАЇНА';
       }
     }
 

@@ -118,12 +118,10 @@ export const KNOWN_PROJECT_ORDERS: ProjectOrder[] = [
 ];
 
 export const DEFAULT_OUR_COMPANIES: string[] = [
-  'ТОВ ШОП ІНТЕРІОР',
   'ТОВ ПРЕМІУМ ШОП',
-  'ТОВ ІНОКС УКРАЇНА',
+  'ТОВ ШОП ІНТЕРІОР',
   'ТОВ ГАЛА ПРОДАКШН',
-  'ФОП ІЛЬЇНСЬКИЙ КОСТЯНТИН ВЛАДИСЛАВОВИЧ',
-  'ФОП БОДНАР ЛАРИСА ВАЛЕНТИНІВНА',
+  'ТОВ ІНОКС УКРАЇНА',
 ];
 
 export const DEFAULT_SUPPLIERS: string[] = [

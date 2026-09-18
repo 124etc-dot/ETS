@@ -1364,19 +1364,22 @@ export const DocumentReviewModal: React.FC<Props> = ({
             <div className="space-y-3">
               {/* Payer / Buyer (Our Company) */}
               {(() => {
-                const combinedOurCompanies = Array.from(new Set([...(companyLists.ourCompanies || []), ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
+                const combinedOurCompanies = GoogleSheetsService.deduplicateCompanyList([
+                  ...(companyLists.ourCompanies || []),
+                  ...DEFAULT_OUR_COMPANIES,
+                ]);
                 const currentBuyer = (isPaymentDoc ? (formData.payerName || formData.buyerName) : formData.buyerName) || '';
                 const cleanOrderNum = OCRService.normalizeOrderNumber(formData.handwrittenOrderNumber || '');
                 const matchedOrderObj = cleanOrderNum ? KNOWN_PROJECT_ORDERS.find(o => o.code === cleanOrderNum || o.invoiceCode?.includes(cleanOrderNum)) : undefined;
                 let suggestedCompanyFromOrder = '';
                 if (matchedOrderObj?.invoiceCode?.startsWith('ШІ-') || matchedOrderObj?.title?.toLowerCase().includes('шоп')) {
                   suggestedCompanyFromOrder = 'ТОВ ШОП ІНТЕРІОР';
-                } else if (matchedOrderObj?.invoiceCode?.startsWith('ПШ-') || matchedOrderObj?.title?.toLowerCase().includes('престиж')) {
-                  suggestedCompanyFromOrder = 'ТОВ ПРЕСТИЖБУД';
-                } else if (matchedOrderObj?.invoiceCode?.startsWith('ГП-')) {
-                  suggestedCompanyFromOrder = 'ТОВ ГОЛДЕН ПОІНТ';
-                } else if (matchedOrderObj?.invoiceCode?.startsWith('УП-')) {
-                  suggestedCompanyFromOrder = 'ТОВ УКРПРОМБУД';
+                } else if (matchedOrderObj?.invoiceCode?.startsWith('ПШ-') || matchedOrderObj?.title?.toLowerCase().includes('преміум') || matchedOrderObj?.title?.toLowerCase().includes('престиж')) {
+                  suggestedCompanyFromOrder = 'ТОВ ПРЕМІУМ ШОП';
+                } else if (matchedOrderObj?.invoiceCode?.startsWith('ГП-') || matchedOrderObj?.title?.toLowerCase().includes('гала')) {
+                  suggestedCompanyFromOrder = 'ТОВ ГАЛА ПРОДАКШН';
+                } else if (matchedOrderObj?.invoiceCode?.startsWith('ІУ-') || matchedOrderObj?.title?.toLowerCase().includes('інокс')) {
+                  suggestedCompanyFromOrder = 'ТОВ ІНОКС УКРАЇНА';
                 }
 
                 return (

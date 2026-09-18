@@ -129,8 +129,14 @@ export default function App() {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed?.ourCompanies?.length || parsed?.suppliers?.length) {
-            const mergedOur = Array.from(new Set([...(parsed.ourCompanies || []), ...DEFAULT_OUR_COMPANIES])).filter(Boolean);
-            const mergedSuppliers = Array.from(new Set([...(parsed.suppliers || []), ...DEFAULT_SUPPLIERS])).filter(Boolean);
+            const mergedOur = GoogleSheetsService.deduplicateCompanyList([
+              ...(parsed.ourCompanies || []),
+              ...DEFAULT_OUR_COMPANIES,
+            ]);
+            const mergedSuppliers = GoogleSheetsService.deduplicateCompanyList([
+              ...(parsed.suppliers || []),
+              ...DEFAULT_SUPPLIERS,
+            ]);
             return {
               ourCompanies: mergedOur,
               suppliers: mergedSuppliers,

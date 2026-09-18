@@ -20,7 +20,9 @@ import {
 } from 'lucide-react';
 import { ExistingSheetRow, ProcessedDocument, OCRResult, SheetCompanyLists } from '../types';
 import { OCRService } from '../services/ocrService';
+import { GoogleSheetsService } from '../services/googleSheets';
 import { GoogleDriveService } from '../services/googleDrive';
+import { DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 
 interface Props {
   isOpen: boolean;
@@ -645,7 +647,10 @@ export const ReplaceInvoiceModal: React.FC<Props> = ({
                   onChange={(e) => setFormData({ ...formData, buyerName: e.target.value })}
                   className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-hidden"
                 >
-                  {companyLists.ourCompanies.map((c) => (
+                  {GoogleSheetsService.deduplicateCompanyList([
+                    ...(companyLists.ourCompanies || []),
+                    ...DEFAULT_OUR_COMPANIES,
+                  ]).map((c) => (
                     <option key={c} value={c}>{c}</option>
                   ))}
                 </select>

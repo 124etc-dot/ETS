@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { OverheadExpenseRow, SheetConfig, SheetCompanyLists, InvoicePaymentStatus } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
+import { DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 import { formatMonthYearUk, UKRAINIAN_MONTH_NAMES } from '../utils/dateUtils';
 
 interface Props {
@@ -910,20 +911,21 @@ export const OverheadTab: React.FC<Props> = ({
                   placeholder="наприклад: ТОВ ЕТС ПРОДЖЕКТС"
                   className="w-full text-xs font-medium px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 uppercase"
                 />
-                {companyLists?.ourCompanies && companyLists.ourCompanies.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {companyLists.ourCompanies.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => setNewBuyer(c)}
-                        className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-amber-100 text-slate-700 rounded cursor-pointer"
-                      >
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {GoogleSheetsService.deduplicateCompanyList([
+                    ...(companyLists?.ourCompanies || []),
+                    ...DEFAULT_OUR_COMPANIES,
+                  ]).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setNewBuyer(c)}
+                      className="text-[10px] px-2 py-0.5 bg-slate-100 hover:bg-amber-100 text-slate-700 rounded cursor-pointer"
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Row 3: Invoice Number (Col C) & Date (Col D) */}
