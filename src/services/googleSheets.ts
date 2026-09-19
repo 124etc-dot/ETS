@@ -2935,24 +2935,28 @@ export class GoogleSheetsService {
     ];
   }
 
+  public static readonly DEFAULT_PROJECTS_SPREADSHEET_ID = '1zhwd42u8TFA2cs6CbTpwO4e7hOP69S88p_YCzP2jwEk';
+  public static readonly DEFAULT_PROJECTS_SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1zhwd42u8TFA2cs6CbTpwO4e7hOP69S88p_YCzP2jwEk/edit?pli=1&gid=0#gid=0';
+
   /**
-   * Validates project number format (e.g. "235-26", "227-26", "12-25", "100/26")
+   * Validates project number format: strictly "ххх-хх", where x are digits (e.g. "235-26")
    */
   public static isProjectNumberValid(num: string): boolean {
     if (!num) return false;
     const trimmed = num.trim().replace(/^[№#]\s*/, '');
-    // Standard format: digits/alphanumeric prefix with hyphen/slash and year suffix
-    return /^[A-Za-zА-Яа-яІіЇїЄє0-9]{1,8}[-/]\d{2,4}$/.test(trimmed) || /^\d+[-/]\d+$/.test(trimmed);
+    return /^\d{3}-\d{2}$/.test(trimmed);
   }
 
   /**
-   * Appends a new project row into the first free/empty cell in Column A of the specified tab (default "Лист1").
+   * Appends a new project row into the first free/empty cell in Column A of the specified tab (default "Лист1", gid=0).
    * Strictly respects user requirements:
-   * - Column A: Project Number (Номер проекту)
+   * 1. В першу зверху пусту ячейку колонки А вписати номер проекту у форматі ххх-хх, де х - це цифри.
+   * - Column A: Project Number (Номер проекту, формат ххх-хх)
    * - Column B: Project Name (Назва проекту)
    * - Column C: Start Date (Старт проект)
    * - Column G: Invoice Number (Рахунок)
    * - Column H: Invoice Date (Дата рахунку)
+   * - Column M: Contract Amount (Сума Договору)
    */
   public static async addProjectToSheet(
     spreadsheetId: string,
@@ -2964,23 +2968,29 @@ export class GoogleSheetsService {
       invoiceNumber?: string;
       invoiceDate?: string;
       contractAmount?: string | number;
+      manager?: string;
+      department?: string;
     },
     tabName = 'Лист1'
-  ): Promise<{ targetRow: number; tabNameUsed: string }> {
-    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+  ): Promise<{ targetRow: number; tabNameUsed: string; spreadsheetId: string }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID);
     let targetTab = tabName;
 
-    // Resolve matching sheet tab if needed (Лист1 / Sheet1 / Аркуш1)
+    // Resolve matching sheet tab if needed (by gid=0, or Лист1 / Sheet1 / Аркуш1)
     try {
       const details = await this.getSpreadsheetDetails(cleanId, accessToken);
       if (details && details.sheets && details.sheets.length > 0) {
-        const foundTab = details.sheets.find(
-          (s) =>
-            s.trim().toLowerCase() === 'лист1' ||
-            s.trim().toLowerCase() === 'лист 1' ||
-            s.trim().toLowerCase() === 'sheet1' ||
-            s.trim().toLowerCase() === 'аркуш1'
-        );
+        // First check for tab associated with gid=0 (sheetId === 0)
+        const gid0Tab = details.sheetMeta?.find((m) => m.sheetId === 0)?.title;
+        const foundTab =
+          gid0Tab ||
+          details.sheets.find(
+            (s) =>
+              s.trim().toLowerCase() === 'лист1' ||
+              s.trim().toLowerCase() === 'лист 1' ||
+              s.trim().toLowerCase() === 'sheet1' ||
+              s.trim().toLowerCase() === 'аркуш1'
+          );
         if (foundTab) {
           targetTab = foundTab;
         } else if (!details.sheets.includes(targetTab)) {
@@ -2988,28 +2998,34 @@ export class GoogleSheetsService {
         }
       }
     } catch {
-      // ignore
+      // ignore fallback
     }
 
     const safeTab = targetTab.replace(/'/g, "''");
 
-    // Read column A from row 1 to row 5000 to locate the first free/empty cell in Column A for projects
+    // Read column A from row 1 to row 5000 to locate the first free/empty cell in Column A
     const range = encodeURIComponent(`'${safeTab}'!A1:A5000`);
     const data = await this.request<any>(`${cleanId}/values/${range}`, accessToken);
     const colAValues: any[][] = data.values || [];
 
-    // The project table rows start strictly at row 111 (0-based index 110).
-    // Scan starting from row 111 downwards for the first empty cell in Column A.
-    let targetRow = 111;
-    const startIndex = 110;
+    // Locate the first empty cell in Column A (перша зверху пуста ячейка колонки А)
+    let targetRow = 1;
 
-    if (colAValues.length <= startIndex) {
-      targetRow = 111;
-    } else {
+    // 1. Check if there are existing project numbers in column A (matching \d{3}-\d{2} or \d+[-/]\d+)
+    let firstProjRowIndex = -1;
+    for (let r = 0; r < colAValues.length; r++) {
+      const val = String(colAValues[r]?.[0] ?? '').trim().replace(/^[№#]\s*/, '');
+      if (/^\d{3}-\d{2}$/.test(val) || /^\d+[-/]\d+$/.test(val)) {
+        firstProjRowIndex = r;
+        break;
+      }
+    }
+
+    if (firstProjRowIndex !== -1) {
+      // Existing project table found: scan starting from firstProjRowIndex downwards for first empty cell in Column A
       let foundEmpty = false;
-      for (let r = startIndex; r < colAValues.length; r++) {
-        const cell = colAValues[r]?.[0];
-        const val = cell !== undefined && cell !== null ? String(cell).trim() : '';
+      for (let r = firstProjRowIndex; r < colAValues.length; r++) {
+        const val = String(colAValues[r]?.[0] ?? '').trim();
         if (!val) {
           targetRow = r + 1; // 1-based row index
           foundEmpty = true;
@@ -3018,6 +3034,61 @@ export class GoogleSheetsService {
       }
       if (!foundEmpty) {
         targetRow = colAValues.length + 1;
+      }
+    } else {
+      // 2. Check for header row in Column A (e.g. containing "проект", "номер", "№", "project")
+      let headerRowIndex = -1;
+      for (let r = 0; r < Math.min(colAValues.length, 120); r++) {
+        const val = String(colAValues[r]?.[0] ?? '').toLowerCase().trim();
+        if (val.includes('проект') || val.includes('номер') || val.includes('project') || val === '№') {
+          headerRowIndex = r;
+          break;
+        }
+      }
+
+      if (headerRowIndex !== -1) {
+        // Scan starting immediately below the header row
+        let foundEmpty = false;
+        for (let r = headerRowIndex + 1; r < colAValues.length; r++) {
+          const val = String(colAValues[r]?.[0] ?? '').trim();
+          if (!val) {
+            targetRow = r + 1;
+            foundEmpty = true;
+            break;
+          }
+        }
+        if (!foundEmpty) {
+          targetRow = Math.max(headerRowIndex + 2, colAValues.length + 1);
+        }
+      } else if (colAValues.length >= 110) {
+        // Fallback for standard 110-row summary templates: scan from row 111 downwards
+        let foundEmpty = false;
+        for (let r = 110; r < colAValues.length; r++) {
+          const val = String(colAValues[r]?.[0] ?? '').trim();
+          if (!val) {
+            targetRow = r + 1;
+            foundEmpty = true;
+            break;
+          }
+        }
+        if (!foundEmpty) {
+          targetRow = colAValues.length + 1;
+        }
+      } else {
+        // Scan from top to bottom (skipping row 1 if it has a non-empty header/title)
+        const startScan = (colAValues[0]?.[0] && String(colAValues[0][0]).trim()) ? 1 : 0;
+        let foundEmpty = false;
+        for (let r = startScan; r < colAValues.length; r++) {
+          const val = String(colAValues[r]?.[0] ?? '').trim();
+          if (!val) {
+            targetRow = r + 1;
+            foundEmpty = true;
+            break;
+          }
+        }
+        if (!foundEmpty) {
+          targetRow = colAValues.length + 1;
+        }
       }
     }
 
@@ -3037,7 +3108,8 @@ export class GoogleSheetsService {
     const cleanProjectNumber = projectData.projectNumber.trim().replace(/^[№#]\s*/, '');
 
     // Prepare batchUpdate value ranges:
-    // Range 1: Columns A..C (A: Project Number, B: Project Name, C: Start Date)
+    // 1. В першу зверху пусту ячейку колонки А вписати номер проекту у форматі ххх-хх, де х - це цифри.
+    // Range 1: Columns A..C (A: Project Number [ххх-хх], B: Project Name, C: Start Date)
     // Range 2: Columns G..H (G: Invoice Number, H: Invoice Date)
     // Range 3: Column M (M: Contract Amount / Сума Договору)
     const updateRanges: Array<{ range: string; values: any[][] }> = [
@@ -3047,7 +3119,7 @@ export class GoogleSheetsService {
       },
       {
         range: `'${safeTab}'!G${targetRow}:H${targetRow}`,
-        values: [[projectData.invoiceNumber?.trim() || '', formattedInvoiceDate]],
+        values: [[projectData.invoiceNumber?.trim() || projectData.manager?.trim() || '', formattedInvoiceDate]],
       },
     ];
 
@@ -3071,8 +3143,621 @@ export class GoogleSheetsService {
     return {
       targetRow,
       tabNameUsed: targetTab,
+      spreadsheetId: cleanId,
+    };
+  }
+
+  /**
+   * Search Google Drive for a spreadsheet whose name contains the specified query.
+   */
+  public static async findSpreadsheetByName(
+    accessToken: string,
+    queryName: string
+  ): Promise<{ id: string; title: string; webViewLink?: string } | null> {
+    try {
+      const q = `mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false and name contains '${queryName.replace(/'/g, "\\'")}'`;
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&pageSize=10&orderBy=modifiedTime desc&fields=files(id,name,webViewLink)`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        }
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const files = data.files || [];
+      if (files.length === 0) return null;
+      const exact = files.find((f: any) => f.name?.trim().toLowerCase() === queryName.trim().toLowerCase());
+      const matched = exact || files[0];
+      return {
+        id: matched.id,
+        title: matched.name,
+        webViewLink: matched.webViewLink || `https://docs.google.com/spreadsheets/d/${matched.id}/edit`,
+      };
+    } catch (err) {
+      console.warn('Could not search Drive for spreadsheet by name:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch existing project numbers (Column A) from one or more spreadsheets
+   * to check for duplicates in real-time.
+   */
+  public static async getExistingProjectNumbers(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName?: string
+  ): Promise<string[]> {
+    const details = await this.getExistingProjectNumbersWithRows(spreadsheetId, accessToken, tabName);
+    return details.map((d) => d.number);
+  }
+
+  /**
+   * Fetch existing project numbers with exact row indices from Google Sheet.
+   * Accurately reflects row additions or deletions in real-time.
+   */
+  public static async getExistingProjectNumbersWithRows(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName?: string
+  ): Promise<{ number: string; row: number }[]> {
+    if (!spreadsheetId || !accessToken) return [];
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    try {
+      let targetTab = tabName;
+      const details = await this.getSpreadsheetDetails(cleanId, accessToken);
+      if (details?.sheets) {
+        if (targetTab) {
+          const matched = details.sheets.find(
+            (s) =>
+              s.trim().toLowerCase() === targetTab!.trim().toLowerCase() ||
+              s.trim().toLowerCase().includes(targetTab!.trim().toLowerCase())
+          );
+          if (matched) targetTab = matched;
+        } else {
+          targetTab =
+            details.sheets.find(
+              (s) =>
+                s.trim().toLowerCase() === 'план' ||
+                s.trim().toLowerCase() === 'лист1' ||
+                s.trim().toLowerCase() === 'лист 1'
+            ) ||
+            details.sheets[0] ||
+            'Лист1';
+        }
+      }
+      targetTab = targetTab || 'Лист1';
+      const safeTab = targetTab.replace(/'/g, "''");
+      const url = `${cleanId}/values/'${encodeURIComponent(safeTab)}'!A1:A10000?valueRenderOption=FORMATTED_VALUE`;
+      const res = await this.request<{ values?: string[][] }>(url, accessToken);
+      if (!res.values) return [];
+
+      const result: { number: string; row: number }[] = [];
+      for (let i = 0; i < res.values.length; i++) {
+        const raw = res.values[i]?.[0]?.toString().trim();
+        if (raw) {
+          const clean = raw.replace(/^[№#]\s*/, '').trim();
+          if (
+            clean &&
+            clean.toLowerCase() !== 'номер проекту' &&
+            clean.toLowerCase() !== 'номер замовлення' &&
+            clean.toLowerCase() !== 'проект' &&
+            clean !== '№'
+          ) {
+            result.push({ number: clean, row: i + 1 });
+          }
+        }
+      }
+      return result;
+    } catch (err) {
+      console.warn('Failed to fetch existing project numbers from sheet:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Implements the dual binding project addition requested by the user:
+   * 1. Fields: Номер проекту, Назва проекту, Старт проекту, Відділ, Менеджер проекту
+   *    -> Table "План відвантажень", tab "План", columns:
+   *       - A: Номер проекту (формат ххх-хх)
+   *       - B: Назва проекту
+   *       - C: Відділ
+   *       - D: Старт проекту
+   *       - H: Менеджер проекту
+   *    -> Inserts into the first free/empty cell in Column A.
+   *
+   * 2. Fields: Рахунок, Дата рахунку, Сума Договору
+   *    -> Table "Оплати/Борги", tab "Лист1", columns:
+   *       - G: Рахунок (перша пуста ячейка)
+   *       - H: Дата рахунку (перша пуста ячейка)
+   *       - M: Сума Договору (перша пуста ячейка)
+   */
+  public static async addProjectDualBindings(
+    accessToken: string,
+    params: {
+      projectNumber: string;
+      projectName: string;
+      department: string;
+      startDate: string;
+      manager: string;
+      invoiceNumber: string;
+      invoiceDate: string;
+      contractAmount: string | number;
+      planSpreadsheetId?: string;
+      paymentsSpreadsheetId?: string;
+      planTabName?: string;
+      paymentsTabName?: string;
+    }
+  ): Promise<{
+    plan: {
+      spreadsheetId: string;
+      spreadsheetTitle?: string;
+      tab: string;
+      row: number;
+    };
+    payments: {
+      spreadsheetId: string;
+      spreadsheetTitle?: string;
+      tab: string;
+      rowG: number;
+      rowH: number;
+      rowM: number;
+    };
+  }> {
+    const cleanProjectNumber = params.projectNumber.trim().replace(/^[№#]\s*/, '');
+    const formatDateForSheet = (dStr: string): string => {
+      if (!dStr) return '';
+      const s = dStr.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, d] = s.split('-');
+        return `${d}.${m}.${y}`;
+      }
+      return s;
+    };
+    const formattedStartDate = formatDateForSheet(params.startDate);
+    const formattedInvoiceDate = formatDateForSheet(params.invoiceDate);
+
+    // =========================================================================
+    // 1. Google Таблиця "План відвантажень", вкладка "План"
+    // =========================================================================
+    let targetPlanSpreadsheetId = params.planSpreadsheetId
+      ? this.extractSpreadsheetId(params.planSpreadsheetId)
+      : '';
+
+    let planTitle = 'План відвантажень';
+    if (!targetPlanSpreadsheetId) {
+      const found = await this.findSpreadsheetByName(accessToken, 'План відвантажень');
+      if (found?.id) {
+        targetPlanSpreadsheetId = found.id;
+        planTitle = found.title;
+      }
+    }
+
+    if (!targetPlanSpreadsheetId) {
+      targetPlanSpreadsheetId = this.extractSpreadsheetId(
+        params.paymentsSpreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID
+      );
+    }
+
+    let targetPlanTab = params.planTabName || 'План';
+    try {
+      const details = await this.getSpreadsheetDetails(targetPlanSpreadsheetId, accessToken);
+      if (details.title) {
+        planTitle = details.title;
+      }
+      const matchingTab = details.sheets.find(
+        (s) => s.trim().toLowerCase() === 'план' || s.trim().toLowerCase().includes('план')
+      );
+      if (matchingTab) {
+        targetPlanTab = matchingTab;
+      } else {
+        await this.ensureTabExists(targetPlanSpreadsheetId, accessToken, 'План', [
+          'Номер проекту',
+          'Назва проекту',
+          'Відділ',
+          'Старт проекту',
+          'Колонка E',
+          'Колонка F',
+          'Колонка G',
+          'Менеджер проекту',
+        ]);
+        targetPlanTab = 'План';
+      }
+    } catch (err) {
+      console.warn('Could not inspect plan spreadsheet tabs:', err);
+    }
+
+    const safePlanTab = targetPlanTab.replace(/'/g, "''");
+
+    // Start writing project records strictly from row 2094 downwards (User directive:
+    // "В таблицю План відвантажень вкладка План записи проектів починати тільки з рядка 2094 і далі вниз")
+    const MIN_PLAN_START_ROW = 2094;
+
+    // 1. Check for duplicates in rows 1..2093
+    try {
+      const topRange = encodeURIComponent(`'${safePlanTab}'!A1:A${MIN_PLAN_START_ROW - 1}`);
+      const topData = await this.request<any>(`${targetPlanSpreadsheetId}/values/${topRange}`, accessToken);
+      const topRows: any[][] = topData.values || [];
+      for (let r = 0; r < topRows.length; r++) {
+        const existing = String(topRows[r]?.[0] ?? '').replace(/^[№#]\s*/, '').trim();
+        if (existing && existing.toLowerCase() === cleanProjectNumber.toLowerCase()) {
+          throw new Error(
+            `Номер проекту «${cleanProjectNumber}» вже існує в таблиці «${planTitle}» (рядок ${r + 1}). Дублювання індивідуальних номерів заборонено.`
+          );
+        }
+      }
+    } catch (err: any) {
+      if (err?.message?.includes('вже існує')) {
+        throw err;
+      }
+    }
+
+    // 2. Fetch column A starting strictly from row 2094 downwards
+    const planRange2094 = encodeURIComponent(`'${safePlanTab}'!A${MIN_PLAN_START_ROW}:A10000`);
+    const planData2094 = await this.request<any>(
+      `${targetPlanSpreadsheetId}/values/${planRange2094}`,
+      accessToken
+    );
+    const planColAFrom2094: any[][] = planData2094.values || [];
+
+    // Check for duplicates in rows 2094..10000
+    for (let i = 0; i < planColAFrom2094.length; i++) {
+      const existing = String(planColAFrom2094[i]?.[0] ?? '').replace(/^[№#]\s*/, '').trim();
+      if (existing && existing.toLowerCase() === cleanProjectNumber.toLowerCase()) {
+        throw new Error(
+          `Номер проекту «${cleanProjectNumber}» вже існує в таблиці «${planTitle}» (рядок ${MIN_PLAN_START_ROW + i}). Дублювання індивідуальних номерів заборонено.`
+        );
+      }
+    }
+
+    // Find the first empty cell in Column A starting strictly from row 2094 downwards
+    let targetPlanRow = MIN_PLAN_START_ROW;
+    let foundPlanEmpty = false;
+    for (let i = 0; i < planColAFrom2094.length; i++) {
+      const val = String(planColAFrom2094[i]?.[0] ?? '').trim();
+      if (!val) {
+        targetPlanRow = MIN_PLAN_START_ROW + i;
+        foundPlanEmpty = true;
+        break;
+      }
+    }
+    if (!foundPlanEmpty) {
+      targetPlanRow = MIN_PLAN_START_ROW + planColAFrom2094.length;
+    }
+
+    // A: Номер проекту, B: Назва проекту, C: Відділ, D: Старт проекту, H: Менеджер проекту
+    const planUpdates: Array<{ range: string; values: any[][] }> = [
+      {
+        range: `'${safePlanTab}'!A${targetPlanRow}:D${targetPlanRow}`,
+        values: [[cleanProjectNumber, params.projectName.trim(), params.department.trim(), formattedStartDate]],
+      },
+      {
+        range: `'${safePlanTab}'!H${targetPlanRow}`,
+        values: [[params.manager.trim()]],
+      },
+    ];
+
+    await this.request<any>(`${targetPlanSpreadsheetId}/values:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: planUpdates,
+      }),
+    });
+
+    // =========================================================================
+    // 2. Google Таблиця "Оплати/Борги", вкладка "Лист1"
+    // =========================================================================
+    const cleanPaymentsId = this.extractSpreadsheetId(
+      params.paymentsSpreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID
+    );
+    let targetPaymentsTab = params.paymentsTabName || 'Лист1';
+    let paymentsTitle = 'Оплати/Борги';
+
+    try {
+      const details = await this.getSpreadsheetDetails(cleanPaymentsId, accessToken);
+      if (details.title) {
+        paymentsTitle = details.title;
+      }
+      const gid0Tab = details.sheetMeta?.find((m) => m.sheetId === 0)?.title;
+      const foundTab =
+        gid0Tab ||
+        details.sheets.find(
+          (s) =>
+            s.trim().toLowerCase() === 'лист1' ||
+            s.trim().toLowerCase() === 'лист 1' ||
+            s.trim().toLowerCase() === 'sheet1' ||
+            s.trim().toLowerCase() === 'аркуш1'
+        );
+      if (foundTab) {
+        targetPaymentsTab = foundTab;
+      } else if (!details.sheets.includes(targetPaymentsTab) && details.sheets.length > 0) {
+        targetPaymentsTab = details.sheets[0];
+      }
+    } catch (err) {
+      console.warn('Could not inspect payments spreadsheet tabs:', err);
+    }
+
+    const safePaymentsTab = targetPaymentsTab.replace(/'/g, "''");
+
+    // Start writing project records in "Оплати/Борги" strictly from row 127 downwards (User directive:
+    // "В таблицю Оплати/Борги вкладка Лист1 записи проектів починати тільки з рядка 127 і далі вниз")
+    const MIN_PAYMENTS_START_ROW = 127;
+
+    // Columns G..M: G=0, H=1, M=6, queried strictly starting from row 127 downwards
+    const gRange = encodeURIComponent(`'${safePaymentsTab}'!G${MIN_PAYMENTS_START_ROW}:M10000`);
+    const gData = await this.request<any>(`${cleanPaymentsId}/values/${gRange}`, accessToken);
+    const gRows: any[][] = gData.values || [];
+
+    // Find first empty cell in Column G starting strictly from row 127 downwards
+    let rowG = MIN_PAYMENTS_START_ROW;
+    let foundG = false;
+    for (let i = 0; i < gRows.length; i++) {
+      const val = String(gRows[i]?.[0] ?? '').trim();
+      if (!val) {
+        rowG = MIN_PAYMENTS_START_ROW + i;
+        foundG = true;
+        break;
+      }
+    }
+    if (!foundG) {
+      rowG = MIN_PAYMENTS_START_ROW + gRows.length;
+    }
+
+    // Find first empty cell in Column H starting strictly from row 127 downwards
+    let rowH = MIN_PAYMENTS_START_ROW;
+    let foundH = false;
+    for (let i = 0; i < gRows.length; i++) {
+      const val = String(gRows[i]?.[1] ?? '').trim();
+      if (!val) {
+        rowH = MIN_PAYMENTS_START_ROW + i;
+        foundH = true;
+        break;
+      }
+    }
+    if (!foundH) {
+      rowH = MIN_PAYMENTS_START_ROW + gRows.length;
+    }
+
+    // Find first empty cell in Column M starting strictly from row 127 downwards
+    let rowM = MIN_PAYMENTS_START_ROW;
+    let foundM = false;
+    for (let i = 0; i < gRows.length; i++) {
+      const val = String(gRows[i]?.[6] ?? '').trim();
+      if (!val) {
+        rowM = MIN_PAYMENTS_START_ROW + i;
+        foundM = true;
+        break;
+      }
+    }
+    if (!foundM) {
+      rowM = MIN_PAYMENTS_START_ROW + gRows.length;
+    }
+
+    let parsedAmount: string | number = String(params.contractAmount).trim();
+    const rawAmount = String(params.contractAmount)
+      .trim()
+      .replace(/\s/g, '')
+      .replace(',', '.')
+      .replace(/[^0-9.-]/g, '');
+    const numAmount = parseFloat(rawAmount);
+    if (!isNaN(numAmount)) {
+      parsedAmount = numAmount;
+    }
+
+    const paymentsUpdates: Array<{ range: string; values: any[][] }> = [
+      {
+        range: `'${safePaymentsTab}'!G${rowG}`,
+        values: [[params.invoiceNumber.trim()]],
+      },
+      {
+        range: `'${safePaymentsTab}'!H${rowH}`,
+        values: [[formattedInvoiceDate]],
+      },
+      {
+        range: `'${safePaymentsTab}'!M${rowM}`,
+        values: [[parsedAmount]],
+      },
+    ];
+
+    await this.request<any>(`${cleanPaymentsId}/values:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        valueInputOption: 'USER_ENTERED',
+        data: paymentsUpdates,
+      }),
+    });
+
+    return {
+      plan: {
+        spreadsheetId: targetPlanSpreadsheetId,
+        spreadsheetTitle: planTitle,
+        tab: targetPlanTab,
+        row: targetPlanRow,
+      },
+      payments: {
+        spreadsheetId: cleanPaymentsId,
+        spreadsheetTitle: paymentsTitle,
+        tab: targetPaymentsTab,
+        rowG,
+        rowH,
+        rowM,
+      },
+    };
+  }
+
+  /**
+   * Retrieves projects from the "План відвантажень" spreadsheet (tab "План"),
+   * starting strictly from row 2094 downwards (as requested by user).
+   */
+  public static async getPlanProjectsFromSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName = 'План',
+    startRow = 2094
+  ): Promise<{
+    rows: ProjectSheetRow[];
+    headers: ProjectColumnHeader[];
+    tabNameUsed: string;
+    spreadsheetTitle?: string;
+    spreadsheetId: string;
+    spreadsheetUrl: string;
+    totalRowsFrom2094: number;
+  }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    let targetTab = tabName;
+    let spreadsheetTitle = 'План відвантажень';
+
+    try {
+      const details = await this.getSpreadsheetDetails(cleanId, accessToken);
+      if (details?.title) spreadsheetTitle = details.title;
+      const matched = details?.sheets?.find(
+        (s) => s.trim().toLowerCase() === 'план' || s.trim().toLowerCase().includes('план')
+      );
+      if (matched) {
+        targetTab = matched;
+      } else if (details?.sheets?.[0]) {
+        targetTab = details.sheets[0];
+      }
+    } catch (err) {
+      console.warn('Could not inspect plan spreadsheet details:', err);
+    }
+
+    const safeTab = targetTab.replace(/'/g, "''");
+
+    // Fetch column header names from top rows if available
+    let headerValues: string[] = [];
+    try {
+      const headerRes = await this.request<{ values?: string[][] }>(
+        `${cleanId}/values/'${encodeURIComponent(safeTab)}'!A1:Z5`,
+        accessToken
+      );
+      if (headerRes.values && headerRes.values.length > 0) {
+        headerValues = headerRes.values[0] || [];
+      }
+    } catch {
+      // ignore
+    }
+
+    const getHeader = (idx: number, letter: string, fallback: string) => {
+      const custom = headerValues[idx]?.trim();
+      return custom && custom.length > 1 ? custom : fallback;
+    };
+
+    const headers: ProjectColumnHeader[] = [
+      { key: 'colA', letter: 'A', title: getHeader(0, 'A', 'Номер проекту') },
+      { key: 'colB', letter: 'B', title: getHeader(1, 'B', 'Назва проекту') },
+      { key: 'colC', letter: 'C', title: getHeader(2, 'C', 'Відділ') },
+      { key: 'colD', letter: 'D', title: getHeader(3, 'D', 'Старт проекту') },
+      { key: 'colE', letter: 'E', title: getHeader(4, 'E', 'Колонка E') },
+      { key: 'colF', letter: 'F', title: getHeader(5, 'F', 'Статус / Відвантаження') },
+      { key: 'colG', letter: 'G', title: getHeader(6, 'G', 'Колонка G') },
+      { key: 'colH', letter: 'H', title: getHeader(7, 'H', 'Менеджер проекту') },
+      { key: 'colI', letter: 'I', title: getHeader(8, 'I', 'Колонка I') },
+      { key: 'colM', letter: 'M', title: getHeader(12, 'M', 'Колонка M') },
+      { key: 'colN', letter: 'N', title: getHeader(13, 'N', 'Колонка N') },
+      { key: 'colO', letter: 'O', title: getHeader(14, 'O', 'Колонка O') },
+      { key: 'colP', letter: 'P', title: getHeader(15, 'P', 'Колонка P') },
+      { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Витрати' },
+      { key: 'colU', letter: 'U', title: getHeader(20, 'U', 'Результат') },
+      { key: 'colV', letter: 'V', title: getHeader(21, 'V', 'Колонка V') },
+      { key: 'colW', letter: 'W', title: getHeader(22, 'W', 'Колонка W') },
+      { key: 'colX', letter: 'X', title: getHeader(23, 'X', 'Колонка X') },
+      { key: 'colY', letter: 'Y', title: getHeader(24, 'Y', 'Колонка Y') },
+    ];
+
+    // Fetch data starting from row 2094 downwards
+    const dataRange = encodeURIComponent(`'${safeTab}'!A${startRow}:Z10000`);
+    const dataRes = await this.request<{ values?: string[][] }>(
+      `${cleanId}/values/${dataRange}`,
+      accessToken
+    );
+    const rawRows = dataRes.values || [];
+
+    const projectRows: ProjectSheetRow[] = [];
+
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      if (!row || !Array.isArray(row)) continue;
+      const getVal = (idx: number) => String(row[idx] ?? '').trim();
+
+      const colA = getVal(0);
+      const colB = getVal(1);
+      const colC = getVal(2);
+      const colD = getVal(3);
+      const colE = getVal(4);
+      const colF = getVal(5);
+      const colG = getVal(6);
+      const colH = getVal(7);
+      const colI = getVal(8);
+      const colM = getVal(12);
+      const colN = getVal(13);
+      const colO = getVal(14);
+      const colP = getVal(15);
+      const colQ = getVal(16);
+      const colR = getVal(17);
+      const colS = getVal(18);
+      const colT = getVal(19);
+      const colU = getVal(20);
+      const colV = getVal(21);
+      const colW = getVal(22);
+      const colX = getVal(23);
+      const colY = getVal(24);
+
+      const isMeaningful = (v: string) => v && v !== '—' && v !== '-' && v !== '0';
+      if (
+        !isMeaningful(colA) &&
+        !isMeaningful(colB) &&
+        !isMeaningful(colC) &&
+        !isMeaningful(colD) &&
+        !isMeaningful(colH)
+      ) {
+        continue;
+      }
+
+      projectRows.push({
+        rowNumber: startRow + i,
+        colA,
+        colB,
+        colC,
+        colD,
+        colE,
+        colF,
+        colG,
+        colH,
+        colI,
+        colM,
+        colN,
+        colO,
+        colP,
+        colQ,
+        colR,
+        colS,
+        colT,
+        sumQRST: 0,
+        colU,
+        colV,
+        colW,
+        colX,
+        colY,
+      });
+    }
+
+    return {
+      rows: projectRows,
+      headers,
+      tabNameUsed: targetTab,
+      spreadsheetTitle,
+      spreadsheetId: cleanId,
+      spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${cleanId}/edit`,
+      totalRowsFrom2094: projectRows.length,
     };
   }
 }
+
+export const DEFAULT_PROJECTS_SPREADSHEET_ID = GoogleSheetsService.DEFAULT_PROJECTS_SPREADSHEET_ID;
+export const DEFAULT_PROJECTS_SPREADSHEET_URL = GoogleSheetsService.DEFAULT_PROJECTS_SPREADSHEET_URL;
 
 

@@ -21,13 +21,19 @@ import {
   Info,
   SlidersHorizontal,
   X,
-  Plus
+  Plus,
+  Edit2,
+  Save,
 } from 'lucide-react';
 import { ProjectSheetRow, ProjectColumnHeader, SheetConfig } from '../types';
-import { GoogleSheetsService } from '../services/googleSheets';
+import {
+  GoogleSheetsService,
+  DEFAULT_PROJECTS_SPREADSHEET_ID,
+  DEFAULT_PROJECTS_SPREADSHEET_URL,
+} from '../services/googleSheets';
 import { AuthState } from '../services/googleAuth';
 import { SAMPLE_PROJECT_HEADERS, SAMPLE_PROJECT_ROWS } from '../data/sampleProjects';
-import { AddProjectModal } from './AddProjectModal';
+import { AddProjectModal, PLAN_SPREADSHEET_STORAGE_KEY } from './AddProjectModal';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -43,10 +49,30 @@ export const ProjectsTab: React.FC<Props> = ({
   const [headers, setHeaders] = useState<ProjectColumnHeader[]>(SAMPLE_PROJECT_HEADERS);
   const [projects, setProjects] = useState<ProjectSheetRow[]>(SAMPLE_PROJECT_ROWS);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingPayments, setIsLoadingPayments] = useState(false);
+  const [isLoadingPlan, setIsLoadingPlan] = useState(false);
+  const [activeDataSource, setActiveDataSource] = useState<'payments' | 'plan'>('payments');
   const [error, setError] = useState<string | null>(null);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [isLiveFromSheet, setIsLiveFromSheet] = useState(false);
   const [activeTabName, setActiveTabName] = useState<string>('Лист1');
+
+  // Plan spreadsheet configuration
+  const [planSheetConfig, setPlanSheetConfig] = useState<{
+    id: string;
+    title: string;
+    url: string;
+  } | null>(() => {
+    try {
+      const stored = localStorage.getItem(PLAN_SPREADSHEET_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isEditingPlanSheet, setIsEditingPlanSheet] = useState(false);
+  const [planSheetInput, setPlanSheetInput] = useState('');
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,10 +82,11 @@ export const ProjectsTab: React.FC<Props> = ({
   const [sortBy, setSortBy] = useState<'row' | 'order' | 'expenses' | 'margin'>('row');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  // Load from Google Sheets
-  const handleLoadFromSheet = async () => {
-    if (!sheetConfig?.spreadsheetId) {
-      setError('Google Таблиця ще не налаштована. Будь ласка, вкажіть Spreadsheet ID у верхній панелі.');
+  // Load from Google Sheets: 1. Оплати/Борги (Лист1)
+  const handleLoadPaymentsSheet = async () => {
+    const effectiveSpreadsheetId = sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID;
+    if (!effectiveSpreadsheetId) {
+      setError('Google Таблиця «Оплати/Борги» ще не налаштована. Вкажіть Spreadsheet ID у верхній панелі.');
       return;
     }
 
@@ -68,12 +95,14 @@ export const ProjectsTab: React.FC<Props> = ({
       return;
     }
 
+    setIsLoadingPayments(true);
     setIsLoading(true);
     setError(null);
+    setSyncNotice(null);
 
     try {
       const res = await GoogleSheetsService.getProjectsFromSheet(
-        sheetConfig.spreadsheetId,
+        effectiveSpreadsheetId,
         authState.accessToken,
         'Лист1'
       );
@@ -86,21 +115,118 @@ export const ProjectsTab: React.FC<Props> = ({
         setProjects(res.rows);
         setHeaders(res.headers);
         setIsLiveFromSheet(true);
+        setActiveDataSource('payments');
         setActiveTabName(res.tabNameUsed);
-        setLastSyncTime(new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSyncTime(time);
+        setSyncNotice(`Дані з таблиці «Оплати/Борги» (вкладка «${res.tabNameUsed}», рядки 111+) успішно оновлено о ${time}. Завантажено ${res.rows.length} проєктів.`);
       }
     } catch (err: any) {
-      console.error('Failed to load projects from sheet:', err);
-      setError(`Помилка завантаження з Google Sheets: ${err?.message || 'Невідома помилка'}. Показано зразки проектів.`);
+      console.error('Failed to load projects from sheet «Оплати/Борги»:', err);
+      setError(`Помилка завантаження з Google Sheets «Оплати/Борги»: ${err?.message || 'Невідома помилка'}. Показано зразки проектів.`);
     } finally {
+      setIsLoadingPayments(false);
       setIsLoading(false);
     }
   };
 
+  // Load from Google Sheets: 2. План відвантажень (План, від рядка 2094)
+  const handleLoadPlanSheet = async () => {
+    if (!authState.isAuthenticated || !authState.accessToken) {
+      setError('Для отримання даних з Google Sheets потрібно авторизуватись через Google аккаунт.');
+      return;
+    }
+
+    setIsLoadingPlan(true);
+    setError(null);
+    setSyncNotice(null);
+
+    try {
+      let currentPlanConfig = planSheetConfig;
+
+      // Auto-discover on Drive if not yet stored
+      if (!currentPlanConfig?.id) {
+        try {
+          const found = await GoogleSheetsService.findSpreadsheetByName(
+            authState.accessToken,
+            'План відвантажень'
+          );
+          if (found) {
+            currentPlanConfig = {
+              id: found.id,
+              title: found.title,
+              url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}/edit`,
+            };
+            setPlanSheetConfig(currentPlanConfig);
+            localStorage.setItem(PLAN_SPREADSHEET_STORAGE_KEY, JSON.stringify(currentPlanConfig));
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const effectivePlanId = currentPlanConfig?.id || sheetConfig?.spreadsheetId;
+      if (!effectivePlanId) {
+        setIsEditingPlanSheet(true);
+        setError('Не знайдено ID Google Таблиці «План відвантажень». Будь ласка, введіть посилання або ID.');
+        return;
+      }
+
+      const res = await GoogleSheetsService.getPlanProjectsFromSheet(
+        effectivePlanId,
+        authState.accessToken,
+        'План',
+        2094
+      );
+
+      if (res.rows.length === 0) {
+        setProjects([]);
+        setHeaders(res.headers);
+        setActiveDataSource('plan');
+        setActiveTabName(res.tabNameUsed);
+        setIsLiveFromSheet(true);
+        const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSyncTime(time);
+        setSyncNotice(`Таблицю «План відвантажень» (вкладка «${res.tabNameUsed}») оновлено о ${time}. Записів від рядка 2094 наразі немає. Нові проекти будуть записуватись від рядка 2094.`);
+      } else {
+        setProjects(res.rows);
+        setHeaders(res.headers);
+        setActiveDataSource('plan');
+        setActiveTabName(res.tabNameUsed);
+        setIsLiveFromSheet(true);
+        const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        setLastSyncTime(time);
+        setSyncNotice(`Дані з таблиці «План відвантажень» (вкладка «${res.tabNameUsed}», від рядка 2094) успішно оновлено о ${time}. Завантажено ${res.rows.length} проєктів.`);
+      }
+
+      if (res.spreadsheetTitle && (!currentPlanConfig || currentPlanConfig.title !== res.spreadsheetTitle)) {
+        const updated = {
+          id: res.spreadsheetId,
+          title: res.spreadsheetTitle,
+          url: res.spreadsheetUrl,
+        };
+        setPlanSheetConfig(updated);
+        try {
+          localStorage.setItem(PLAN_SPREADSHEET_STORAGE_KEY, JSON.stringify(updated));
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to load plan shipments from sheet:', err);
+      setError(`Помилка завантаження з таблиці «План відвантажень»: ${err?.message || 'Невідома помилка'}. Перевірте доступ або вкажіть ID таблиці.`);
+    } finally {
+      setIsLoadingPlan(false);
+    }
+  };
+
+  // Backwards compatibility alias
+  const handleLoadFromSheet = handleLoadPaymentsSheet;
+
   // Auto-load on mount or when credentials/sheet become available
   React.useEffect(() => {
     if (sheetConfig?.spreadsheetId && authState?.accessToken && !isLiveFromSheet) {
-      handleLoadFromSheet();
+      handleLoadPaymentsSheet();
     }
   }, [sheetConfig?.spreadsheetId, authState?.accessToken]);
 
@@ -339,6 +465,11 @@ export const ProjectsTab: React.FC<Props> = ({
     }).format(amount);
   };
 
+  const activeSpreadsheetUrl =
+    activeDataSource === 'plan'
+      ? planSheetConfig?.url || (planSheetConfig?.id ? `https://docs.google.com/spreadsheets/d/${planSheetConfig.id}/edit` : undefined)
+      : sheetConfig?.spreadsheetUrl || DEFAULT_PROJECTS_SPREADSHEET_URL;
+
   return (
     <div className="space-y-4">
       {/* Top Banner & Action Header */}
@@ -351,73 +482,120 @@ export const ProjectsTab: React.FC<Props> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-lg font-bold text-slate-900">
-                  Проєкти та Маржинальність
+                  {activeDataSource === 'plan' ? 'Таблиця: План відвантажень' : 'Таблиця: Оплати / Борги'}
                 </h1>
                 <span className="px-2.5 py-0.5 text-xs font-semibold bg-blue-50 text-blue-700 rounded-full border border-blue-200">
-                  Вкладка «{activeTabName}» • Рядки 111+
+                  {activeDataSource === 'plan'
+                    ? `Вкладка «${activeTabName}» • Рядки 2094+`
+                    : `Вкладка «${activeTabName}» • Рядки 111+`}
                 </span>
                 {isLiveFromSheet ? (
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    Синхронізовано з Google Sheets {lastSyncTime && `о ${lastSyncTime}`}
+                    Синхронізовано {lastSyncTime && `о ${lastSyncTime}`}
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-[11px] font-medium bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full border border-slate-200">
-                    Зразки даних (Лист1)
+                    Зразки даних
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-1 max-w-3xl">
-                Прорахунок маржинальності та заробітної плати по проєктах. Назви колонок зчитано безпосередньо з Google Таблиці{' '}
-                <span className="font-semibold text-slate-700">(вкладка «{activeTabName}»)</span>, починаючи з рядка 111. Колонка суми Q+R+S+T розраховує{' '}
-                <span className="font-bold text-emerald-700 bg-emerald-50 px-1 rounded">Заробітну плату</span>.
+                {activeDataSource === 'plan' ? (
+                  <>
+                    Відображення проєктів з таблиці <span className="font-semibold text-slate-700">«План відвантажень»</span> (вкладка «{activeTabName}»), починаючи строго з рядка 2094.
+                  </>
+                ) : (
+                  <>
+                    Прорахунок маржинальності та заробітної плати по проєктах з таблиці <span className="font-semibold text-slate-700">«Оплати/Борги»</span> (вкладка «{activeTabName}»), починаючи з рядка 111. Колонка суми Q+R+S+T розраховує{' '}
+                    <span className="font-bold text-emerald-700 bg-emerald-50 px-1 rounded">Заробітну плату</span>.
+                  </>
+                )}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+            {/* 1. Add Project */}
             <button
               onClick={() => setIsAddModalOpen(true)}
               className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Додати новий проект"
+              title="Додати новий проект (запис у План відвантажень від 2094 та Оплати/Борги від 127)"
             >
               <Plus className="w-4 h-4" />
-              <span>Додати проект</span>
+              <span>+Додати проект</span>
             </button>
 
+            {/* 2. Update Plan Shipments button */}
             <button
-              onClick={handleLoadFromSheet}
-              disabled={isLoading}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-              title="Зчитати актуальні дані з вкладки Лист1 починаючи з рядка 111"
+              onClick={handleLoadPlanSheet}
+              disabled={isLoadingPlan || isLoadingPayments}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 ${
+                activeDataSource === 'plan'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-300 ring-offset-1'
+                  : 'bg-white hover:bg-blue-50 text-blue-700 border border-blue-200'
+              }`}
+              title="Оновити дані з таблиці «План відвантажень» (вкладка «План» • від рядка 2094)"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              <span>{isLoading ? 'Зчитування...' : 'Оновити з Google Sheets'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPlan ? 'animate-spin text-blue-300' : ''}`} />
+              <span>{isLoadingPlan ? 'Оновлення Плану...' : 'Оновити План відвантажень'}</span>
+            </button>
+
+            {/* 3. Update Payments/Debts button */}
+            <button
+              onClick={handleLoadPaymentsSheet}
+              disabled={isLoadingPayments || isLoadingPlan}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-2 shadow-xs transition-colors cursor-pointer disabled:opacity-50 ${
+                activeDataSource === 'payments'
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white ring-2 ring-blue-300 ring-offset-1'
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+              }`}
+              title="Оновити дані з таблиці «Оплати/Борги» (вкладка «Лист1» • від рядка 111)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPayments ? 'animate-spin text-blue-300' : ''}`} />
+              <span>{isLoadingPayments ? 'Оновлення Оплат...' : 'Оновити Оплати/Борги'}</span>
             </button>
 
             <button
               onClick={handleExportCSV}
               className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+              title="Експортувати поточні рядки у CSV"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
               <span>Експорт CSV</span>
             </button>
 
-            {sheetConfig?.spreadsheetUrl && (
+            {activeSpreadsheetUrl && (
               <a
-                href={sheetConfig.spreadsheetUrl}
+                href={activeSpreadsheetUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors"
-                title="Відкрити Google Таблицю у новій вкладці"
+                title={`Відкрити таблицю «${activeDataSource === 'plan' ? 'План відвантажень' : 'Оплати/Борги'}»`}
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Відкрити таблицю</span>
+                <span>Відкрити {activeDataSource === 'plan' ? '«План»' : '«Оплати/Борги»'}</span>
                 <ExternalLink className="w-3 h-3 text-emerald-600" />
               </a>
             )}
           </div>
         </div>
+
+        {/* Sync Success Notice */}
+        {syncNotice && (
+          <div className="mt-3.5 p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-start gap-2.5 text-xs text-emerald-900">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold">{syncNotice}</p>
+            </div>
+            <button
+              onClick={() => setSyncNotice(null)}
+              className="text-emerald-500 hover:text-emerald-700 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Error Alert if any */}
         {error && (
@@ -426,7 +604,7 @@ export const ProjectsTab: React.FC<Props> = ({
             <div className="flex-1">
               <p className="font-semibold">{error}</p>
               <p className="text-[11px] text-amber-700 mt-0.5">
-                Перевірте, що таблиця відкрита для доступу та містить вкладку «Лист1».
+                Перевірте, що таблиця відкрита для доступу та містить відповідну вкладку.
               </p>
             </div>
             <button
@@ -435,6 +613,45 @@ export const ProjectsTab: React.FC<Props> = ({
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          </div>
+        )}
+
+        {/* Plan Sheet ID setup toggle */}
+        {isEditingPlanSheet && (
+          <div className="mt-3.5 p-3.5 bg-blue-50 border border-blue-200 rounded-xl space-y-2 text-xs">
+            <div className="font-semibold text-blue-950 flex items-center justify-between">
+              <span>Вкажіть Google Таблицю «План відвантажень»:</span>
+              <button onClick={() => setIsEditingPlanSheet(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={planSheetInput}
+                onChange={(e) => setPlanSheetInput(e.target.value)}
+                placeholder="Вставте посилання або ID таблиці «План відвантажень»"
+                className="flex-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+              />
+              <button
+                onClick={() => {
+                  const clean = GoogleSheetsService.extractSpreadsheetId(planSheetInput.trim());
+                  if (!clean) return;
+                  const newConf = {
+                    id: clean,
+                    title: 'План відвантажень',
+                    url: `https://docs.google.com/spreadsheets/d/${clean}/edit`,
+                  };
+                  setPlanSheetConfig(newConf);
+                  localStorage.setItem(PLAN_SPREADSHEET_STORAGE_KEY, JSON.stringify(newConf));
+                  setIsEditingPlanSheet(false);
+                  handleLoadPlanSheet();
+                }}
+                className="px-3 py-1.5 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 cursor-pointer"
+              >
+                Зберегти та оновити
+              </button>
+            </div>
           </div>
         )}
 
@@ -1151,11 +1368,17 @@ export const ProjectsTab: React.FC<Props> = ({
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         existingManagers={projects.map((p) => p.colG)}
+        existingProjectNumbers={projects.map((p) => p.colA).filter(Boolean)}
         sheetConfig={sheetConfig}
         accessToken={authState?.accessToken}
+        spreadsheetId={sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID}
         onProjectAdded={async (newRowIndex, projNum) => {
-          // Immediately reload latest project rows from Google Sheet
-          await handleLoadFromSheet();
+          // Immediately reload latest project rows from active Google Sheet
+          if (activeDataSource === 'plan') {
+            await handleLoadPlanSheet();
+          } else {
+            await handleLoadPaymentsSheet();
+          }
         }}
       />
     </div>

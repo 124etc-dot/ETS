@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
 import { OCRService } from '../services/ocrService';
+import { GoogleSheetsService } from '../services/googleSheets';
 import { KNOWN_PROJECT_ORDERS, DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 import { normalizeDateToIso, extractDateFromText } from '../utils/dateUtils';
 import { CreditCard, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
