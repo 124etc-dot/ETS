@@ -1214,7 +1214,14 @@ export const DocumentReviewModal: React.FC<Props> = ({
                           <span className="text-amber-700 font-bold">🎯 Об'єкт:</span>
                           <span className="font-bold text-amber-900 truncate">{matchedProjectOrder.title}</span>
                         </div>
-                        <span className="text-[10px] bg-white px-2 py-0.5 rounded border border-amber-200 text-amber-900 font-medium shrink-0">
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded border font-semibold shrink-0 ${
+                            matchedProjectOrder.status?.toLowerCase().includes('здан') ||
+                            matchedProjectOrder.status?.toLowerCase().includes('заверш')
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}
+                        >
                           {matchedProjectOrder.status}
                         </span>
                       </div>

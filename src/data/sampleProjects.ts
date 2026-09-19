@@ -108,7 +108,7 @@ export const SAMPLE_PROJECT_ROWS: ProjectSheetRow[] = [
     colC: 'ЖК "PecherSKY" (апартаменти 45)',
     colD: '15.02.2026',
     colE: '20.04.2026',
-    colF: 'Завершення',
+    colF: 'Здано',
     colG: 'Олександр К.',
     colH: '320 000,00',
     colI: '300 000,00',

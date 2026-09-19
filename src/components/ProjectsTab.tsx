@@ -465,6 +465,29 @@ export const ProjectsTab: React.FC<Props> = ({
     }).format(amount);
   };
 
+  /**
+   * Відображення Статусу замовлення в Проектах:
+   * - Якщо Статус "Здано" (або варіанти "зданий", "завершено", "виконано") -> заливка плашки Зелена
+   * - Якщо "В роботі" (або інші робочі статуси) -> залишається синьою без змін
+   */
+  const getProjectStatusBadgeClass = (status?: string | null): string => {
+    if (!status) return 'bg-slate-100 text-slate-600 border-slate-200';
+    const s = status.toLowerCase().trim();
+
+    // Якщо Статус Здано - то заливка плашки Зелена
+    if (
+      s.includes('здан') ||       // "Здано", "здано", "Зданий"
+      s.includes('заверш') ||     // "Завершено", "Завершення"
+      s.includes('виконан') ||    // "Виконано"
+      s.includes('закрито')       // "Закрито"
+    ) {
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    }
+
+    // Якщо В роботі - залишається синьою без змін
+    return 'bg-blue-50 text-blue-700 border-blue-200';
+  };
+
   const activeSpreadsheetUrl =
     activeDataSource === 'plan'
       ? planSheetConfig?.url || (planSheetConfig?.id ? `https://docs.google.com/spreadsheets/d/${planSheetConfig.id}/edit` : undefined)
@@ -1054,11 +1077,9 @@ export const ProjectsTab: React.FC<Props> = ({
                       <td className="p-2.5 border-r border-slate-200 whitespace-nowrap">
                         {p.colF ? (
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                              p.colF.toLowerCase().includes('заверш')
-                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                : 'bg-blue-50 text-blue-700 border-blue-200'
-                            }`}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${getProjectStatusBadgeClass(
+                              p.colF
+                            )}`}
                           >
                             {p.colF}
                           </span>
@@ -1195,10 +1216,10 @@ export const ProjectsTab: React.FC<Props> = ({
                       Проєкт #{selectedProject.colA || selectedProject.rowNumber}
                     </h2>
                     <span className="px-2 py-0.5 text-xs font-semibold bg-blue-50 text-blue-700 rounded border border-blue-200">
-                      Рядок {selectedProject.rowNumber} у Лист1
+                      Рядок {selectedProject.rowNumber} у {activeTabName}
                     </span>
                     {selectedProject.colF && (
-                      <span className="px-2 py-0.5 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded border border-emerald-200">
+                      <span className={`px-2 py-0.5 text-xs font-semibold rounded border ${getProjectStatusBadgeClass(selectedProject.colF)}`}>
                         {selectedProject.colF}
                       </span>
                     )}
