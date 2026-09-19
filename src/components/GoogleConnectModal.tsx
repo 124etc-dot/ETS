@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Key, ExternalLink, ShieldCheck, AlertCircle, RefreshCw, X, LogIn } from 'lucide-react';
-import { googleAuth } from '../services/googleAuth';
+import { googleAuth, isPopupCancelledError } from '../services/googleAuth';
 
 interface Props {
   isOpen: boolean;
@@ -25,6 +25,10 @@ export const GoogleConnectModal: React.FC<Props> = ({ isOpen, onClose, onSuccess
       onSuccess();
       onClose();
     } catch (err: any) {
+      if (isPopupCancelledError(err)) {
+        console.info('Вхід через Google скасовано користувачем.');
+        return;
+      }
       console.error('Sign-in failed:', err);
       setError(
         err.message ||

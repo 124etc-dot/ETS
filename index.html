@@ -4,24 +4,73 @@
     <script>
       // Suppress benign [vite] websocket connection warnings in the preview environment
       (function() {
-        const origError = console.error;
-        const origWarn = console.warn;
-        console.error = function(...args) {
-          if (args.some(function(arg) {
-            return typeof arg === 'string' && (arg.indexOf('[vite]') !== -1 || arg.indexOf('failed to connect to websocket') !== -1);
-          })) {
+        function isViteBenign(arg) {
+          if (!arg) return false;
+          if (typeof arg === 'string') {
+            return (
+              arg.indexOf('[vite]') !== -1 ||
+              arg.indexOf('failed to connect to websocket') !== -1 ||
+              arg.indexOf('WebSocket closed') !== -1 ||
+              arg.indexOf('vite:ws') !== -1
+            );
+          }
+          if (typeof arg === 'object') {
+            var msg = '';
+            try {
+              msg = (arg.message || '') + ' ' + (arg.stack || '') + ' ' + String(arg);
+            } catch (e) {
+              msg = '';
+            }
+            return (
+              msg.indexOf('[vite]') !== -1 ||
+              msg.indexOf('failed to connect to websocket') !== -1 ||
+              msg.indexOf('WebSocket closed') !== -1 ||
+              msg.indexOf('vite:ws') !== -1
+            );
+          }
+          return false;
+        }
+
+        var origError = console.error;
+        var origWarn = console.warn;
+
+        console.error = function() {
+          var args = Array.prototype.slice.call(arguments);
+          if (args.some(isViteBenign)) {
             return;
           }
           return origError.apply(console, args);
         };
-        console.warn = function(...args) {
-          if (args.some(function(arg) {
-            return typeof arg === 'string' && (arg.indexOf('[vite]') !== -1 || arg.indexOf('failed to connect to websocket') !== -1);
-          })) {
+
+        console.warn = function() {
+          var args = Array.prototype.slice.call(arguments);
+          if (args.some(isViteBenign)) {
             return;
           }
           return origWarn.apply(console, args);
         };
+
+        window.addEventListener(
+          'unhandledrejection',
+          function(event) {
+            if (isViteBenign(event.reason)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
+
+        window.addEventListener(
+          'error',
+          function(event) {
+            if (isViteBenign(event.message) || isViteBenign(event.error)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
       })();
     </script>
     <meta charset="UTF-8" />

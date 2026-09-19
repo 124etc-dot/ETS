@@ -35,6 +35,22 @@ export interface AuthState {
   user?: User | null;
 }
 
+export function isPopupCancelledError(error: any): boolean {
+  if (!error) return false;
+  const code = error.code || '';
+  const message = (error.message || '').toLowerCase();
+  return (
+    code === 'auth/popup-closed-by-user' ||
+    code === 'auth/cancelled-popup-request' ||
+    code === 'auth/user-cancelled' ||
+    message.includes('auth/popup-closed-by-user') ||
+    message.includes('auth/cancelled-popup-request') ||
+    message.includes('popup-closed-by-user') ||
+    message.includes('popup closed by user') ||
+    Boolean(error.isCancelled)
+  );
+}
+
 export class GoogleAuthService {
   private listeners: ((state: AuthState) => void)[] = [];
   private cachedAccessToken: string | null = null;
@@ -156,6 +172,13 @@ export class GoogleAuthService {
       this.setToken(token, 3600, result.user.email || undefined);
       return { user: result.user, accessToken: token };
     } catch (error: any) {
+      if (isPopupCancelledError(error)) {
+        console.warn('Google sign-in popup was closed by user.');
+        const userCancelledErr = new Error('Авторизацію скасовано (вікно закрито).');
+        (userCancelledErr as any).code = 'auth/popup-closed-by-user';
+        (userCancelledErr as any).isCancelled = true;
+        throw userCancelledErr;
+      }
       console.error('Sign-in popup error:', error);
       throw error;
     } finally {

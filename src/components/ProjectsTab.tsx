@@ -523,7 +523,7 @@ export const ProjectsTab: React.FC<Props> = ({
               title="Додати новий проект (запис у План відвантажень від 2094 та Оплати/Борги від 127)"
             >
               <Plus className="w-4 h-4" />
-              <span>+Додати проект</span>
+              <span>Додати проект</span>
             </button>
 
             {/* 2. Update Plan Shipments button */}

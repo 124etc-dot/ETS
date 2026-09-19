@@ -13,7 +13,7 @@ import {
   LogIn
 } from 'lucide-react';
 import { GoogleSheetsService } from '../services/googleSheets';
-import { googleAuth, GoogleAuthService } from '../services/googleAuth';
+import { googleAuth, GoogleAuthService, isPopupCancelledError } from '../services/googleAuth';
 import { SheetConfig, SheetCompanyLists } from '../types';
 
 const RECENT_SHEETS_KEY = 'invoice_ocr_recent_sheets';
@@ -153,6 +153,9 @@ export const SpreadsheetBar: React.FC<Props> = ({
         }, 300);
       }
     } catch (err: any) {
+      if (isPopupCancelledError(err)) {
+        return;
+      }
       setStatusMsg({
         type: 'error',
         isAuthError: true,

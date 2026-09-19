@@ -11,7 +11,7 @@ import {
   LogIn
 } from 'lucide-react';
 import { GoogleDriveService } from '../services/googleDrive';
-import { googleAuth, GoogleAuthService } from '../services/googleAuth';
+import { googleAuth, GoogleAuthService, isPopupCancelledError } from '../services/googleAuth';
 import { GoogleDriveFolder } from '../types';
 
 interface Props {
@@ -118,6 +118,9 @@ export const DriveFolderBar: React.FC<Props> = ({
         }, 300);
       }
     } catch (err: any) {
+      if (isPopupCancelledError(err)) {
+        return;
+      }
       setFolderError('Не вдалося поновити сесію: ' + (err.message || 'Спробуйте увійти знову.'));
     } finally {
       setIsRefreshingAuth(false);

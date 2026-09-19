@@ -1328,7 +1328,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
               ) : (
                 <>
                   <Plus className="w-4 h-4" />
-                  <span>+Записати проект</span>
+                  <span>Записати проект</span>
                 </>
               )}
             </button>

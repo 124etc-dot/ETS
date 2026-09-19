@@ -27,7 +27,7 @@ import {
   DuplicateRowMatch,
   OverheadExpenseRow
 } from './types';
-import { googleAuth, AuthState } from './services/googleAuth';
+import { googleAuth, AuthState, isPopupCancelledError } from './services/googleAuth';
 import { GoogleDriveService } from './services/googleDrive';
 import { GoogleSheetsService } from './services/googleSheets';
 import { OCRService } from './services/ocrService';
@@ -541,6 +541,10 @@ export default function App() {
         handleFetchDriveFiles(driveFolderId);
       }
     } catch (err: any) {
+      if (isPopupCancelledError(err)) {
+        console.info('Поновлення сесії скасовано користувачем.');
+        return;
+      }
       console.error('Failed to refresh session:', err);
       notify(err.message || 'Не вдалося поновити сесію. Спробуйте ще раз.', 'error');
     } finally {
