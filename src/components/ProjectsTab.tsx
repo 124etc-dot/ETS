@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Briefcase,
   RefreshCw,
@@ -39,24 +39,79 @@ interface Props {
   sheetConfig: SheetConfig | null;
   authState: AuthState;
   onOpenSpreadsheet?: () => void;
+  projects?: ProjectSheetRow[];
+  onProjectsChange?: (projects: ProjectSheetRow[]) => void;
+  headers?: ProjectColumnHeader[];
+  onHeadersChange?: (headers: ProjectColumnHeader[]) => void;
+  activeDataSource?: 'payments' | 'plan';
+  onActiveDataSourceChange?: (source: 'payments' | 'plan') => void;
+  isLiveFromSheet?: boolean;
+  setIsLiveFromSheet?: (val: boolean) => void;
+  lastSyncTime?: string | null;
+  onLastSyncTimeChange?: (val: string | null) => void;
+  isLoadingProjects?: boolean;
+  onRefreshProjects?: (source?: 'payments' | 'plan') => Promise<void>;
 }
 
 export const ProjectsTab: React.FC<Props> = ({
   sheetConfig,
   authState,
   onOpenSpreadsheet,
+  projects: initialProjects,
+  onProjectsChange,
+  headers: initialHeaders,
+  onHeadersChange,
+  activeDataSource: initialActiveSource,
+  onActiveDataSourceChange,
+  isLiveFromSheet: initialIsLive,
+  setIsLiveFromSheet: setIsLiveFromSheetProp,
+  lastSyncTime: initialLastSyncTime,
+  onLastSyncTimeChange,
+  isLoadingProjects: _isLoadingProjectsProp,
+  onRefreshProjects: _onRefreshProjectsProp,
 }) => {
-  const [headers, setHeaders] = useState<ProjectColumnHeader[]>(SAMPLE_PROJECT_HEADERS);
-  const [projects, setProjects] = useState<ProjectSheetRow[]>(SAMPLE_PROJECT_ROWS);
+  const [headers, setHeaders] = useState<ProjectColumnHeader[]>(initialHeaders || SAMPLE_PROJECT_HEADERS);
+  const [projects, setProjects] = useState<ProjectSheetRow[]>(initialProjects || SAMPLE_PROJECT_ROWS);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingPayments, setIsLoadingPayments] = useState(false);
   const [isLoadingPlan, setIsLoadingPlan] = useState(false);
-  const [activeDataSource, setActiveDataSource] = useState<'payments' | 'plan'>('payments');
+  const [activeDataSource, setActiveDataSource] = useState<'payments' | 'plan'>(initialActiveSource || 'payments');
   const [error, setError] = useState<string | null>(null);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
-  const [isLiveFromSheet, setIsLiveFromSheet] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(initialLastSyncTime || null);
+  const [isLiveFromSheet, setIsLiveFromSheet] = useState(initialIsLive || false);
   const [activeTabName, setActiveTabName] = useState<string>('Лист1');
+
+  // Sync with incoming parent state if provided
+  useEffect(() => {
+    if (initialProjects && initialProjects.length > 0) {
+      setProjects(initialProjects);
+    }
+  }, [initialProjects]);
+
+  useEffect(() => {
+    if (initialHeaders && initialHeaders.length > 0) {
+      setHeaders(initialHeaders);
+    }
+  }, [initialHeaders]);
+
+  useEffect(() => {
+    if (initialActiveSource) {
+      setActiveDataSource(initialActiveSource);
+    }
+  }, [initialActiveSource]);
+
+  useEffect(() => {
+    if (initialIsLive !== undefined) {
+      setIsLiveFromSheet(initialIsLive);
+    }
+  }, [initialIsLive]);
+
+  useEffect(() => {
+    if (initialLastSyncTime) {
+      setLastSyncTime(initialLastSyncTime);
+    }
+  }, [initialLastSyncTime]);
 
   // Plan spreadsheet configuration
   const [planSheetConfig, setPlanSheetConfig] = useState<{
@@ -113,12 +168,17 @@ export const ProjectsTab: React.FC<Props> = ({
         );
       } else {
         setProjects(res.rows);
+        onProjectsChange?.(res.rows);
         setHeaders(res.headers);
+        onHeadersChange?.(res.headers);
         setIsLiveFromSheet(true);
+        setIsLiveFromSheetProp?.(true);
         setActiveDataSource('payments');
+        onActiveDataSourceChange?.('payments');
         setActiveTabName(res.tabNameUsed);
         const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(time);
+        onLastSyncTimeChange?.(time);
         setSyncNotice(`Дані з таблиці «Оплати/Борги» (вкладка «${res.tabNameUsed}», рядки 111+) успішно оновлено о ${time}. Завантажено ${res.rows.length} проєктів.`);
       }
     } catch (err: any) {
@@ -181,21 +241,31 @@ export const ProjectsTab: React.FC<Props> = ({
 
       if (res.rows.length === 0) {
         setProjects([]);
+        onProjectsChange?.([]);
         setHeaders(res.headers);
+        onHeadersChange?.(res.headers);
         setActiveDataSource('plan');
+        onActiveDataSourceChange?.('plan');
         setActiveTabName(res.tabNameUsed);
         setIsLiveFromSheet(true);
+        setIsLiveFromSheetProp?.(true);
         const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(time);
+        onLastSyncTimeChange?.(time);
         setSyncNotice(`Таблицю «План відвантажень» (вкладка «${res.tabNameUsed}») оновлено о ${time}. Записів від рядка 2094 наразі немає. Нові проекти будуть записуватись від рядка 2094.`);
       } else {
         setProjects(res.rows);
+        onProjectsChange?.(res.rows);
         setHeaders(res.headers);
+        onHeadersChange?.(res.headers);
         setActiveDataSource('plan');
+        onActiveDataSourceChange?.('plan');
         setActiveTabName(res.tabNameUsed);
         setIsLiveFromSheet(true);
+        setIsLiveFromSheetProp?.(true);
         const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(time);
+        onLastSyncTimeChange?.(time);
         setSyncNotice(`Дані з таблиці «План відвантажень» (вкладка «${res.tabNameUsed}», від рядка 2094) успішно оновлено о ${time}. Завантажено ${res.rows.length} проєктів.`);
       }
 

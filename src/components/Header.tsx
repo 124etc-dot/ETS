@@ -12,7 +12,8 @@ import {
   FolderSync,
   Server,
   Briefcase,
-  Factory
+  Factory,
+  BarChart3
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
 import { SheetConfig } from '../types';
@@ -23,8 +24,8 @@ import { ServerStatusModal } from './ServerStatusModal';
 interface Props {
   authState: AuthState;
   sheetConfig: SheetConfig | null;
-  activeTab: 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead';
-  onSelectTab: (tab: 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead') => void;
+  activeTab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead';
+  onSelectTab: (tab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead') => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   totalPendingCount: number;
@@ -112,6 +113,18 @@ export const Header: React.FC<Props> = ({
 
             {/* Center Navigation Tabs (Desktop: lg screens and up) */}
             <nav className="hidden lg:flex items-center space-x-1 xl:space-x-2 bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+              <button
+                onClick={() => onSelectTab('dashboard')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  activeTab === 'dashboard'
+                    ? 'bg-white text-slate-900 shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Дашборд</span>
+              </button>
+
               <button
                 onClick={() => onSelectTab('projects')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
@@ -243,6 +256,18 @@ export const Header: React.FC<Props> = ({
         {/* Mobile Navigation Tabs Bar (< lg screens) */}
         <div className="lg:hidden border-t border-slate-200/80 bg-slate-50/90 backdrop-blur-xs px-2 sm:px-4 py-1.5">
           <nav className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar scroll-smooth p-1 bg-slate-200/70 rounded-xl border border-slate-200/80">
+            <button
+              onClick={() => onSelectTab('dashboard')}
+              className={`flex-1 min-w-max px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                activeTab === 'dashboard'
+                  ? 'bg-white text-slate-900 shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+              }`}
+            >
+              <BarChart3 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>Дашборд</span>
+            </button>
+
             <button
               onClick={() => onSelectTab('projects')}
               className={`flex-1 min-w-max px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   FileText, 
   Sparkles, 
@@ -25,11 +25,13 @@ import {
   InvoicePaymentStatus,
   InvoiceApprovalStatus,
   DuplicateRowMatch,
-  OverheadExpenseRow
+  OverheadExpenseRow,
+  ProjectSheetRow,
+  ProjectColumnHeader
 } from './types';
 import { googleAuth, AuthState, isPopupCancelledError } from './services/googleAuth';
 import { GoogleDriveService } from './services/googleDrive';
-import { GoogleSheetsService } from './services/googleSheets';
+import { GoogleSheetsService, DEFAULT_PROJECTS_SPREADSHEET_ID } from './services/googleSheets';
 import { OCRService } from './services/ocrService';
 import { normalizeFileName, deduplicateDocuments } from './utils/deduplication';
 import { ensureOcrDates } from './utils/dateUtils';
@@ -43,8 +45,11 @@ import { SheetLivePreview } from './components/SheetLivePreview';
 import { CompaniesTab } from './components/CompaniesTab';
 import { ProjectsTab } from './components/ProjectsTab';
 import { OverheadTab } from './components/OverheadTab';
+import { DashboardTab } from './components/DashboardTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
 import { NewCompanyConfirmModal } from './components/NewCompanyConfirmModal';
+import { PLAN_SPREADSHEET_STORAGE_KEY } from './components/AddProjectModal';
+import { SAMPLE_PROJECT_HEADERS, SAMPLE_PROJECT_ROWS } from './data/sampleProjects';
 import { APP_VERSION } from './version';
 import { 
   DEFAULT_OUR_COMPANIES, 
@@ -64,6 +69,9 @@ const COMPANIES_STORAGE_KEY = 'invoice_sheet_companies_cache_v1';
 const INVOICES_STORAGE_KEY = 'invoice_sheet_invoices_cache_v1';
 const PAYMENTS_STORAGE_KEY = 'invoice_sheet_payments_cache_v1';
 const OVERHEAD_STORAGE_KEY = 'invoice_sheet_overhead_cache_v1';
+const PROJECTS_STORAGE_KEY = 'invoice_sheet_projects_cache_v1';
+const PROJECTS_HEADERS_STORAGE_KEY = 'invoice_sheet_projects_headers_cache_v1';
+const PROJECTS_ACTIVE_SOURCE_KEY = 'invoice_sheet_projects_active_source_v1';
 
 const getDismissedDriveIds = (): Set<string> => {
   if (typeof window === 'undefined') return new Set();
@@ -84,7 +92,7 @@ const saveDismissedDriveIds = (ids: Set<string>) => {
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(googleAuth.getAuthState());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead'>('projects');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead'>('dashboard');
 
   // Google Drive & Sheets state with local persistence
   const [driveFolderId, setDriveFolderId] = useState<string>(() => {
@@ -233,6 +241,151 @@ export default function App() {
   useEffect(() => {
     overheadExpensesRef.current = overheadExpenses;
   }, [overheadExpenses]);
+
+  // Projects state with localStorage caching
+  const [projects, setProjects] = useState<ProjectSheetRow[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(PROJECTS_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return SAMPLE_PROJECT_ROWS;
+  });
+  const projectsRef = useRef(projects);
+  useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  const [projectHeaders, setProjectHeaders] = useState<ProjectColumnHeader[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(PROJECTS_HEADERS_STORAGE_KEY);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return SAMPLE_PROJECT_HEADERS;
+  });
+
+  const [activeProjectsSource, setActiveProjectsSource] = useState<'payments' | 'plan'>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(PROJECTS_ACTIVE_SOURCE_KEY);
+      if (stored === 'plan' || stored === 'payments') return stored;
+    }
+    return 'payments';
+  });
+
+  const [isLiveProjectsFromSheet, setIsLiveProjectsFromSheet] = useState<boolean>(false);
+  const [projectsLastSyncTime, setProjectsLastSyncTime] = useState<string | null>(null);
+  const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(false);
+
+  const handleProjectsChange = useCallback((newProjects: ProjectSheetRow[]) => {
+    setProjects(newProjects);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(newProjects));
+      } catch {}
+    }
+  }, []);
+
+  const refreshProjectsData = async (source?: 'payments' | 'plan') => {
+    const targetSource = source || activeProjectsSource;
+    if (!authState.accessToken) {
+      return;
+    }
+    setIsLoadingProjects(true);
+    try {
+      if (targetSource === 'plan') {
+        let planId: string | null = null;
+        try {
+          const storedPlan = localStorage.getItem(PLAN_SPREADSHEET_STORAGE_KEY);
+          if (storedPlan) {
+            const parsed = JSON.parse(storedPlan);
+            planId = parsed.id;
+          }
+        } catch {}
+        if (!planId) {
+          try {
+            const found = await GoogleSheetsService.findSpreadsheetByName(
+              authState.accessToken,
+              'План відвантажень'
+            );
+            if (found) {
+              planId = found.id;
+              try {
+                localStorage.setItem(
+                  PLAN_SPREADSHEET_STORAGE_KEY,
+                  JSON.stringify({
+                    id: found.id,
+                    title: found.title,
+                    url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}/edit`,
+                  })
+                );
+              } catch {}
+            }
+          } catch {}
+        }
+        const effectivePlanId = planId || sheetConfig?.spreadsheetId;
+        if (!effectivePlanId) {
+          return;
+        }
+
+        const res = await GoogleSheetsService.getPlanProjectsFromSheet(
+          effectivePlanId,
+          authState.accessToken,
+          'План',
+          2094
+        );
+        if (res.rows && res.rows.length > 0) {
+          setProjects(res.rows);
+          setProjectHeaders(res.headers);
+          setIsLiveProjectsFromSheet(true);
+          setActiveProjectsSource('plan');
+          const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setProjectsLastSyncTime(time);
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(res.rows));
+              localStorage.setItem(PROJECTS_HEADERS_STORAGE_KEY, JSON.stringify(res.headers));
+              localStorage.setItem(PROJECTS_ACTIVE_SOURCE_KEY, 'plan');
+            } catch {}
+          }
+        }
+      } else {
+        const effectiveSpreadsheetId = sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID;
+        const res = await GoogleSheetsService.getProjectsFromSheet(
+          effectiveSpreadsheetId,
+          authState.accessToken,
+          'Лист1'
+        );
+        if (res.rows && res.rows.length > 0) {
+          setProjects(res.rows);
+          setProjectHeaders(res.headers);
+          setIsLiveProjectsFromSheet(true);
+          setActiveProjectsSource('payments');
+          const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          setProjectsLastSyncTime(time);
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(res.rows));
+              localStorage.setItem(PROJECTS_HEADERS_STORAGE_KEY, JSON.stringify(res.headers));
+              localStorage.setItem(PROJECTS_ACTIVE_SOURCE_KEY, 'payments');
+            } catch {}
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('Auto-refresh projects failed:', err);
+    } finally {
+      setIsLoadingProjects(false);
+    }
+  };
 
   // Auto-OCR and Auto-Sync periodic settings
   const [autoOcrEnabled, setAutoOcrEnabled] = useState<boolean>(() => {
@@ -557,6 +710,9 @@ export default function App() {
     if (authState.accessToken && sheetConfig?.spreadsheetId) {
       refreshSheetData();
     }
+    if (authState.accessToken) {
+      refreshProjectsData();
+    }
     // Auto-fetch Drive folder files if folder is configured and documents list is empty
     if (authState.accessToken && driveFolderId && documentsRef.current.length === 0) {
       handleFetchDriveFiles(driveFolderId);
@@ -666,6 +822,13 @@ export default function App() {
         }
       } catch (overheadErr) {
         console.warn('Could not load overhead expenses from Цех tab:', overheadErr);
+      }
+
+      // Also refresh live projects from Google Sheets
+      try {
+        await refreshProjectsData();
+      } catch (projErr) {
+        console.warn('Could not refresh projects data:', projErr);
       }
 
       // Auto-sync tab names or availableSheets back to sheetConfig if discovered
@@ -3376,6 +3539,36 @@ export default function App() {
           </div>
         )}
 
+        {/* View Mode: Dashboard (Головний дашборд) */}
+        {activeTab === 'dashboard' && (
+          <DashboardTab
+            sheetConfig={sheetConfig}
+            authState={authState}
+            onSelectTab={setActiveTab}
+            existingInvoices={existingInvoices}
+            existingPayments={existingPayments}
+            overheadExpenses={overheadExpenses}
+            documents={documents}
+            companyLists={companyLists}
+            projects={projects}
+            projectHeaders={projectHeaders}
+            isLoadingProjects={isLoadingProjects}
+            isLiveProjectsFromSheet={isLiveProjectsFromSheet}
+            projectsLastSyncTime={projectsLastSyncTime}
+            activeProjectsSource={activeProjectsSource}
+            onRefreshProjects={refreshProjectsData}
+            onSwitchProjectsSource={async (source) => {
+              setActiveProjectsSource(source);
+              if (typeof window !== 'undefined') {
+                try {
+                  localStorage.setItem(PROJECTS_ACTIVE_SOURCE_KEY, source);
+                } catch {}
+              }
+              await refreshProjectsData(source);
+            }}
+          />
+        )}
+
         {/* View Mode: Companies Management */}
         {activeTab === 'companies' && (
           <CompaniesTab
@@ -3392,6 +3585,32 @@ export default function App() {
           <ProjectsTab
             sheetConfig={sheetConfig}
             authState={authState}
+            projects={projects}
+            onProjectsChange={handleProjectsChange}
+            headers={projectHeaders}
+            onHeadersChange={(newHeaders) => {
+              setProjectHeaders(newHeaders);
+              if (typeof window !== 'undefined') {
+                try {
+                  localStorage.setItem(PROJECTS_HEADERS_STORAGE_KEY, JSON.stringify(newHeaders));
+                } catch {}
+              }
+            }}
+            activeDataSource={activeProjectsSource}
+            onActiveDataSourceChange={(src) => {
+              setActiveProjectsSource(src);
+              if (typeof window !== 'undefined') {
+                try {
+                  localStorage.setItem(PROJECTS_ACTIVE_SOURCE_KEY, src);
+                } catch {}
+              }
+            }}
+            isLiveFromSheet={isLiveProjectsFromSheet}
+            setIsLiveFromSheet={setIsLiveProjectsFromSheet}
+            lastSyncTime={projectsLastSyncTime}
+            onLastSyncTimeChange={setProjectsLastSyncTime}
+            isLoadingProjects={isLoadingProjects}
+            onRefreshProjects={refreshProjectsData}
             onOpenSpreadsheet={() => {
               if (sheetConfig?.spreadsheetUrl) {
                 window.open(sheetConfig.spreadsheetUrl, '_blank');
