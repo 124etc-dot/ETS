@@ -33,6 +33,7 @@ import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, I
 import { GoogleSheetsService } from '../services/googleSheets';
 import { OCRService } from '../services/ocrService';
 import { ReplaceInvoiceModal } from './ReplaceInvoiceModal';
+import { DriveLinkModal } from './DriveLinkModal';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -74,7 +75,10 @@ interface Props {
   onAddLocalDocument?: (file: File) => Promise<ProcessedDocument | null>;
   onMergeDuplicateInvoice?: (originalRowIndex: number, duplicateRowIndex: number, correctInvoiceNumber: string) => Promise<void>;
   onToggleInvoiceApproval?: (inv: ExistingSheetRow, newStatus: InvoiceApprovalStatus) => Promise<void> | void;
+  onSyncDriveLinks?: () => Promise<void>;
+  isSyncingDriveLinks?: boolean;
   canWriteToSheets?: boolean;
+  accessToken?: string;
 }
 
 export const SheetLivePreview: React.FC<Props> = ({
@@ -101,7 +105,10 @@ export const SheetLivePreview: React.FC<Props> = ({
   onAddLocalDocument,
   onMergeDuplicateInvoice,
   onToggleInvoiceApproval,
+  onSyncDriveLinks,
+  isSyncingDriveLinks = false,
   canWriteToSheets = true,
+  accessToken,
 }) => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ourCompanies' | 'suppliers'>('invoices');
   const [filterText, setFilterText] = useState('');
@@ -121,43 +128,80 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [savingApprovalRow, setSavingApprovalRow] = useState<number | null>(null);
 
   const getInvoiceDriveLink = (inv: ExistingSheetRow): string | undefined => {
-    if (inv.driveLink) return inv.driveLink;
+    if (inv.driveLink) return GoogleSheetsService.cleanDriveUrl(inv.driveLink);
     if (!documents || documents.length === 0) return undefined;
+
+    // Strict non-heuristic match: never return a payment order slip for an invoice!
     const match = documents.find((d) => {
       const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
       if (!link) return false;
-      if (inv.fileName && d.fileName && inv.fileName.toLowerCase() === d.fileName.toLowerCase()) return true;
-      const cleanInv = OCRService.sanitizeInvoiceNumber(inv.invoiceNumber || '');
-      if (cleanInv && cleanInv.length >= 2) {
-        const dInv = OCRService.sanitizeInvoiceNumber(d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '');
-        if (dInv === cleanInv) {
-          const invSup = OCRService.normalizeCompanyName(inv.supplier || '');
-          const dSup = OCRService.normalizeCompanyName(d.ocrResult?.supplierName || d.editedData?.supplierName || '');
-          if (!invSup || !dSup || invSup === dSup || invSup.includes(dSup) || dSup.includes(invSup)) {
-            return true;
-          }
-        }
-      }
+      if (d.ocrResult?.documentType === 'payment' || d.editedData?.documentType === 'payment') return false;
+      if (d.syncedRowIndex && d.syncedRowIndex === inv.rowIndex) return true;
+      if (inv.fileName && d.fileName && inv.fileName.toLowerCase().trim() === d.fileName.toLowerCase().trim()) return true;
       return false;
     });
-    return match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+
+    const foundLink = match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+    return foundLink ? GoogleSheetsService.cleanDriveUrl(foundLink) : undefined;
   };
 
   const getPaymentDriveLink = (pay: ExistingPaymentRow): string | undefined => {
-    if (pay.driveLink) return pay.driveLink;
+    if (pay.driveLink) return GoogleSheetsService.cleanDriveUrl(pay.driveLink);
     if (!documents || documents.length === 0) return undefined;
+
+    // Strict non-heuristic match: never return an invoice document for a payment slip!
     const match = documents.find((d) => {
       const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
       if (!link) return false;
-      if (pay.fileName && d.fileName && pay.fileName.toLowerCase() === d.fileName.toLowerCase()) return true;
-      const cleanPay = (pay.paymentNumber || '').trim();
-      if (cleanPay) {
-        const dPay = (d.ocrResult?.paymentNumber || d.editedData?.paymentNumber || '').trim();
-        if (dPay && dPay === cleanPay) return true;
-      }
+      if (d.ocrResult?.documentType === 'invoice' || d.editedData?.documentType === 'invoice') return false;
+      if (d.syncedRowIndex && d.syncedRowIndex === pay.rowIndex) return true;
+      if (pay.fileName && d.fileName && pay.fileName.toLowerCase().trim() === d.fileName.toLowerCase().trim()) return true;
       return false;
     });
-    return match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+
+    const foundLink = match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+    return foundLink ? GoogleSheetsService.cleanDriveUrl(foundLink) : undefined;
+  };
+
+  // Drive link preview and edit/clear modal
+  const [driveLinkModal, setDriveLinkModal] = useState<{
+    tab: 'invoices' | 'payments';
+    rowIndex: number;
+    title: string;
+    currentLink: string;
+    fileName?: string;
+    localPreviewUrl?: string;
+  } | null>(null);
+
+  const handleOpenDriveLinkModal = (
+    tab: 'invoices' | 'payments',
+    rowIndex: number,
+    title: string,
+    currentLink?: string,
+    fileName?: string
+  ) => {
+    let localPreviewUrl: string | undefined = undefined;
+    if (documents && documents.length > 0) {
+      const cleanLink = currentLink ? GoogleSheetsService.cleanDriveUrl(currentLink) : '';
+      const matched = documents.find((d) => {
+        if (d.syncedRowIndex === rowIndex) return true;
+        if (fileName && d.fileName && fileName.trim().toLowerCase() === d.fileName.trim().toLowerCase()) return true;
+        if (cleanLink && d.driveLink && GoogleSheetsService.cleanDriveUrl(d.driveLink) === cleanLink) return true;
+        return false;
+      });
+      if (matched?.previewDataUrl) {
+        localPreviewUrl = matched.previewDataUrl;
+      }
+    }
+
+    setDriveLinkModal({
+      tab,
+      rowIndex,
+      title,
+      currentLink: currentLink || '',
+      fileName,
+      localPreviewUrl,
+    });
   };
 
   const getApprovalStatus = (inv: ExistingSheetRow): InvoiceApprovalStatus | undefined => {
@@ -1375,18 +1419,66 @@ export const SheetLivePreview: React.FC<Props> = ({
                         <td className="p-2.5 text-slate-700">{inv.buyer || '—'}</td>
                         <td className="p-2.5 font-mono font-medium text-slate-900">
                           <div>{inv.invoiceNumber || '—'}</div>
-                          {getInvoiceDriveLink(inv) && (
-                            <a
-                              href={getInvoiceDriveLink(inv)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
-                              title="Відкрити файл на Google Диску"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <span>Google Диск</span>
-                              <ExternalLink className="w-2.5 h-2.5 inline" />
-                            </a>
+                          {getInvoiceDriveLink(inv) ? (
+                            <div className="mt-0.5 flex items-center space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDriveLinkModal(
+                                    'invoices',
+                                    inv.rowIndex,
+                                    `Рахунок №${inv.invoiceNumber || 'б/н'} (${inv.supplier})`,
+                                    getInvoiceDriveLink(inv),
+                                    inv.fileName
+                                  );
+                                }}
+                                className="inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans cursor-pointer"
+                                title="Переглянути файл та керувати посиланням Google Диск"
+                              >
+                                <Eye className="w-2.5 h-2.5 inline text-indigo-500" />
+                                <span>Google Диск</span>
+                              </button>
+                              {canWriteToSheets && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDriveLinkModal(
+                                      'invoices',
+                                      inv.rowIndex,
+                                      `Рахунок №${inv.invoiceNumber || 'б/н'} (${inv.supplier})`,
+                                      inv.driveLink,
+                                      inv.fileName
+                                    );
+                                  }}
+                                  className="text-[10px] text-slate-400 hover:text-indigo-600 px-1 py-0.2 rounded hover:bg-slate-100 cursor-pointer"
+                                  title="Керувати посиланням на Google Диск"
+                                >
+                                  ✎
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            canWriteToSheets && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDriveLinkModal(
+                                    'invoices',
+                                    inv.rowIndex,
+                                    `Рахунок №${inv.invoiceNumber || 'б/н'} (${inv.supplier})`,
+                                    '',
+                                    inv.fileName
+                                  );
+                                }}
+                                className="mt-0.5 inline-flex items-center space-x-0.5 text-[10px] text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                title="Додати посилання на Google Диск"
+                              >
+                                <span>+ Диск</span>
+                              </button>
+                            )
                           )}
                         </td>
                         <td className="p-2.5 text-slate-600 font-mono">{inv.invoiceDate || '—'}</td>
@@ -1889,18 +1981,66 @@ export const SheetLivePreview: React.FC<Props> = ({
                         </td>
                         <td className="p-2.5 font-mono font-bold text-slate-900">
                           <div>{pay.paymentNumber || '—'}</div>
-                          {getPaymentDriveLink(pay) && (
-                            <a
-                              href={getPaymentDriveLink(pay)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
-                              title="Відкрити файл на Google Диску"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <span>Google Диск</span>
-                              <ExternalLink className="w-2.5 h-2.5 inline" />
-                            </a>
+                          {getPaymentDriveLink(pay) ? (
+                            <div className="mt-0.5 flex items-center space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDriveLinkModal(
+                                    'payments',
+                                    pay.rowIndex,
+                                    `Платіжка №${pay.paymentNumber || 'б/н'} (${pay.payee})`,
+                                    getPaymentDriveLink(pay),
+                                    pay.fileName
+                                  );
+                                }}
+                                className="inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans cursor-pointer"
+                                title="Переглянути файл та керувати посиланням Google Диск"
+                              >
+                                <Eye className="w-2.5 h-2.5 inline text-indigo-500" />
+                                <span>Google Диск</span>
+                              </button>
+                              {canWriteToSheets && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDriveLinkModal(
+                                      'payments',
+                                      pay.rowIndex,
+                                      `Платіжка №${pay.paymentNumber || 'б/н'} (${pay.payee})`,
+                                      pay.driveLink,
+                                      pay.fileName
+                                    );
+                                  }}
+                                  className="text-[10px] text-slate-400 hover:text-indigo-600 px-1 py-0.2 rounded hover:bg-slate-100 cursor-pointer"
+                                  title="Керувати посиланням на Google Диск"
+                                >
+                                  ✎
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            canWriteToSheets && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDriveLinkModal(
+                                    'payments',
+                                    pay.rowIndex,
+                                    `Платіжка №${pay.paymentNumber || 'б/н'} (${pay.payee})`,
+                                    '',
+                                    pay.fileName
+                                  );
+                                }}
+                                className="mt-0.5 inline-flex items-center space-x-0.5 text-[10px] text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                title="Додати посилання на Google Диск"
+                              >
+                                <span>+ Диск</span>
+                              </button>
+                            )
                           )}
                           {dupPayment && (
                             <div className="mt-0.5">
@@ -2236,6 +2376,68 @@ export const SheetLivePreview: React.FC<Props> = ({
             }
           }}
           onAddLocalDocument={onAddLocalDocument}
+        />
+      )}
+
+      {/* Drive Link In-App Preview & Management Modal */}
+      {driveLinkModal && (
+        <DriveLinkModal
+          isOpen={!!driveLinkModal}
+          onClose={() => setDriveLinkModal(null)}
+          title={driveLinkModal.title}
+          targetSheetName={
+            driveLinkModal.tab === 'invoices'
+              ? sheetConfig?.invoicesSheetName || 'Рахунки'
+              : sheetConfig?.paymentsSheetName || 'Платіжки'
+          }
+          targetColumn={driveLinkModal.tab === 'invoices' ? 'L' : 'K'}
+          rowIndex={driveLinkModal.rowIndex}
+          initialLink={driveLinkModal.currentLink}
+          localPreviewUrl={driveLinkModal.localPreviewUrl}
+          fileName={driveLinkModal.fileName}
+          canEdit={canWriteToSheets}
+          onSave={async (newLink) => {
+            if (!sheetConfig?.spreadsheetId || !accessToken) return;
+            if (driveLinkModal.tab === 'invoices') {
+              await GoogleSheetsService.updateInvoiceDriveLinkInSheet(
+                sheetConfig.spreadsheetId,
+                accessToken,
+                driveLinkModal.rowIndex,
+                newLink,
+                sheetConfig.invoicesSheetName || 'Рахунки'
+              );
+            } else {
+              await GoogleSheetsService.updatePaymentDriveLinkInSheet(
+                sheetConfig.spreadsheetId,
+                accessToken,
+                driveLinkModal.rowIndex,
+                newLink,
+                sheetConfig.paymentsSheetName || 'Платіжки'
+              );
+            }
+            await onRefresh();
+          }}
+          onDelete={async () => {
+            if (!sheetConfig?.spreadsheetId || !accessToken) return;
+            if (driveLinkModal.tab === 'invoices') {
+              await GoogleSheetsService.updateInvoiceDriveLinkInSheet(
+                sheetConfig.spreadsheetId,
+                accessToken,
+                driveLinkModal.rowIndex,
+                '',
+                sheetConfig.invoicesSheetName || 'Рахунки'
+              );
+            } else {
+              await GoogleSheetsService.updatePaymentDriveLinkInSheet(
+                sheetConfig.spreadsheetId,
+                accessToken,
+                driveLinkModal.rowIndex,
+                '',
+                sheetConfig.paymentsSheetName || 'Платіжки'
+              );
+            }
+            await onRefresh();
+          }}
         />
       )}
     </div>

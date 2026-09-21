@@ -61,6 +61,8 @@ interface Props {
     rejectedAt: string,
     reason: string
   ) => Promise<void> | void;
+  canWriteToSheets?: boolean;
+  onRefresh?: () => Promise<void>;
 }
 
 export const DashboardTab: React.FC<Props> = ({
@@ -82,6 +84,8 @@ export const DashboardTab: React.FC<Props> = ({
   onSwitchProjectsSource,
   onApproveInvoice,
   onRejectInvoice,
+  canWriteToSheets,
+  onRefresh,
 }) => {
   // Use real projects if provided, otherwise fallback
   const projectRows = realProjectsProp && realProjectsProp.length > 0 ? realProjectsProp : SAMPLE_PROJECT_ROWS;
@@ -1121,6 +1125,8 @@ export const DashboardTab: React.FC<Props> = ({
             sheetConfig={sheetConfig}
             driveFolderId={driveFolderId}
             accessToken={authState.accessToken || undefined}
+            canWriteToSheets={canWriteToSheets}
+            onRefresh={onRefresh}
             onApproveInvoice={onApproveInvoice}
             onRejectInvoice={onRejectInvoice}
             onViewAllInvoices={() => onSelectTab('sheet')}

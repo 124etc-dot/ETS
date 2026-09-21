@@ -38,6 +38,19 @@ export class GoogleSheetsService {
   ];
 
   /**
+   * Helper to convert 0-based column index to letter (0 -> A, 11 -> L, 26 -> AA)
+   */
+  public static indexToColumnLetter(index: number): string {
+    let letter = '';
+    let temp = index;
+    while (temp >= 0) {
+      letter = String.fromCharCode((temp % 26) + 65) + letter;
+      temp = Math.floor(temp / 26) - 1;
+    }
+    return letter;
+  }
+
+  /**
    * Helper to extract clean URL from spreadsheet cell (handles =HYPERLINK("...", ...), raw links, quotes)
    */
   public static cleanDriveUrl(raw: string): string {
@@ -326,7 +339,7 @@ export class GoogleSheetsService {
 
         // 2. Set headers if provided
         if (defaultHeaders && defaultHeaders.length > 0) {
-          const lastColLetter = String.fromCharCode(64 + defaultHeaders.length);
+          const lastColLetter = this.indexToColumnLetter(defaultHeaders.length - 1);
           await this.request<any>(
             `${cleanId}/values/'${encodeURIComponent(tabName)}'!A1:${lastColLetter}1?valueInputOption=USER_ENTERED`,
             accessToken,
@@ -342,11 +355,12 @@ export class GoogleSheetsService {
         // Tab exists, verify if headers are present
         try {
           const headerCheck = await this.request<any>(
-            `${cleanId}/values/'${encodeURIComponent(tabName)}'!A1:A1`,
+            `${cleanId}/values/'${encodeURIComponent(tabName)}'!A1:Z1`,
             accessToken
           );
-          if (!headerCheck.values || headerCheck.values.length === 0 || !headerCheck.values[0] || !headerCheck.values[0][0]) {
-            const lastColLetter = String.fromCharCode(64 + defaultHeaders.length);
+          const firstRow = headerCheck.values && headerCheck.values[0] ? headerCheck.values[0] : [];
+          if (firstRow.length === 0 || !firstRow[0]) {
+            const lastColLetter = this.indexToColumnLetter(defaultHeaders.length - 1);
             await this.request<any>(
               `${cleanId}/values/'${encodeURIComponent(tabName)}'!A1:${lastColLetter}1?valueInputOption=USER_ENTERED`,
               accessToken,
@@ -357,6 +371,27 @@ export class GoogleSheetsService {
                 }),
               }
             );
+          } else {
+            // Check if "Посилання Drive" header is missing in row 1
+            const joinedHeaders = firstRow.map((c: any) => String(c || '').toLowerCase()).join(' ');
+            const hasDriveHeader = joinedHeaders.includes('drive') || joinedHeaders.includes('посилання') || joinedHeaders.includes('диск') || joinedHeaders.includes('лінк');
+            if (!hasDriveHeader) {
+              const driveHeaderIdx = defaultHeaders.findIndex((h) => h.includes('Drive') || h.includes('диск') || h.includes('посилання'));
+              if (driveHeaderIdx >= 0) {
+                const targetColIdx = Math.max(driveHeaderIdx, firstRow.length);
+                const colLetter = this.indexToColumnLetter(targetColIdx);
+                await this.request<any>(
+                  `${cleanId}/values/'${encodeURIComponent(tabName)}'!${colLetter}1?valueInputOption=USER_ENTERED`,
+                  accessToken,
+                  {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                      values: [['Посилання Drive']],
+                    }),
+                  }
+                );
+              }
+            }
           }
         } catch {
           // ignore
@@ -952,7 +987,7 @@ export class GoogleSheetsService {
       let colPaidAmount = 9;
       let colApproval = 10;
       let colFileName = -1;
-      let colDriveLink = -1;
+      let colDriveLink = 11; // Column L per INVOICE_HEADERS
 
       const scanLimit = Math.min(rows.length, 6);
       for (let r = 0; r < scanLimit; r++) {
@@ -1969,7 +2004,7 @@ export class GoogleSheetsService {
     const status: InvoicePaymentStatus = 'Не оплачено';
     const paidAmount = 0;
 
-    // Exactly 11 columns: A to K
+    // Exactly 12 columns: A to L
     const row = [
       orderNum,                           // A: Номер замовлення (xxx-xx)
       supplier,                           // B: Постачальник
@@ -1982,10 +2017,11 @@ export class GoogleSheetsService {
       finalTimestamp,                     // I: Час завантаження / заміни
       paidAmount,                         // J: Сума оплати (0)
       'НЕ ПОГОДЖЕНО',                     // K: Погодження (новий замінений рахунок)
+      data.driveLink || '',               // L: Посилання Drive
     ];
 
     const safeTab = tabName.replace(/'/g, "''");
-    const range = `'${safeTab}'!A${rowIndex}:K${rowIndex}`;
+    const range = `'${safeTab}'!A${rowIndex}:L${rowIndex}`;
 
     try {
       await this.request<any>(
@@ -2115,6 +2151,131 @@ export class GoogleSheetsService {
     invoicesTab = 'Рахунки'
   ): Promise<void> {
     return this.updateInvoicePaymentInSheet(spreadsheetId, accessToken, rowIndex, newStatus, undefined, invoicesTab);
+  }
+
+  /**
+   * Update Google Drive Link in Column L for an invoice in "Рахунки"
+   */
+  public static async updateInvoiceDriveLinkInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    driveLink: string,
+    invoicesTab = 'Рахунки'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(invoicesTab) || rowIndex < 2) return;
+    await this.ensureTabExists(cleanId, accessToken, invoicesTab, this.INVOICE_HEADERS);
+    const safeTab = invoicesTab.replace(/'/g, "''");
+    await this.request<any>(
+      `${cleanId}/values/'${safeTab}'!L${rowIndex}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          values: [[driveLink || '']],
+        }),
+      }
+    );
+  }
+
+  /**
+   * Update Google Drive Link in Column K for a payment in "Платіжки"
+   */
+  public static async updatePaymentDriveLinkInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    driveLink: string,
+    paymentsTab = 'Платіжки'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(paymentsTab) || rowIndex < 2) return;
+    await this.ensureTabExists(cleanId, accessToken, paymentsTab, this.PAYMENT_HEADERS);
+    const safeTab = paymentsTab.replace(/'/g, "''");
+    await this.request<any>(
+      `${cleanId}/values/'${safeTab}'!K${rowIndex}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          values: [[driveLink || '']],
+        }),
+      }
+    );
+  }
+
+  /**
+   * Update Google Drive Link in Column J for an overhead expense in "Цех"
+   */
+  public static async updateOverheadDriveLinkInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    rowIndex: number,
+    driveLink: string,
+    overheadTab = 'Цех'
+  ): Promise<void> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    if (this.isProtectedTab(overheadTab) || rowIndex < 2) return;
+    await this.ensureTabExists(cleanId, accessToken, overheadTab, this.OVERHEAD_HEADERS);
+    const safeTab = overheadTab.replace(/'/g, "''");
+    await this.request<any>(
+      `${cleanId}/values/'${safeTab}'!J${rowIndex}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          values: [[driveLink || '']],
+        }),
+      }
+    );
+  }
+
+  /**
+   * Batch update Google Drive Links across invoices, payments, and overhead tabs in Google Sheets
+   */
+  public static async batchUpdateDriveLinksInSheet(
+    spreadsheetId: string,
+    accessToken: string,
+    items: Array<{
+      tab: string;
+      colLetter: string;
+      rowIndex: number;
+      driveLink: string;
+    }>
+  ): Promise<number> {
+    if (!items || items.length === 0) return 0;
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+
+    const updates: Array<{ range: string; values: any[][] }> = [];
+    for (const item of items) {
+      if (this.isProtectedTab(item.tab)) continue;
+      if (!item.rowIndex || item.rowIndex < 2 || !item.driveLink) continue;
+      const safeTab = item.tab.replace(/'/g, "''");
+      updates.push({
+        range: `'${safeTab}'!${item.colLetter}${item.rowIndex}`,
+        values: [[item.driveLink]],
+      });
+    }
+
+    if (updates.length === 0) return 0;
+
+    const chunkSize = 200;
+    for (let i = 0; i < updates.length; i += chunkSize) {
+      const chunk = updates.slice(i, i + chunkSize);
+      await this.request<any>(
+        `${cleanId}/values:batchUpdate`,
+        accessToken,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            valueInputOption: 'USER_ENTERED',
+            data: chunk,
+          }),
+        }
+      );
+    }
+    return updates.length;
   }
 
   /**

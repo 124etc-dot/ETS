@@ -16,12 +16,16 @@ import {
   Clock,
   Send,
   Search,
+  Eye,
+  ExternalLink,
+  FolderOpen,
 } from 'lucide-react';
 import { ExistingSheetRow, ProcessedDocument, ProjectSheetRow, SheetConfig } from '../types';
 import { GoogleDriveService } from '../services/googleDrive';
 import { GoogleSheetsService } from '../services/googleSheets';
 import { OCRService } from '../services/ocrService';
 import { KNOWN_PROJECT_ORDERS } from '../data/sampleDocuments';
+import { DriveLinkModal } from './DriveLinkModal';
 
 export interface PendingInvoiceItem {
   id: string;
@@ -54,6 +58,8 @@ interface ManagerApprovalWidgetProps {
   sheetConfig?: SheetConfig | null;
   driveFolderId?: string;
   accessToken?: string | null;
+  canWriteToSheets?: boolean;
+  onRefresh?: () => Promise<void>;
   onApproveInvoice?: (
     invoice: ExistingSheetRow,
     approvedBy: string,
@@ -128,12 +134,27 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
   sheetConfig,
   driveFolderId,
   accessToken,
+  canWriteToSheets = true,
+  onRefresh,
   onApproveInvoice,
   onRejectInvoice,
   onViewAllInvoices,
 }) => {
   // Set of dismissed/handled item IDs (to animate out instantly)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+
+  // Optimistic drive link overrides for immediate UI updates
+  const [overriddenLinks, setOverriddenLinks] = useState<Record<string, string>>({});
+
+  // Drive Link In-App Preview & Management Modal state
+  const [driveLinkModal, setDriveLinkModal] = useState<{
+    rowIndex?: number;
+    title: string;
+    currentLink?: string;
+    fileName?: string;
+    localPreviewUrl?: string;
+    itemId: string;
+  } | null>(null);
 
   // Rejection modal state
   const [rejectingItem, setRejectingItem] = useState<PendingInvoiceItem | null>(null);
@@ -338,6 +359,36 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
   // Helper helper to avoid typo
   const docDocInv = (a: string, b: string) => b;
 
+  // Open Google Drive In-App Preview & Management Modal
+  const handleOpenDriveLinkModal = (item: PendingInvoiceItem) => {
+    const matchingDoc = item.originalInvoice ? findMatchingDocScan(item.originalInvoice) : null;
+    let localPreviewUrl = item.previewUrl;
+    if (!localPreviewUrl && matchingDoc?.previewDataUrl) {
+      localPreviewUrl = matchingDoc.previewDataUrl;
+    }
+    if (!localPreviewUrl && documents && documents.length > 0) {
+      const cleanLink = item.driveLink ? GoogleSheetsService.cleanDriveUrl(item.driveLink) : '';
+      const matched = documents.find((d) => {
+        if (item.rowIndex && d.syncedRowIndex === item.rowIndex) return true;
+        if (item.fileName && d.fileName && item.fileName.trim().toLowerCase() === d.fileName.trim().toLowerCase()) return true;
+        if (cleanLink && d.driveLink && GoogleSheetsService.cleanDriveUrl(d.driveLink) === cleanLink) return true;
+        return false;
+      });
+      if (matched?.previewDataUrl) {
+        localPreviewUrl = matched.previewDataUrl;
+      }
+    }
+
+    setDriveLinkModal({
+      rowIndex: item.rowIndex,
+      title: `Рахунок ${item.invoiceNumber ? `№${item.invoiceNumber}` : 'б/н'} (${item.supplier})`,
+      currentLink: item.driveLink,
+      fileName: item.fileName,
+      localPreviewUrl,
+      itemId: item.id,
+    });
+  };
+
   // Compute pending unapproved invoices
   const pendingItems = useMemo<PendingInvoiceItem[]>(() => {
     // Check real existing invoices in sheet
@@ -403,6 +454,8 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
         fileName = inv.fileName;
       }
 
+      const finalDriveLink = overriddenLinks[id] !== undefined ? (overriddenLinks[id] || undefined) : effectiveDriveLink;
+
       realPending.push({
         id,
         rowIndex: inv.rowIndex,
@@ -416,8 +469,8 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
         invoiceDate: inv.invoiceDate || '—',
         invoiceNumber: inv.invoiceNumber || undefined,
         note: inv.notes || matchingDoc?.ocr?.notes || undefined,
-        driveLink: effectiveDriveLink,
-        driveFileId,
+        driveLink: finalDriveLink,
+        driveFileId: finalDriveLink ? (GoogleDriveService.extractFileId(finalDriveLink) || driveFileId) : undefined,
         thumbnailUrl,
         mimeType: matchingDoc?.mimeType,
         fileName: fileName || matchingDoc?.fileName,
@@ -432,8 +485,14 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
     }
 
     // If no real unapproved invoices found, provide the realistic demo items
-    return INITIAL_DEMO_PENDING_INVOICES.filter((item) => !dismissedIds.has(item.id));
-  }, [existingInvoices, dismissedIds, projects, documents]);
+    return INITIAL_DEMO_PENDING_INVOICES
+      .filter((item) => !dismissedIds.has(item.id))
+      .map((item) => ({
+        ...item,
+        driveLink: overriddenLinks[item.id] !== undefined ? (overriddenLinks[item.id] || undefined) : item.driveLink,
+        driveFileId: overriddenLinks[item.id] ? GoogleDriveService.extractFileId(overriddenLinks[item.id]) : item.driveFileId,
+      }));
+  }, [existingInvoices, dismissedIds, projects, documents, overriddenLinks]);
 
   // Handle Approve action
   const handleApprove = async (item: PendingInvoiceItem) => {
@@ -677,6 +736,98 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
                           </div>
                         )}
                       </div>
+
+                      {/* File Preview & Google Drive Link Section */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-200/60">
+                        {item.driveLink ? (
+                          <div className="flex items-center justify-between p-2 rounded-lg bg-indigo-50/70 border border-indigo-100/90 gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-6 h-6 rounded-md bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                                <FileText className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-bold text-indigo-950 truncate max-w-[170px] sm:max-w-[220px]" title={item.fileName || 'Файл на Google Диску'}>
+                                  {item.fileName || 'Файл на Google Диску'}
+                                </div>
+                                <div className="text-[10px] text-indigo-600 font-medium flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  <span>Google Диск підключено</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDriveLinkModal(item)}
+                                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-2xs hover:shadow-xs transition-colors cursor-pointer"
+                                title="Переглянути скан рахунку у модальному вікні"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Переглянути</span>
+                              </button>
+                              <a
+                                href={GoogleSheetsService.cleanDriveUrl(item.driveLink)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1 bg-white hover:bg-indigo-100 text-indigo-600 border border-indigo-200 rounded-md transition-colors"
+                                title="Відкрити на Google Диску у новій вкладці"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          </div>
+                        ) : item.previewUrl ? (
+                          <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50/70 border border-emerald-100/90 gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-6 h-6 rounded-md bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                <FileText className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-[11px] font-bold text-emerald-950 truncate max-w-[170px] sm:max-w-[220px]" title={item.fileName || 'Локальний скан'}>
+                                  {item.fileName || 'Локальний скан рахунку'}
+                                </div>
+                                <div className="text-[10px] text-emerald-600 font-medium">Скан розпізнано</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDriveLinkModal(item)}
+                                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                                title="Переглянути локальний скан рахунку"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Скан</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDriveLinkModal(item)}
+                                className="px-2 py-1 bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md text-[11px] font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                                title="Прикріпити посилання на Google Диск"
+                              >
+                                <FolderOpen className="w-3 h-3 text-indigo-600" />
+                                <span>+ Диск</span>
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between p-1.5 px-2.5 rounded-lg bg-slate-50 border border-slate-200/70 text-slate-500">
+                            <span className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                              <FolderOpen className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Файл на Диску не прикріплено</span>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDriveLinkModal(item)}
+                              className="px-2.5 py-1 bg-white hover:bg-indigo-50 text-indigo-600 hover:text-indigo-700 border border-indigo-200 rounded-md text-[11px] font-semibold flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                              title="Додати посилання на Google Диск (Колонка L)"
+                            >
+                              <ExternalLink className="w-3 h-3 text-indigo-500" />
+                              <span>+ Посилання на Диск</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Action Buttons: ✅ Погодити | ❌ Відхилити */}
@@ -857,6 +1008,55 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Google Drive In-App Preview & Link Modal */}
+      {driveLinkModal && (
+        <DriveLinkModal
+          isOpen={!!driveLinkModal}
+          onClose={() => setDriveLinkModal(null)}
+          title={driveLinkModal.title}
+          targetSheetName={sheetConfig?.invoicesSheetName || 'Рахунки'}
+          targetColumn="L"
+          rowIndex={driveLinkModal.rowIndex || 0}
+          initialLink={driveLinkModal.currentLink}
+          localPreviewUrl={driveLinkModal.localPreviewUrl}
+          fileName={driveLinkModal.fileName}
+          canEdit={canWriteToSheets ?? (!!sheetConfig?.spreadsheetId && !!accessToken)}
+          onSave={async (newLink) => {
+            const clean = GoogleSheetsService.cleanDriveUrl(newLink);
+            setOverriddenLinks((prev) => ({ ...prev, [driveLinkModal.itemId]: clean }));
+            if (driveLinkModal.rowIndex && sheetConfig?.spreadsheetId && accessToken) {
+              await GoogleSheetsService.updateInvoiceDriveLinkInSheet(
+                sheetConfig.spreadsheetId,
+                accessToken,
+                driveLinkModal.rowIndex,
+                clean,
+                sheetConfig.invoicesSheetName || 'Рахунки'
+              );
+            }
+            showToast('Посилання Google Диск успішно збережено!', 'success');
+            if (onRefresh) {
+              await onRefresh();
+            }
+          }}
+          onDelete={async () => {
+            setOverriddenLinks((prev) => ({ ...prev, [driveLinkModal.itemId]: '' }));
+            if (driveLinkModal.rowIndex && sheetConfig?.spreadsheetId && accessToken) {
+              await GoogleSheetsService.updateInvoiceDriveLinkInSheet(
+                sheetConfig.spreadsheetId,
+                accessToken,
+                driveLinkModal.rowIndex,
+                '',
+                sheetConfig.invoicesSheetName || 'Рахунки'
+              );
+            }
+            showToast('Посилання Google Диск видалено.', 'info');
+            if (onRefresh) {
+              await onRefresh();
+            }
+          }}
+        />
+      )}
 
     </div>
   );

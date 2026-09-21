@@ -17,13 +17,15 @@ import {
   Clock, 
   CreditCard,
   AlertCircle,
-  Eye
+  Eye,
+  Loader2
 } from 'lucide-react';
 import { OverheadExpenseRow, SheetConfig, SheetCompanyLists, InvoicePaymentStatus, ProcessedDocument } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
 import { OCRService } from '../services/ocrService';
 import { DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 import { formatMonthYearUk, UKRAINIAN_MONTH_NAMES } from '../utils/dateUtils';
+import { DriveLinkModal } from './DriveLinkModal';
 
 interface Props {
   overheadExpenses: OverheadExpenseRow[];
@@ -34,6 +36,8 @@ interface Props {
   onNotify?: (msg: string, type: 'info' | 'success' | 'error') => void;
   canWriteToSheets?: boolean;
   documents?: ProcessedDocument[];
+  onSyncDriveLinks?: () => Promise<void>;
+  isSyncingDriveLinks?: boolean;
 }
 
 export const OverheadTab: React.FC<Props> = ({
@@ -47,26 +51,58 @@ export const OverheadTab: React.FC<Props> = ({
   documents = [],
 }) => {
   const getOverheadDriveLink = (exp: OverheadExpenseRow): string | undefined => {
-    if (exp.driveLink) return exp.driveLink;
+    if (exp.driveLink) return GoogleSheetsService.cleanDriveUrl(exp.driveLink);
     if (!documents || documents.length === 0) return undefined;
+
+    // Strict non-heuristic match: never return a payment order slip for an invoice!
     const match = documents.find((d) => {
       const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
       if (!link) return false;
-      if (exp.fileName && d.fileName && exp.fileName.toLowerCase() === d.fileName.toLowerCase()) return true;
-      const cleanInv = OCRService.sanitizeInvoiceNumber(exp.invoiceNumber || '');
-      if (cleanInv && cleanInv.length >= 2) {
-        const dInv = OCRService.sanitizeInvoiceNumber(d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '');
-        if (dInv === cleanInv) {
-          const expSup = OCRService.normalizeCompanyName(exp.supplier || '');
-          const dSup = OCRService.normalizeCompanyName(d.ocrResult?.supplierName || d.editedData?.supplierName || '');
-          if (!expSup || !dSup || expSup === dSup || expSup.includes(dSup) || dSup.includes(expSup)) {
-            return true;
-          }
-        }
-      }
+      if (d.ocrResult?.documentType === 'payment' || d.editedData?.documentType === 'payment') return false;
+      if (d.syncedRowIndex && d.syncedRowIndex === exp.rowIndex) return true;
+      if (exp.fileName && d.fileName && exp.fileName.toLowerCase().trim() === d.fileName.toLowerCase().trim()) return true;
       return false;
     });
-    return match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+    const found = match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+    return found ? GoogleSheetsService.cleanDriveUrl(found) : undefined;
+  };
+
+  // Drive link preview and edit/clear modal
+  const [driveLinkModal, setDriveLinkModal] = useState<{
+    rowIndex: number;
+    title: string;
+    currentLink: string;
+    fileName?: string;
+    localPreviewUrl?: string;
+  } | null>(null);
+
+  const handleOpenDriveLinkModal = (
+    rowIndex: number,
+    title: string,
+    currentLink?: string,
+    fileName?: string
+  ) => {
+    let localPreviewUrl: string | undefined = undefined;
+    if (documents && documents.length > 0) {
+      const cleanLink = currentLink ? GoogleSheetsService.cleanDriveUrl(currentLink) : '';
+      const matched = documents.find((d) => {
+        if (d.syncedRowIndex === rowIndex) return true;
+        if (fileName && d.fileName && fileName.trim().toLowerCase() === d.fileName.trim().toLowerCase()) return true;
+        if (cleanLink && d.driveLink && GoogleSheetsService.cleanDriveUrl(d.driveLink) === cleanLink) return true;
+        return false;
+      });
+      if (matched?.previewDataUrl) {
+        localPreviewUrl = matched.previewDataUrl;
+      }
+    }
+
+    setDriveLinkModal({
+      rowIndex,
+      title,
+      currentLink: currentLink || '',
+      fileName,
+      localPreviewUrl,
+    });
   };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
@@ -709,18 +745,63 @@ export const OverheadTab: React.FC<Props> = ({
                             <span className="text-slate-400">б/н</span>
                           )}
                         </div>
-                        {getOverheadDriveLink(exp) && (
-                          <a
-                            href={getOverheadDriveLink(exp)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
-                            title="Відкрити файл на Google Диску"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <span>Google Диск</span>
-                            <ExternalLink className="w-2.5 h-2.5 inline" />
-                          </a>
+                        {getOverheadDriveLink(exp) ? (
+                          <div className="mt-0.5 flex items-center space-x-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenDriveLinkModal(
+                                  exp.rowIndex,
+                                  `Рахунок №${exp.invoiceNumber || 'б/н'} (${exp.supplier || 'Цех'})`,
+                                  getOverheadDriveLink(exp),
+                                  exp.fileName
+                                );
+                              }}
+                              className="inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans cursor-pointer"
+                              title="Переглянути файл та керувати посиланням Google Диск"
+                            >
+                              <Eye className="w-2.5 h-2.5 inline text-indigo-500" />
+                              <span>Google Диск</span>
+                            </button>
+                            {canWriteToSheets && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenDriveLinkModal(
+                                    exp.rowIndex,
+                                    `Рахунок №${exp.invoiceNumber || 'б/н'} (${exp.supplier || 'Цех'})`,
+                                    exp.driveLink,
+                                    exp.fileName
+                                  );
+                                }}
+                                className="text-[10px] text-slate-400 hover:text-indigo-600 px-1 py-0.2 rounded hover:bg-slate-100 cursor-pointer"
+                                title="Керувати посиланням на Google Диск"
+                              >
+                                ✎
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          canWriteToSheets && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenDriveLinkModal(
+                                  exp.rowIndex,
+                                  `Рахунок №${exp.invoiceNumber || 'б/н'} (${exp.supplier || 'Цех'})`,
+                                  '',
+                                  exp.fileName
+                                );
+                              }}
+                              className="mt-0.5 inline-flex items-center space-x-0.5 text-[10px] text-slate-400 hover:text-indigo-600 cursor-pointer"
+                              title="Додати посилання на Google Диск"
+                            >
+                              <span>+ Диск</span>
+                            </button>
+                          )
                         )}
                       </td>
 
@@ -887,18 +968,63 @@ export const OverheadTab: React.FC<Props> = ({
                           </td>
                           <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
                             <div>{exp.invoiceNumber ? `№ ${exp.invoiceNumber}` : 'б/н'}</div>
-                            {getOverheadDriveLink(exp) && (
-                              <a
-                                href={getOverheadDriveLink(exp)}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
-                                title="Відкрити файл на Google Диску"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <span>Google Диск</span>
-                                <ExternalLink className="w-2.5 h-2.5 inline" />
-                              </a>
+                            {getOverheadDriveLink(exp) ? (
+                              <div className="mt-0.5 flex items-center space-x-1.5">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDriveLinkModal(
+                                      exp.rowIndex,
+                                      `Рахунок №${exp.invoiceNumber || 'б/н'} (${exp.supplier || 'Цех'})`,
+                                      getOverheadDriveLink(exp),
+                                      exp.fileName
+                                    );
+                                  }}
+                                  className="inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans cursor-pointer"
+                                  title="Переглянути файл та керувати посиланням Google Диск"
+                                >
+                                  <Eye className="w-2.5 h-2.5 inline text-indigo-500" />
+                                  <span>Google Диск</span>
+                                </button>
+                                {canWriteToSheets && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenDriveLinkModal(
+                                        exp.rowIndex,
+                                        `Рахунок №${exp.invoiceNumber || 'б/н'} (${exp.supplier || 'Цех'})`,
+                                        exp.driveLink,
+                                        exp.fileName
+                                      );
+                                    }}
+                                    className="text-[10px] text-slate-400 hover:text-indigo-600 px-1 py-0.2 rounded hover:bg-slate-100 cursor-pointer"
+                                    title="Керувати посиланням на Google Диск"
+                                  >
+                                    ✎
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              canWriteToSheets && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenDriveLinkModal(
+                                      exp.rowIndex,
+                                      `Рахунок №${exp.invoiceNumber || 'б/н'} (${exp.supplier || 'Цех'})`,
+                                      '',
+                                      exp.fileName
+                                    );
+                                  }}
+                                  className="mt-0.5 inline-flex items-center space-x-0.5 text-[10px] text-slate-400 hover:text-indigo-600 cursor-pointer"
+                                  title="Додати посилання на Google Диск"
+                                >
+                                  <span>+ Диск</span>
+                                </button>
+                              )
                             )}
                           </td>
                           <td className="py-2.5 px-3 font-mono font-medium text-slate-900 whitespace-nowrap">
@@ -1175,6 +1301,46 @@ export const OverheadTab: React.FC<Props> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Drive Link In-App Preview & Management Modal */}
+      {driveLinkModal && (
+        <DriveLinkModal
+          isOpen={!!driveLinkModal}
+          onClose={() => setDriveLinkModal(null)}
+          title={driveLinkModal.title}
+          targetSheetName={sheetConfig?.overheadSheetName || 'Цех'}
+          targetColumn="J"
+          rowIndex={driveLinkModal.rowIndex}
+          initialLink={driveLinkModal.currentLink}
+          localPreviewUrl={driveLinkModal.localPreviewUrl}
+          fileName={driveLinkModal.fileName}
+          canEdit={canWriteToSheets}
+          onSave={async (newLink) => {
+            if (!sheetConfig?.spreadsheetId || !accessToken) return;
+            await GoogleSheetsService.updateOverheadDriveLinkInSheet(
+              sheetConfig.spreadsheetId,
+              accessToken,
+              driveLinkModal.rowIndex,
+              newLink,
+              sheetConfig.overheadSheetName || 'Цех'
+            );
+            if (onNotify) onNotify('Посилання Google Диск успішно збережено в Google Таблицю!', 'success');
+            await onRefresh();
+          }}
+          onDelete={async () => {
+            if (!sheetConfig?.spreadsheetId || !accessToken) return;
+            await GoogleSheetsService.updateOverheadDriveLinkInSheet(
+              sheetConfig.spreadsheetId,
+              accessToken,
+              driveLinkModal.rowIndex,
+              '',
+              sheetConfig.overheadSheetName || 'Цех'
+            );
+            if (onNotify) onNotify('Посилання Google Диск видалено з рядка Цеху.', 'info');
+            await onRefresh();
+          }}
+        />
       )}
     </div>
   );

@@ -413,6 +413,7 @@ export default function App() {
   const [lastAutoSyncTime, setLastAutoSyncTime] = useState<Date | null>(null);
   const [nextAutoSyncSeconds, setNextAutoSyncSeconds] = useState<number>(() => autoSyncIntervalMinutes * 60);
   const [isAutoSyncing, setIsAutoSyncing] = useState<boolean>(false);
+  const [isSyncingDriveLinks, setIsSyncingDriveLinks] = useState<boolean>(false);
 
   const handleToggleAutoOcr = (enabled: boolean) => {
     setAutoOcrEnabled(enabled);
@@ -3392,6 +3393,295 @@ export default function App() {
     }
   };
 
+  // Sync Google Drive links across all tabs (Рахунки, Платіжки, Цех)
+  const handleSyncAllDriveLinks = async () => {
+    if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
+      notify('Потрібно підключити Google Таблицю для цієї операції.', 'error');
+      return;
+    }
+    setIsSyncingDriveLinks(true);
+    try {
+      notify('Пошук та прив’язка посилань Google Диска для всіх рахунків та платіжок...', 'info');
+
+      // 1. Fetch files in selected Drive folder to have full inventory
+      let driveFiles: Array<{ id: string; name: string; webViewLink?: string }> = [];
+      if (driveFolderId) {
+        try {
+          const fetched = await GoogleDriveService.listFilesInFolder(driveFolderId, authState.accessToken);
+          driveFiles = fetched.map((f) => ({ id: f.id, name: f.name, webViewLink: f.webViewLink }));
+        } catch (e) {
+          console.warn('Could not list folder files for link sync:', e);
+        }
+      }
+
+      const allKnownLinks = new Map<string, string>();
+      const registerLink = (name: string, link: string) => {
+        if (!name || !link) return;
+        const clean = GoogleSheetsService.cleanDriveUrl(link);
+        if (clean) allKnownLinks.set(name.toLowerCase().trim(), clean);
+      };
+
+      driveFiles.forEach((f) => {
+        const link = f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`;
+        registerLink(f.name, link);
+      });
+
+      documentsRef.current.forEach((d) => {
+        const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+        if (!link) return;
+        registerLink(d.fileName, link);
+      });
+
+      const isPaymentFileName = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        return (
+          lower.includes('платіж') ||
+          lower.includes('платеж') ||
+          lower.includes('інструкц') ||
+          lower.includes('доручен') ||
+          lower.includes('квитанц') ||
+          lower.includes('payment') ||
+          lower.includes('receipt') ||
+          lower.includes('виписка')
+        );
+      };
+
+      const isInvoiceFileName = (name: string): boolean => {
+        const lower = name.toLowerCase();
+        return (
+          lower.includes('рахунок') ||
+          lower.includes('счет') ||
+          lower.includes('invoice') ||
+          lower.includes('рах')
+        );
+      };
+
+      const findDriveLinkForInvoice = (inv: ExistingSheetRow): string | null => {
+        if (inv.driveLink) return GoogleSheetsService.cleanDriveUrl(inv.driveLink);
+
+        if (inv.fileName && allKnownLinks.has(inv.fileName.toLowerCase().trim())) {
+          const fn = inv.fileName.toLowerCase().trim();
+          if (!isPaymentFileName(fn)) {
+            return allKnownLinks.get(fn)!;
+          }
+        }
+
+        const cleanInv = OCRService.sanitizeInvoiceNumber(inv.invoiceNumber || '');
+        const invSup = OCRService.normalizeCompanyName(inv.supplier || '');
+        const cleanOrder = OCRService.normalizeOrderNumber(inv.orderNumber || '');
+
+        const docMatch = documentsRef.current.find((d) => {
+          const l = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+          if (!l) return false;
+          // STRICT RULE: Never link a payment slip to an invoice!
+          if (d.ocrResult?.documentType === 'payment' || d.editedData?.documentType === 'payment') return false;
+          if (d.fileName && isPaymentFileName(d.fileName)) return false;
+
+          if (d.syncedRowIndex && d.syncedRowIndex === inv.rowIndex) return true;
+          if (inv.fileName && d.fileName && inv.fileName.toLowerCase().trim() === d.fileName.toLowerCase().trim()) return true;
+
+          const dInv = OCRService.sanitizeInvoiceNumber(d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '');
+          if (cleanInv && cleanInv.length >= 2 && dInv === cleanInv) {
+            const dSup = OCRService.normalizeCompanyName(d.ocrResult?.supplierName || d.editedData?.supplierName || '');
+            if (!invSup || !dSup || invSup === dSup || invSup.includes(dSup) || dSup.includes(invSup)) {
+              return true;
+            }
+          }
+          if (cleanInv && cleanInv.length >= 2) {
+            const cleanFn = OCRService.sanitizeInvoiceNumber(d.fileName || '');
+            if (cleanFn.includes(cleanInv)) {
+              if (!invSup || d.fileName.toLowerCase().includes(invSup.slice(0, 4).toLowerCase())) return true;
+            }
+          }
+          if (cleanOrder && cleanOrder.length >= 3 && d.fileName.includes(cleanOrder)) {
+            if (!invSup || d.fileName.toLowerCase().includes(invSup.slice(0, 4).toLowerCase())) return true;
+          }
+          return false;
+        });
+
+        if (docMatch) {
+          const l = docMatch.driveLink || docMatch.driveWebViewLink || (docMatch.driveFileId ? `https://drive.google.com/file/d/${docMatch.driveFileId}/view` : '');
+          if (l) return GoogleSheetsService.cleanDriveUrl(l);
+        }
+
+        if (cleanInv && cleanInv.length >= 2) {
+          const fileMatch = driveFiles.find((f) => {
+            if (isPaymentFileName(f.name)) return false;
+            const fLower = f.name.toLowerCase();
+            const cleanFn = OCRService.sanitizeInvoiceNumber(f.name);
+            if (cleanFn.includes(cleanInv)) {
+              if (!invSup || fLower.includes(invSup.slice(0, 4).toLowerCase())) return true;
+            }
+            return false;
+          });
+          if (fileMatch) {
+            const l = fileMatch.webViewLink || `https://drive.google.com/file/d/${fileMatch.id}/view`;
+            return GoogleSheetsService.cleanDriveUrl(l);
+          }
+        }
+
+        return null;
+      };
+
+      const findDriveLinkForPayment = (pay: ExistingPaymentRow): string | null => {
+        if (pay.driveLink) return GoogleSheetsService.cleanDriveUrl(pay.driveLink);
+
+        if (pay.fileName && allKnownLinks.has(pay.fileName.toLowerCase().trim())) {
+          const fn = pay.fileName.toLowerCase().trim();
+          if (!isInvoiceFileName(fn) || isPaymentFileName(fn)) {
+            return allKnownLinks.get(fn)!;
+          }
+        }
+
+        const cleanPay = (pay.paymentNumber || '').trim();
+        const cleanInvRef = OCRService.sanitizeInvoiceNumber(pay.referencedInvoiceNumber || '');
+
+        const docMatch = documentsRef.current.find((d) => {
+          const l = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+          if (!l) return false;
+          // STRICT RULE: Never link an invoice to a payment slip!
+          if (d.ocrResult?.documentType === 'invoice' || d.editedData?.documentType === 'invoice') return false;
+
+          if (d.syncedRowIndex && d.syncedRowIndex === pay.rowIndex) return true;
+          if (pay.fileName && d.fileName && pay.fileName.toLowerCase().trim() === d.fileName.toLowerCase().trim()) return true;
+          if (cleanPay && cleanPay.length >= 2) {
+            const dPay = (d.ocrResult?.paymentNumber || d.editedData?.paymentNumber || '').trim();
+            if (dPay && dPay === cleanPay) return true;
+            if (d.fileName.includes(cleanPay)) return true;
+          }
+          if (cleanInvRef && cleanInvRef.length >= 2 && d.fileName.includes(cleanInvRef)) return true;
+          return false;
+        });
+
+        if (docMatch) {
+          const l = docMatch.driveLink || docMatch.driveWebViewLink || (docMatch.driveFileId ? `https://drive.google.com/file/d/${docMatch.driveFileId}/view` : '');
+          if (l) return GoogleSheetsService.cleanDriveUrl(l);
+        }
+
+        if (cleanPay && cleanPay.length >= 2) {
+          const fileMatch = driveFiles.find((f) => isPaymentFileName(f.name) && f.name.includes(cleanPay));
+          if (fileMatch) {
+            const l = fileMatch.webViewLink || `https://drive.google.com/file/d/${fileMatch.id}/view`;
+            return GoogleSheetsService.cleanDriveUrl(l);
+          }
+        }
+
+        return null;
+      };
+
+      const findDriveLinkForOverhead = (exp: OverheadExpenseRow): string | null => {
+        if (exp.driveLink) return GoogleSheetsService.cleanDriveUrl(exp.driveLink);
+
+        if (exp.fileName && allKnownLinks.has(exp.fileName.toLowerCase().trim())) {
+          const fn = exp.fileName.toLowerCase().trim();
+          if (!isPaymentFileName(fn)) {
+            return allKnownLinks.get(fn)!;
+          }
+        }
+
+        const cleanInv = OCRService.sanitizeInvoiceNumber(exp.invoiceNumber || '');
+        const expSup = OCRService.normalizeCompanyName(exp.supplier || '');
+
+        const docMatch = documentsRef.current.find((d) => {
+          const l = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+          if (!l) return false;
+          // STRICT RULE: Never link a payment slip to an overhead expense!
+          if (d.ocrResult?.documentType === 'payment' || d.editedData?.documentType === 'payment') return false;
+          if (d.fileName && isPaymentFileName(d.fileName)) return false;
+
+          if (d.syncedRowIndex && d.syncedRowIndex === exp.rowIndex) return true;
+          if (exp.fileName && d.fileName && exp.fileName.toLowerCase().trim() === d.fileName.toLowerCase().trim()) return true;
+          if (cleanInv && cleanInv.length >= 2) {
+            const dInv = OCRService.sanitizeInvoiceNumber(d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '');
+            if (dInv === cleanInv) {
+              const dSup = OCRService.normalizeCompanyName(d.ocrResult?.supplierName || d.editedData?.supplierName || '');
+              if (!expSup || !dSup || expSup === dSup || expSup.includes(dSup) || dSup.includes(expSup)) return true;
+            }
+            const cleanFn = OCRService.sanitizeInvoiceNumber(d.fileName || '');
+            if (cleanFn.includes(cleanInv)) {
+              if (!expSup || d.fileName.toLowerCase().includes(expSup.slice(0, 4).toLowerCase())) return true;
+            }
+          }
+          return false;
+        });
+
+        if (docMatch) {
+          const l = docMatch.driveLink || docMatch.driveWebViewLink || (docMatch.driveFileId ? `https://drive.google.com/file/d/${docMatch.driveFileId}/view` : '');
+          if (l) return GoogleSheetsService.cleanDriveUrl(l);
+        }
+
+        if (cleanInv && cleanInv.length >= 2) {
+          const fileMatch = driveFiles.find((f) => {
+            if (isPaymentFileName(f.name)) return false;
+            const cleanFn = OCRService.sanitizeInvoiceNumber(f.name);
+            return cleanFn.includes(cleanInv);
+          });
+          if (fileMatch) {
+            const l = fileMatch.webViewLink || `https://drive.google.com/file/d/${fileMatch.id}/view`;
+            return GoogleSheetsService.cleanDriveUrl(l);
+          }
+        }
+
+        return null;
+      };
+
+      const updates: Array<{ tab: string; colLetter: string; rowIndex: number; driveLink: string }> = [];
+
+      // Collect Invoices (Col L)
+      const invTab = sheetConfig.invoicesSheetName || 'Рахунки';
+      existingInvoices.forEach((inv) => {
+        if (!inv.driveLink) {
+          const link = findDriveLinkForInvoice(inv);
+          if (link) {
+            updates.push({ tab: invTab, colLetter: 'L', rowIndex: inv.rowIndex, driveLink: link });
+          }
+        }
+      });
+
+      // Collect Payments (Col K)
+      const payTab = sheetConfig.paymentsSheetName || 'Платіжки';
+      existingPayments.forEach((pay) => {
+        if (!pay.driveLink) {
+          const link = findDriveLinkForPayment(pay);
+          if (link) {
+            updates.push({ tab: payTab, colLetter: 'K', rowIndex: pay.rowIndex, driveLink: link });
+          }
+        }
+      });
+
+      // Collect Overhead (Col J)
+      const overTab = sheetConfig.overheadSheetName || 'Цех';
+      overheadExpenses.forEach((exp) => {
+        if (!exp.driveLink) {
+          const link = findDriveLinkForOverhead(exp);
+          if (link) {
+            updates.push({ tab: overTab, colLetter: 'J', rowIndex: exp.rowIndex, driveLink: link });
+          }
+        }
+      });
+
+      if (updates.length === 0) {
+        notify('Усі наявні записи в таблиці вже мають актуальні посилання на Google Диск!', 'info');
+        return;
+      }
+
+      const updatedCount = await GoogleSheetsService.batchUpdateDriveLinksInSheet(
+        sheetConfig.spreadsheetId,
+        authState.accessToken,
+        updates
+      );
+
+      // Re-read sheets
+      await refreshSheetData();
+      notify(`🔗 Успішно оновлено ${updatedCount} посилань на Google Диск у таблиці!`, 'success');
+    } catch (err: any) {
+      console.error('Error syncing drive links:', err);
+      notify(err.message || 'Помилка оновлення посилань Google Диск у таблиці.', 'error');
+    } finally {
+      setIsSyncingDriveLinks(false);
+    }
+  };
+
   const handleSaveLocalData = (docId: string, updatedOcr: OCRResult) => {
     let effectiveOcr = updatedOcr;
     if (updatedOcr.documentType === 'payment' && !updatedOcr.handwrittenOrderNumber) {
@@ -3826,7 +4116,10 @@ export default function App() {
               onAddLocalDocument={handleAddSingleLocalDocument}
               onMergeDuplicateInvoice={handleMergeDuplicateInvoice}
               onToggleInvoiceApproval={handleToggleInvoiceApproval}
+              onSyncDriveLinks={handleSyncAllDriveLinks}
+              isSyncingDriveLinks={isSyncingDriveLinks}
               canWriteToSheets={canWriteToSheets}
+              accessToken={authState.accessToken || undefined}
             />
           </div>
         )}
@@ -3861,6 +4154,8 @@ export default function App() {
             }}
             onApproveInvoice={handleApproveInvoice}
             onRejectInvoice={handleRejectInvoice}
+            canWriteToSheets={canWriteToSheets}
+            onRefresh={refreshSheetData}
           />
         )}
 
@@ -3927,6 +4222,8 @@ export default function App() {
             onNotify={notify}
             canWriteToSheets={canWriteToSheets}
             documents={documents}
+            onSyncDriveLinks={handleSyncAllDriveLinks}
+            isSyncingDriveLinks={isSyncingDriveLinks}
           />
         )}
       </main>
