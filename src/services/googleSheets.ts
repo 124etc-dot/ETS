@@ -1,7 +1,9 @@
-import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, InvoiceApprovalStatus, ProjectSheetRow, ProjectColumnHeader, OverheadExpenseRow } from '../types';
+import { OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, InvoicePaymentStatus, InvoiceApprovalStatus, ProjectSheetRow, ProjectColumnHeader, OverheadExpenseRow, CashFlowSummary } from '../types';
 import { OCRService } from './ocrService';
 import { googleAuth } from './googleAuth';
 import { formatMonthYearUk } from '../utils/dateUtils';
+import { aggregateCashFlow, CashFlowAggregationOptions } from './cashFlowService';
+import { getCompanyFromProjectColG, getCompanyFromInvoice } from '../utils/weekUtils';
 
 export class GoogleSheetsService {
   /**
@@ -2850,8 +2852,8 @@ export class GoogleSheetsService {
     }
 
     const safeTab = targetTab.replace(/'/g, "''");
-    // We read from A1 to Y5000 so we capture both header definitions in rows 1..110 and project rows starting at 111
-    const range = encodeURIComponent(`'${safeTab}'!A1:Y5000`);
+    // We read from A1 to AG5000 so we capture header definitions, project rows, and payment schedule columns (Z to AG)
+    const range = encodeURIComponent(`'${safeTab}'!A1:AG5000`);
     const data = await this.request<any>(
       `${cleanId}/values/${range}`,
       accessToken
@@ -3097,6 +3099,16 @@ export class GoogleSheetsService {
       const colX = getVal(23);
       const colY = getVal(24);
 
+      // Payment schedule tranches 1-4 starting from column Z (index 25)
+      const colZ = getVal(25);  // Оплата 1 - Сума
+      const colAA = getVal(26); // Оплата 1 - Вибір тижня
+      const colAB = getVal(27); // Оплата 2 - Сума
+      const colAC = getVal(28); // Оплата 2 - Вибір тижня
+      const colAD = getVal(29); // Оплата 3 - Сума
+      const colAE = getVal(30); // Оплата 3 - Вибір тижня
+      const colAF = getVal(31); // Оплата 4 - Сума
+      const colAG = getVal(32); // Оплата 4 - Вибір тижня
+
       // Rule: Якщо в таблиці Оплати/Борги вкладка Лист1 в колонці І Курс валют стоїть цифра не 1,
       // то потрібно множити колонку І на колонку М.
       const rawNumM = parseNum(colM);
@@ -3123,7 +3135,9 @@ export class GoogleSheetsService {
         rawNumM > 0 ||
         parseNum(colN) > 0 ||
         sumQRST > 0 ||
-        parseNum(colU) > 0;
+        parseNum(colU) > 0 ||
+        isMeaningful(colZ) ||
+        isMeaningful(colAA);
 
       // Filter out empty rows, formula ghosts, and unused trailing rows
       if (!hasIdentifier && !hasSecondary && !hasFinances) {
@@ -3157,6 +3171,16 @@ export class GoogleSheetsService {
         colW,
         colX,
         colY,
+        colZ,
+        colAA,
+        colAB,
+        colAC,
+        colAD,
+        colAE,
+        colAF,
+        colAG,
+        tabName: targetTab,
+        spreadsheetId: cleanId,
         currencyRate: rateI > 0 ? rateI : 1,
         isCurrencyConverted: isRateConverted,
         rawInvoiceSum: 0,
@@ -3939,8 +3963,8 @@ export class GoogleSheetsService {
       { key: 'colY', letter: 'Y', title: getHeader(24, 'Y', 'Колонка Y') },
     ];
 
-    // Fetch data starting from row 2094 downwards
-    const dataRange = encodeURIComponent(`'${safeTab}'!A${startRow}:Z10000`);
+    // Fetch data starting from row 2094 downwards (up to AG to include payment schedule)
+    const dataRange = encodeURIComponent(`'${safeTab}'!A${startRow}:AG10000`);
     const dataRes = await this.request<{ values?: string[][] }>(
       `${cleanId}/values/${dataRange}`,
       accessToken
@@ -3976,6 +4000,14 @@ export class GoogleSheetsService {
       const colW = getVal(22);
       const colX = getVal(23);
       const colY = getVal(24);
+      const colZ = getVal(25);
+      const colAA = getVal(26);
+      const colAB = getVal(27);
+      const colAC = getVal(28);
+      const colAD = getVal(29);
+      const colAE = getVal(30);
+      const colAF = getVal(31);
+      const colAG = getVal(32);
 
       const isMeaningful = (v: string) => v && v !== '—' && v !== '-' && v !== '0';
       if (
@@ -4024,6 +4056,16 @@ export class GoogleSheetsService {
         colW,
         colX,
         colY,
+        colZ,
+        colAA,
+        colAB,
+        colAC,
+        colAD,
+        colAE,
+        colAF,
+        colAG,
+        tabName: targetTab,
+        spreadsheetId: cleanId,
       });
     }
 
@@ -4037,9 +4079,143 @@ export class GoogleSheetsService {
       totalRowsFrom2094: projectRows.length,
     };
   }
+
+  /**
+   * Updates project payment schedule (4 tranches: amount & week) in Google Sheets starting at Column Z.
+   * Column Z (index 25): Payment 1 Amount
+   * Column AA (index 26): Payment 1 Week
+   * Column AB (index 27): Payment 2 Amount
+   * Column AC (index 28): Payment 2 Week
+   * Column AD (index 29): Payment 3 Amount
+   * Column AE (index 30): Payment 3 Week
+   * Column AF (index 31): Payment 4 Amount
+   * Column AG (index 32): Payment 4 Week
+   */
+  public static async updateProjectPaymentSchedule(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName: string,
+    rowNumber: number,
+    schedule: Array<{ amount: string | number; week: string }>
+  ): Promise<{ success: boolean; updatedRange: string }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId);
+    const safeTab = (tabName || 'Лист1').replace(/'/g, "''");
+    const targetRange = `'${safeTab}'!Z${rowNumber}:AG${rowNumber}`;
+
+    const p1Amount = String(schedule[0]?.amount ?? '').trim();
+    const p1Week = String(schedule[0]?.week ?? '').trim();
+    const p2Amount = String(schedule[1]?.amount ?? '').trim();
+    const p2Week = String(schedule[1]?.week ?? '').trim();
+    const p3Amount = String(schedule[2]?.amount ?? '').trim();
+    const p3Week = String(schedule[2]?.week ?? '').trim();
+    const p4Amount = String(schedule[3]?.amount ?? '').trim();
+    const p4Week = String(schedule[3]?.week ?? '').trim();
+
+    const values = [[
+      p1Amount,
+      p1Week,
+      p2Amount,
+      p2Week,
+      p3Amount,
+      p3Week,
+      p4Amount,
+      p4Week,
+    ]];
+
+    await this.request<any>(
+      `${cleanId}/values/${encodeURIComponent(targetRange)}?valueInputOption=USER_ENTERED`,
+      accessToken,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ values }),
+      }
+    );
+
+    return {
+      success: true,
+      updatedRange: targetRange,
+    };
+  }
+
+  /**
+   * Логіка визначення нашої компанії для замовлення:
+   * перевіряємо колонку G таблиці Оплати/Борги вкладка Лист1:
+   * - якщо запис починається на ШІ -> це "Шоп Інтеріор"
+   * - якщо на ГП -> це "Гала Продакшн"
+   * - якщо на ІН -> це "Інокс Україна"
+   * - якщо ПШ -> це "Преміум Шоп"
+   * - якщо ІКВ -> це "Ільїнський Костянтин Владиславович"
+   */
+  public static determineCompanyFromColG(colG?: string): string {
+    return getCompanyFromProjectColG(colG);
+  }
+
+  /**
+   * Нормалізація платника/нашої компанії з рахунку постачальника
+   */
+  public static determineCompanyFromInvoice(invoice: { buyer?: string; orderNumber?: string }): string {
+    return getCompanyFromInvoice(invoice);
+  }
+
+  /**
+   * Агрегація даних для Календаря платежів (Cash Flow) по тижнях року:
+   * 🟢 Вхід (Надходження): суми та тижні з полів Оплата 1...4 усіх проєктів, згруповані за обраним тижнем та ТОВ/ФОП
+   * 🔴 Вихід (Витрати): суми рахунків постачальників зі статусом "Не оплачено", згруповані за плановим тижнем оплати (дата завантаження + 5 днів) та ТОВ/ФОП
+   * ⚖️ Підсумковий Тижневий Баланс: (Вхід - Вихід)
+   */
+  public static aggregateCashFlow(
+    projects: ProjectSheetRow[],
+    invoices: ExistingSheetRow[],
+    options?: CashFlowAggregationOptions
+  ): CashFlowSummary {
+    return aggregateCashFlow(projects, invoices, options);
+  }
+
+  /**
+   * Завантаження та розрахунок тижневого Календаря платежів (Cash Flow) безпосередньо з Google Таблиць
+   */
+  public static async fetchWeeklyCashFlow(
+    spreadsheetId: string,
+    accessToken: string,
+    options: {
+      projectsTab?: string;
+      invoicesTab?: string;
+      targetYear?: number;
+      availableSheetsHint?: string[];
+    } = {}
+  ): Promise<CashFlowSummary> {
+    const projectsTab = options.projectsTab || 'Лист1';
+    const invoicesTab = options.invoicesTab || 'Рахунки';
+
+    // Паралельне завантаження проєктів з графіком оплат та рахунків постачальників
+    const [projectData, invoiceRows] = await Promise.all([
+      this.getProjectsFromSheet(
+        spreadsheetId,
+        accessToken,
+        projectsTab
+      ).catch(() => ({ rows: [] as ProjectSheetRow[], headers: [] })),
+      this.loadExistingInvoices(
+        spreadsheetId,
+        accessToken,
+        invoicesTab,
+        options.availableSheetsHint
+      ).catch(() => [] as ExistingSheetRow[]),
+    ]);
+
+    return this.aggregateCashFlow(projectData.rows, invoiceRows, {
+      targetYear: options.targetYear || 2026,
+    });
+  }
 }
+
+export {
+  aggregateCashFlow,
+  getCompanyFromProjectColG,
+  getCompanyFromInvoice,
+};
 
 export const DEFAULT_PROJECTS_SPREADSHEET_ID = GoogleSheetsService.DEFAULT_PROJECTS_SPREADSHEET_ID;
 export const DEFAULT_PROJECTS_SPREADSHEET_URL = GoogleSheetsService.DEFAULT_PROJECTS_SPREADSHEET_URL;
+
 
 

@@ -271,6 +271,17 @@ export interface ProjectSheetRow {
   colW: string; // Колонка W
   colX: string; // Колонка X
   colY: string; // Колонка Y
+  // Payment schedule (План надходжень - 4 транші)
+  colZ?: string; // Оплата 1 - Сума
+  colAA?: string; // Оплата 1 - Вибір тижня
+  colAB?: string; // Оплата 2 - Сума
+  colAC?: string; // Оплата 2 - Вибір тижня
+  colAD?: string; // Оплата 3 - Сума
+  colAE?: string; // Оплата 3 - Вибір тижня
+  colAF?: string; // Оплата 4 - Сума
+  colAG?: string; // Оплата 4 - Вибір тижня
+  tabName?: string; // Origin tab name (e.g. 'Лист1' or 'План')
+  spreadsheetId?: string; // Origin spreadsheet ID
   rawValues?: Record<string, string>;
   currencyRate?: number; // Курс валют (кол. I)
   isCurrencyConverted?: boolean; // Чи відрізняється курс від 1
@@ -285,3 +296,110 @@ export interface ProjectColumnHeader {
   letter: string;
   title: string;
 }
+
+// ==================== CASH FLOW / ПЛАНУВАННЯ НАДХОДЖЕНЬ ТА ВИТРАТ ====================
+
+export type CashFlowCompany =
+  | 'Шоп Інтеріор'
+  | 'Гала Продакшн'
+  | 'Інокс Україна'
+  | 'Преміум Шоп'
+  | 'Ільїнський Костянтин Владиславович'
+  | 'Інші';
+
+/**
+ * Окремий транш надходження за проєктом
+ */
+export interface CashFlowInflowItem {
+  projectRowNumber: number;
+  projectCode: string; // colA (наприклад, "216-26")
+  client: string; // colB (Замовник)
+  projectName: string; // colC (Назва проекту / об'єкту)
+  colG: string; // Рахунок / код компанії (наприклад "ШІ-142", "ГП-089")
+  company: string; // Нормалізована назва нашої компанії: 'Шоп Інтеріор', 'Гала Продакшн' тощо
+  trancheNumber: 1 | 2 | 3 | 4;
+  amount: number;
+  rawAmount: string;
+  rawWeek: string;
+  weekKey: string; // Ідентифікатор тижня, наприклад "2026-W40"
+  weekNumber: number;
+  year: number;
+  weekLabel: string;
+}
+
+/**
+ * Окремий неоплачений рахунок постачальника
+ */
+export interface CashFlowOutflowItem {
+  invoiceRowIndex: number;
+  invoiceNumber: string;
+  supplier: string;
+  buyer: string; // Оригінальна назва платника/нашої компанії
+  company: string; // Нормалізована назва нашої компанії: 'Шоп Інтеріор', 'Гала Продакшн' тощо
+  orderNumber?: string;
+  amount: number; // Неоплачена сума до сплати
+  totalInvoiceAmount: number; // Повна сума рахунку
+  paidAmount?: number; // Вже сплачена частина
+  approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО" | "ВІДХИЛЕНО"
+  uploadedAt: string; // Дата завантаження рахунку
+  invoiceDate?: string; // Дата рахунку
+  plannedPaymentDate: string; // Планова дата оплати: YYYY-MM-DD (дата завантаження + 5 днів)
+  weekKey: string; // Ідентифікатор тижня, наприклад "2026-W40"
+  weekNumber: number;
+  year: number;
+  weekLabel: string;
+}
+
+/**
+ * Зведені показники по окремій компанії (ТОВ/ФОП) за тиждень
+ */
+export interface CompanyWeeklyCashFlow {
+  company: string;
+  inflow: number; // Вхід (Надходження)
+  outflow: number; // Вихід (Витрати)
+  balance: number; // Тижневий баланс: Вхід - Вихід
+  inflowItems: CashFlowInflowItem[];
+  outflowItems: CashFlowOutflowItem[];
+}
+
+/**
+ * Зведені показники за конкретний календарний тиждень
+ */
+export interface WeeklyCashFlow {
+  weekKey: string; // e.g. "2026-W40"
+  weekNumber: number; // 40
+  year: number; // 2026
+  weekLabel: string; // "Т40 (28.09 – 04.10.2026)"
+  shortLabel: string; // "Т40"
+  startDate: string; // "28.09.2026"
+  endDate: string; // "04.10.2026"
+  isCurrentWeek: boolean;
+  totalInflow: number; // Загальний вхід по всіх компаніях за тиждень
+  totalOutflow: number; // Загальний вихід по всіх компаніях за тиждень
+  netBalance: number; // Підсумковий тижневий баланс: Вхід - Вихід
+  byCompany: Record<string, CompanyWeeklyCashFlow>; // Розбивка за ТОВ/ФОП
+}
+
+/**
+ * Загальний підсумок Календаря платежів (Cash Flow)
+ */
+export interface CashFlowSummary {
+  weeks: WeeklyCashFlow[];
+  grandTotalInflow: number; // Загальний Вхід
+  grandTotalOutflow: number; // Загальний Вихід
+  grandTotalBalance: number; // Підсумковий Баланс (Вхід - Вихід)
+  companyTotals: Record<
+    string,
+    {
+      company: string;
+      inflow: number;
+      outflow: number;
+      balance: number;
+      inflowCount: number;
+      outflowCount: number;
+    }
+  >;
+  unmatchedInflowsCount: number;
+  unmatchedOutflowsCount: number;
+}
+

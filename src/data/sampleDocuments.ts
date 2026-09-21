@@ -122,6 +122,7 @@ export const DEFAULT_OUR_COMPANIES: string[] = [
   'ТОВ ШОП ІНТЕРІОР',
   'ТОВ ГАЛА ПРОДАКШН',
   'ТОВ ІНОКС УКРАЇНА',
+  'ФОП Ільїнський Костянтин Владиславович',
 ];
 
 export const DEFAULT_SUPPLIERS: string[] = [

@@ -96,6 +96,25 @@ app.post(['/api/ocr/process', '/api/ocr/process/', '/api/ocr', '/api/ocr/', '/ap
   }
 });
 
+// Cash Flow Aggregation API Endpoint
+app.post(['/api/cash-flow/aggregate', '/api/cash-flow'], async (req, res) => {
+  try {
+    const { projects = [], invoices = [], options = {} } = req.body || {};
+    const { aggregateCashFlow } = await import('./src/services/cashFlowService');
+    const summary = aggregateCashFlow(projects, invoices, options);
+    return res.json({
+      status: 'ok',
+      summary,
+    });
+  } catch (err: any) {
+    console.error('Cash Flow aggregation error:', err);
+    return res.status(500).json({
+      status: 'error',
+      error: err?.message || 'Не вдалося агрегувати Календар платежів',
+    });
+  }
+});
+
 // Start Express and Vite middleware
 async function startServer() {
   const distPath = path.join(process.cwd(), 'dist');

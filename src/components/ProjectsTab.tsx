@@ -35,6 +35,7 @@ import {
 import { AuthState } from '../services/googleAuth';
 import { SAMPLE_PROJECT_HEADERS, SAMPLE_PROJECT_ROWS } from '../data/sampleProjects';
 import { AddProjectModal, PLAN_SPREADSHEET_STORAGE_KEY } from './AddProjectModal';
+import { ProjectPaymentSchedule } from './ProjectPaymentSchedule';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -1558,6 +1559,25 @@ export const ProjectsTab: React.FC<Props> = ({
                   )}
                 </div>
               )}
+
+              {/* 📅 Графік оплат (План надходжень - 4 транші, колонки Z..AG) */}
+              <ProjectPaymentSchedule
+                project={selectedProject}
+                sheetConfig={sheetConfig}
+                authState={authState}
+                activeTabName={activeDataSource === 'plan' ? 'План' : 'Лист1'}
+                onUpdateProject={(updated) => {
+                  setSelectedProject(updated);
+                  setProjects((prev) =>
+                    prev.map((p) => (p.rowNumber === updated.rowNumber ? updated : p))
+                  );
+                  if (onProjectsChange) {
+                    onProjectsChange(
+                      projects.map((p) => (p.rowNumber === updated.rowNumber ? updated : p))
+                    );
+                  }
+                }}
+              />
             </div>
 
             {/* Modal Footer */}

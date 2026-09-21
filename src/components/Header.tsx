@@ -14,6 +14,7 @@ import {
   Briefcase,
   Factory,
   BarChart3,
+  TrendingUp,
   Eye
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
@@ -26,8 +27,8 @@ import { ServerStatusModal } from './ServerStatusModal';
 interface Props {
   authState: AuthState;
   sheetConfig: SheetConfig | null;
-  activeTab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead';
-  onSelectTab: (tab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead') => void;
+  activeTab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead' | 'cashflow';
+  onSelectTab: (tab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead' | 'cashflow') => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   totalPendingCount: number;
@@ -149,6 +150,18 @@ export const Header: React.FC<Props> = ({
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Рахунки & Оплати</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('cashflow')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  activeTab === 'cashflow'
+                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                }`}
+              >
+                <TrendingUp className={`w-3.5 h-3.5 ${activeTab === 'cashflow' ? 'text-white' : 'text-indigo-600'}`} />
+                <span>Календар платежів</span>
               </button>
 
               <button
@@ -310,6 +323,18 @@ export const Header: React.FC<Props> = ({
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
               <span>Рахунки</span>
+            </button>
+
+            <button
+              onClick={() => onSelectTab('cashflow')}
+              className={`flex-1 min-w-max px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                activeTab === 'cashflow'
+                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+              }`}
+            >
+              <TrendingUp className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'cashflow' ? 'text-white' : 'text-indigo-600'}`} />
+              <span>Cash Flow</span>
             </button>
 
             <button

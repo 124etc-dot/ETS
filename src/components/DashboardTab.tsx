@@ -31,6 +31,7 @@ import { ExistingSheetRow, OverheadExpenseRow, ProcessedDocument, ProjectSheetRo
 import { AuthState } from '../services/googleAuth';
 import { SAMPLE_PROJECT_ROWS } from '../data/sampleProjects';
 import { ManagerApprovalWidget } from './ManagerApprovalWidget';
+import { ProjectPaymentSchedule } from './ProjectPaymentSchedule';
 
 interface Props {
   sheetConfig: SheetConfig | null;
@@ -1448,6 +1449,17 @@ export const DashboardTab: React.FC<Props> = ({
                   {formatValueDisplay(selectedProject.colV || selectedProject.sumQRST)}
                 </span>
               </div>
+
+              {/* 📅 Графік оплат (План надходжень - 4 транші, колонки Z..AG) */}
+              <ProjectPaymentSchedule
+                project={selectedProject}
+                sheetConfig={sheetConfig}
+                authState={authState}
+                activeTabName={activeProjectsSource === 'plan' ? 'План' : 'Лист1'}
+                onUpdateProject={(updated) => {
+                  setSelectedProject(updated);
+                }}
+              />
             </div>
 
             <div className="mt-4 flex items-center justify-end space-x-2">

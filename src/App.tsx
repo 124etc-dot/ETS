@@ -46,6 +46,7 @@ import { CompaniesTab } from './components/CompaniesTab';
 import { ProjectsTab } from './components/ProjectsTab';
 import { OverheadTab } from './components/OverheadTab';
 import { DashboardTab } from './components/DashboardTab';
+import { CashFlowTab } from './components/CashFlowTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
 import { NewCompanyConfirmModal } from './components/NewCompanyConfirmModal';
 import { PLAN_SPREADSHEET_STORAGE_KEY } from './components/AddProjectModal';
@@ -98,7 +99,7 @@ export default function App() {
   const canApproveInvoices = userPermissions.canApproveInvoices;
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead' | 'cashflow'>('dashboard');
 
   // Google Drive & Sheets state with local persistence
   const [driveFolderId, setDriveFolderId] = useState<string>(() => {
@@ -4224,6 +4225,23 @@ export default function App() {
             documents={documents}
             onSyncDriveLinks={handleSyncAllDriveLinks}
             isSyncingDriveLinks={isSyncingDriveLinks}
+          />
+        )}
+
+        {/* View Mode: Weekly Cash Flow (Календар платежів) */}
+        {activeTab === 'cashflow' && (
+          <CashFlowTab
+            projects={projects}
+            invoices={existingInvoices}
+            companyLists={companyLists}
+            sheetConfig={sheetConfig}
+            onRefresh={async () => {
+              await Promise.all([
+                refreshProjectsData(),
+                refreshSheetData(),
+              ]);
+            }}
+            isLoading={isLoadingProjects || isLoadingSheet}
           />
         )}
       </main>
