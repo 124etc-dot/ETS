@@ -1,13 +1,17 @@
 /**
  * Permissions and Access Control Service
  * 
- * Configurable list of restricted/view-only user emails.
- * Users not in this list have full access (Drive sync, Sheets write/update, approval, etc.).
+ * Users with explicitly granted full unrestricted access:
+ * - 777vlad4406425@gmail.com
+ * - kosss.koss@gmail.com
  */
 
-export const RESTRICTED_VIEW_USERS: readonly string[] = [
-  // Both 777vlad4406425@gmail.com and kosss.koss@gmail.com now have full unrestricted access.
+export const FULL_ACCESS_USERS: readonly string[] = [
+  '777vlad4406425@gmail.com',
+  'kosss.koss@gmail.com',
 ];
+
+export const RESTRICTED_VIEW_USERS: readonly string[] = [];
 
 export interface UserPermissions {
   email: string | null;
@@ -24,6 +28,9 @@ export interface UserPermissions {
 export function isRestrictedUser(email?: string | null): boolean {
   if (!email) return false;
   const normalized = email.trim().toLowerCase();
+  if (FULL_ACCESS_USERS.some((fullUser) => fullUser.toLowerCase() === normalized)) {
+    return false;
+  }
   return RESTRICTED_VIEW_USERS.some((restrictedEmail) => restrictedEmail.toLowerCase() === normalized);
 }
 

@@ -2708,7 +2708,7 @@ export class GoogleSheetsService {
     }
 
     // Function to get clean title directly from the sheet
-    const getColumnHeaderTitle = (colIdx: number, colLetter: string): string => {
+    const getColumnHeaderTitle = (colIdx: number, colLetter: string, defaultTitle?: string): string => {
       // 1. Try bestHeaderRowIdx
       const primaryVal = String(rows[bestHeaderRowIdx]?.[colIdx] ?? '').trim();
       if (primaryVal && !isNumOrDate(primaryVal)) {
@@ -2738,21 +2738,21 @@ export class GoogleSheetsService {
         }
       }
 
-      return `Колонка ${colLetter}`;
+      return defaultTitle || `Колонка ${colLetter}`;
     };
 
     const headers: ProjectColumnHeader[] = [
-      { key: 'colA', letter: 'A', title: getColumnHeaderTitle(0, 'A') },
-      { key: 'colB', letter: 'B', title: getColumnHeaderTitle(1, 'B') },
-      { key: 'colC', letter: 'C', title: getColumnHeaderTitle(2, 'C') },
-      { key: 'colD', letter: 'D', title: getColumnHeaderTitle(3, 'D') },
-      { key: 'colE', letter: 'E', title: getColumnHeaderTitle(4, 'E') },
-      { key: 'colF', letter: 'F', title: getColumnHeaderTitle(5, 'F') },
-      { key: 'colG', letter: 'G', title: getColumnHeaderTitle(6, 'G') },
-      { key: 'colH', letter: 'H', title: getColumnHeaderTitle(7, 'H') },
-      { key: 'colI', letter: 'I', title: getColumnHeaderTitle(8, 'I') },
-      { key: 'colM', letter: 'M', title: getColumnHeaderTitle(12, 'M') },
-      { key: 'colN', letter: 'N', title: getColumnHeaderTitle(13, 'N') },
+      { key: 'colA', letter: 'A', title: getColumnHeaderTitle(0, 'A', 'Номер проекту') },
+      { key: 'colB', letter: 'B', title: getColumnHeaderTitle(1, 'B', 'Назва проекту') },
+      { key: 'colC', letter: 'C', title: getColumnHeaderTitle(2, 'C', 'Об\'єкт / Деталі') },
+      { key: 'colD', letter: 'D', title: getColumnHeaderTitle(3, 'D', 'Дата старту') },
+      { key: 'colE', letter: 'E', title: getColumnHeaderTitle(4, 'E', 'Дата здачі') },
+      { key: 'colF', letter: 'F', title: getColumnHeaderTitle(5, 'F', 'Статус') },
+      { key: 'colG', letter: 'G', title: getColumnHeaderTitle(6, 'G', 'Рахунок') },
+      { key: 'colH', letter: 'H', title: getColumnHeaderTitle(7, 'H', 'Дата рахунку') },
+      { key: 'colI', letter: 'I', title: getColumnHeaderTitle(8, 'I', 'Курс валют') },
+      { key: 'colM', letter: 'M', title: getColumnHeaderTitle(12, 'M', 'Сума проекту') },
+      { key: 'colN', letter: 'N', title: getColumnHeaderTitle(13, 'N', 'Залишок') },
       { key: 'colO', letter: 'O', title: getColumnHeaderTitle(14, 'O') },
       { key: 'colP', letter: 'P', title: getColumnHeaderTitle(15, 'P') },
       { key: 'colQ', letter: 'Q', title: getColumnHeaderTitle(16, 'Q') },
@@ -2762,10 +2762,10 @@ export class GoogleSheetsService {
       // The user explicitly requested: "лише ту колонку де є сума колонок назви Заробітня плата"
       { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Заробітня плата' },
       { key: 'colU', letter: 'U', title: getColumnHeaderTitle(20, 'U') },
-      { key: 'colV', letter: 'V', title: getColumnHeaderTitle(21, 'V') },
+      { key: 'colV', letter: 'V', title: getColumnHeaderTitle(21, 'V', 'Загальні витрати') },
       { key: 'colW', letter: 'W', title: getColumnHeaderTitle(22, 'W') },
       { key: 'colX', letter: 'X', title: getColumnHeaderTitle(23, 'X') },
-      { key: 'colY', letter: 'Y', title: getColumnHeaderTitle(24, 'Y') },
+      { key: 'colY', letter: 'Y', title: getColumnHeaderTitle(24, 'Y', 'Маржинальність') },
     ];
 
     // 2. Parse data rows starting strictly from row 111 (0-based index 110)
@@ -2834,7 +2834,7 @@ export class GoogleSheetsService {
       const colG = getVal(6);
       const colH = getVal(7);
       const colI = getVal(8);
-      const colM = getVal(12);
+      let colM = getVal(12);
       const colN = getVal(13);
       const colO = getVal(14);
       const colP = getVal(15);
@@ -2855,6 +2855,17 @@ export class GoogleSheetsService {
       const colX = getVal(23);
       const colY = getVal(24);
 
+      // Rule: Якщо в таблиці Оплати/Борги вкладка Лист1 в колонці І Курс валют стоїть цифра не 1,
+      // то потрібно множити колонку І на колонку М.
+      const rawNumM = parseNum(colM);
+      const rateI = parseNum(colI);
+      const isRateConverted = rateI > 0 && Math.abs(rateI - 1) > 0.0001;
+
+      // Base sum from column M (colH is invoice date, not budget sum)
+      const baseProjectSum = rawNumM > 0 ? rawNumM : 0;
+      const convertedProjectSum = isRateConverted ? baseProjectSum * rateI : baseProjectSum;
+      const effectiveProjectSum = convertedProjectSum;
+
       // Check if row has an actual project identifier or meaningful data
       const hasIdentifier = isMeaningful(colA) || isMeaningful(colB) || isMeaningful(colC);
       const hasSecondary =
@@ -2865,9 +2876,9 @@ export class GoogleSheetsService {
         isMeaningful(colX) ||
         isMeaningful(colY);
       const hasFinances =
-        parseNum(colH) > 0 ||
-        parseNum(colI) > 0 ||
-        parseNum(colM) > 0 ||
+        isMeaningful(colH) ||
+        rateI > 0 ||
+        rawNumM > 0 ||
         parseNum(colN) > 0 ||
         sumQRST > 0 ||
         parseNum(colU) > 0;
@@ -2904,6 +2915,12 @@ export class GoogleSheetsService {
         colW,
         colX,
         colY,
+        currencyRate: rateI > 0 ? rateI : 1,
+        isCurrencyConverted: isRateConverted,
+        rawInvoiceSum: 0,
+        rawProjectSum: rawNumM,
+        convertedProjectSum,
+        effectiveProjectSum,
       });
     }
 
@@ -2921,25 +2938,25 @@ export class GoogleSheetsService {
    */
   public static getDefaultProjectHeaders(): ProjectColumnHeader[] {
     return [
-      { key: 'colA', letter: 'A', title: 'Колонка A' },
-      { key: 'colB', letter: 'B', title: 'Колонка B' },
-      { key: 'colC', letter: 'C', title: 'Колонка C' },
-      { key: 'colD', letter: 'D', title: 'Колонка D' },
-      { key: 'colE', letter: 'E', title: 'Колонка E' },
-      { key: 'colF', letter: 'F', title: 'Колонка F' },
-      { key: 'colG', letter: 'G', title: 'Колонка G' },
-      { key: 'colH', letter: 'H', title: 'Колонка H' },
-      { key: 'colI', letter: 'I', title: 'Колонка I' },
-      { key: 'colM', letter: 'M', title: 'Колонка M' },
-      { key: 'colN', letter: 'N', title: 'Колонка N' },
+      { key: 'colA', letter: 'A', title: 'Номер проекту' },
+      { key: 'colB', letter: 'B', title: 'Назва проекту' },
+      { key: 'colC', letter: 'C', title: 'Об\'єкт / Деталі' },
+      { key: 'colD', letter: 'D', title: 'Дата старту' },
+      { key: 'colE', letter: 'E', title: 'Дата здачі' },
+      { key: 'colF', letter: 'F', title: 'Статус' },
+      { key: 'colG', letter: 'G', title: 'Рахунок' },
+      { key: 'colH', letter: 'H', title: 'Дата рахунку' },
+      { key: 'colI', letter: 'I', title: 'Курс валют' },
+      { key: 'colM', letter: 'M', title: 'Сума проекту' },
+      { key: 'colN', letter: 'N', title: 'Залишок' },
       { key: 'colO', letter: 'O', title: 'Колонка O' },
       { key: 'colP', letter: 'P', title: 'Колонка P' },
       { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Заробітня плата' },
       { key: 'colU', letter: 'U', title: 'Колонка U' },
-      { key: 'colV', letter: 'V', title: 'Колонка V' },
+      { key: 'colV', letter: 'V', title: 'Загальні витрати' },
       { key: 'colW', letter: 'W', title: 'Колонка W' },
       { key: 'colX', letter: 'X', title: 'Колонка X' },
-      { key: 'colY', letter: 'Y', title: 'Колонка Y' },
+      { key: 'colY', letter: 'Y', title: 'Маржинальність' },
     ];
   }
 

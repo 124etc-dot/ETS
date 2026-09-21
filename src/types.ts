@@ -245,10 +245,10 @@ export interface ProjectSheetRow {
   colD: string; // Колонка D
   colE: string; // Колонка E
   colF: string; // Колонка F
-  colG: string; // Колонка G
-  colH: string; // Колонка H
-  colI: string; // Колонка I
-  colM: string; // Колонка M
+  colG: string; // Колонка G (Рахунок)
+  colH: string; // Колонка H (Дата рахунку)
+  colI: string; // Колонка I (Курс валют)
+  colM: string; // Колонка M (Сума проекту / Договору)
   colN: string; // Колонка N
   colO: string; // Колонка O
   colP: string; // Колонка P
@@ -263,6 +263,12 @@ export interface ProjectSheetRow {
   colX: string; // Колонка X
   colY: string; // Колонка Y
   rawValues?: Record<string, string>;
+  currencyRate?: number; // Курс валют (кол. I)
+  isCurrencyConverted?: boolean; // Чи відрізняється курс від 1
+  rawInvoiceSum?: number; // Початкова сума рахунку (кол. H)
+  rawProjectSum?: number; // Початкова сума проекту (кол. M)
+  convertedProjectSum?: number; // Сума проекту помножена на курс валют (кол. M * кол. I)
+  effectiveProjectSum?: number; // Ефективна сума проекту/замовлення в грн (кол. M * кол. I)
 }
 
 export interface ProjectColumnHeader {

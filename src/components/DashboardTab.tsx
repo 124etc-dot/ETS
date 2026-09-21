@@ -72,7 +72,56 @@ export const DashboardTab: React.FC<Props> = ({
 
   const getHeaderTitle = (key: string, fallbackLetter: string) => {
     const h = projectHeaders?.find((header) => header.key === key);
-    return h && h.title ? h.title : `Колонка ${fallbackLetter}`;
+    if (h && h.title) return h.title;
+    if (key === 'colH') return 'Дата рахунку';
+    return `Колонка ${fallbackLetter}`;
+  };
+
+  // Helper to format invoice date (Колонка H - Дата рахунку)
+  const formatInvoiceDate = (val?: string | number): string => {
+    if (val === undefined || val === null) return '—';
+    const str = String(val).trim();
+    if (!str || str === '-' || str === '—') return '—';
+
+    // If it's an Excel serial date number (e.g. 40000 to 55000)
+    const num = Number(str.replace(',', '.'));
+    if (!isNaN(num) && num > 35000 && num < 60000 && !str.includes('.')) {
+      try {
+        const dateObj = new Date(Math.round((num - 25569) * 86400 * 1000));
+        if (!isNaN(dateObj.getTime())) {
+          const dd = String(dateObj.getDate()).padStart(2, '0');
+          const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const yyyy = dateObj.getFullYear();
+          return `${dd}.${mm}.${yyyy}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // If format is YYYY-MM-DD or YYYY.MM.DD
+    const isoMatch = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}.${y}`;
+    }
+
+    // If format is DD.MM.YYYY or DD-MM-YYYY
+    const dmyMatch = str.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})$/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}.${y.length === 2 ? '20' + y : y}`;
+    }
+
+    // If format is DD,MM or DD.MM (e.g., "19,08" or "19.08" for project №208-26)
+    const dmMatch = str.match(/^(\d{1,2})[,.](\d{1,2})$/);
+    if (dmMatch) {
+      const [, d, m] = dmMatch;
+      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}`;
+    }
+
+    // Fallback: cleaned text, never adding currency suffix
+    return str.replace(/[₴$€]|грн/gi, '').trim() || '—';
   };
 
   // Local search and filter for concise projects list
@@ -149,6 +198,36 @@ export const DashboardTab: React.FC<Props> = ({
     );
   };
 
+  // Helper to extract effective budget (Сума проекту / замовлення в грн)
+  // Правило перерахунку курсу валют: множимо колонку І на колонку М
+  const getProjectBudget = (p: ProjectSheetRow): number => {
+    if (p.effectiveProjectSum && p.effectiveProjectSum > 0) {
+      return p.effectiveProjectSum;
+    }
+    const rate = parseAmount(p.colI);
+    const isRateActive = rate > 0 && Math.abs(rate - 1) > 0.0001;
+    const numM = parseAmount(p.colM);
+    const base = numM > 0 ? numM : 0;
+
+    if (isRateActive) {
+      return base * rate;
+    }
+
+    return base;
+  };
+
+  const isRateConverted = (p: ProjectSheetRow): boolean => {
+    if (p.isCurrencyConverted !== undefined) return p.isCurrencyConverted;
+    const rate = parseAmount(p.colI);
+    return rate > 0 && Math.abs(rate - 1) > 0.0001;
+  };
+
+  const formatProjectBudget = (p: ProjectSheetRow): string => {
+    const budget = getProjectBudget(p);
+    if (budget <= 0) return '0 ₴';
+    return `${budget.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₴`;
+  };
+
   // Helper to extract margin percentage for dynamic coloring
   const getMarginPercentValue = (p: ProjectSheetRow): number | null => {
     if (p.colY !== undefined && p.colY !== null) {
@@ -166,7 +245,7 @@ export const DashboardTab: React.FC<Props> = ({
             return num * 100;
           }
           // If amount greater than 100 and budget is known
-          const budget = parseAmount(p.colM) > 0 ? parseAmount(p.colM) : parseAmount(p.colH);
+          const budget = getProjectBudget(p);
           if (num > 100 && budget > 0 && !str.includes('%')) {
             return (num / budget) * 100;
           }
@@ -175,7 +254,7 @@ export const DashboardTab: React.FC<Props> = ({
       }
     }
 
-    const budget = parseAmount(p.colM) > 0 ? parseAmount(p.colM) : parseAmount(p.colH);
+    const budget = getProjectBudget(p);
     const exp = parseAmount(p.colV) > 0 
       ? parseAmount(p.colV) 
       : (p.sumQRST || (parseAmount(p.colQ) + parseAmount(p.colR) + parseAmount(p.colS) + parseAmount(p.colT)));
@@ -248,8 +327,8 @@ export const DashboardTab: React.FC<Props> = ({
         inProgress++;
       }
 
-      // 3. Сума проекту (колонка М)
-      const sumM = parseAmount(p.colM) > 0 ? parseAmount(p.colM) : parseAmount(p.colH);
+      // 3. Сума проекту (колонка М з урахуванням курсу валют)
+      const sumM = getProjectBudget(p);
       // 4. Залишок (колонка N)
       const remN = parseAmount(p.colN);
       // 5. Загальні витрати (колонка V)
@@ -748,7 +827,7 @@ export const DashboardTab: React.FC<Props> = ({
                 </div>
               ) : (
                 filteredProjects.slice(0, visibleCount).map((p, idx) => {
-                  const budget = parseAmount(p.colM) > 0 ? parseAmount(p.colM) : parseAmount(p.colH);
+                  const budget = getProjectBudget(p);
                   const exp = parseAmount(p.colV) > 0 
                     ? parseAmount(p.colV) 
                     : (p.sumQRST || (parseAmount(p.colQ) + parseAmount(p.colR) + parseAmount(p.colS) + parseAmount(p.colT)));
@@ -807,8 +886,13 @@ export const DashboardTab: React.FC<Props> = ({
                             Сума проєкту (М)
                           </span>
                           <span className="font-bold font-mono text-slate-900 text-xs sm:text-[13px] block mt-0.5 truncate">
-                            {formatValueDisplay(p.colM || p.colH)}
+                            {formatProjectBudget(p)}
                           </span>
+                          {isRateConverted(p) && (
+                            <span className="text-[10px] text-blue-600 font-mono block mt-0.5 font-medium truncate" title="Сума проєкту (М) помножена на курс валют (І)">
+                              ({formatValueDisplay(p.colM)} × {p.colI})
+                            </span>
+                          )}
                         </div>
 
                         {/* 4. Залишок - колонка N */}
@@ -1123,8 +1207,16 @@ export const DashboardTab: React.FC<Props> = ({
                   3. {getHeaderTitle('colM', 'M')} (кол. М)
                 </span>
                 <div className="font-bold text-blue-950 font-mono text-sm mt-0.5">
-                  {formatValueDisplay(selectedProject.colM || selectedProject.colH)}
+                  {formatProjectBudget(selectedProject)}
                 </div>
+                {isRateConverted(selectedProject) && (
+                  <div className="text-[11px] text-blue-700 font-mono mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span className="px-1.5 py-0.5 bg-blue-100/90 text-blue-800 rounded text-[10px] font-semibold">
+                      Конвертовано за курсом (М × І)
+                    </span>
+                    <span>{formatValueDisplay(selectedProject.colM)} × {selectedProject.colI}</span>
+                  </div>
+                )}
               </div>
 
               {/* 4. Залишок - колонка N */}
@@ -1174,20 +1266,38 @@ export const DashboardTab: React.FC<Props> = ({
               })()}
             </div>
 
-            {/* Additional info: Manager, Advance */}
-            {(selectedProject.colG || selectedProject.colI) && (
-              <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+            {/* Additional info: Manager (col G), Invoice date (col H), Currency rate (col I) */}
+            {(selectedProject.colG || selectedProject.colH || selectedProject.colI) && (
+              <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                 {selectedProject.colG && (
                   <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                    <span className="text-[10px] text-slate-500">Менеджер (кол. G):</span>
+                    <span className="text-[10px] text-slate-500">{getHeaderTitle('colG', 'G')}:</span>
                     <div className="font-semibold text-slate-800 truncate mt-0.5">{selectedProject.colG}</div>
                   </div>
                 )}
-                {selectedProject.colI && (
+                {selectedProject.colH && (
                   <div className="p-2 bg-slate-50 rounded-lg border border-slate-100">
-                    <span className="text-[10px] text-slate-500">Аванс (кол. I):</span>
+                    <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                      <Calendar className="w-3 h-3 text-slate-400" />
+                      {getHeaderTitle('colH', 'H')}:
+                    </span>
                     <div className="font-semibold text-slate-800 font-mono truncate mt-0.5">
-                      {formatValueDisplay(selectedProject.colI)}
+                      {formatInvoiceDate(selectedProject.colH)}
+                    </div>
+                  </div>
+                )}
+                {selectedProject.colI && (
+                  <div className={`p-2 rounded-lg border ${isRateConverted(selectedProject) ? 'bg-amber-50/80 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className="text-[10px] text-slate-500 flex items-center justify-between">
+                      <span>{getHeaderTitle('colI', 'I')}:</span>
+                      {isRateConverted(selectedProject) && (
+                        <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 py-0.5 rounded">
+                          Курс ≠ 1
+                        </span>
+                      )}
+                    </div>
+                    <div className="font-semibold text-slate-800 font-mono truncate mt-0.5">
+                      {selectedProject.colI}
                     </div>
                   </div>
                 )}

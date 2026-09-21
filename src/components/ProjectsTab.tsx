@@ -352,11 +352,57 @@ export const ProjectsTab: React.FC<Props> = ({
     if (key === 'sumQRST') {
       return 'Заробітня плата';
     }
+    if (key === 'colH') {
+      const found = headers.find((h) => h.key === key);
+      return found?.title && found.title.trim() ? found.title : 'Дата рахунку';
+    }
     const found = headers.find((h) => h.key === key);
     if (found?.title && found.title.trim()) {
       return found.title;
     }
     return `Колонка ${letter}`;
+  };
+
+  // Helper to format invoice date (Колонка H - Дата рахунку)
+  const formatInvoiceDate = (val?: string | number): string => {
+    if (val === undefined || val === null) return '—';
+    const str = String(val).trim();
+    if (!str || str === '-' || str === '—') return '—';
+
+    const num = Number(str.replace(',', '.'));
+    if (!isNaN(num) && num > 35000 && num < 60000 && !str.includes('.')) {
+      try {
+        const dateObj = new Date(Math.round((num - 25569) * 86400 * 1000));
+        if (!isNaN(dateObj.getTime())) {
+          const dd = String(dateObj.getDate()).padStart(2, '0');
+          const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const yyyy = dateObj.getFullYear();
+          return `${dd}.${mm}.${yyyy}`;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    const isoMatch = str.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}.${y}`;
+    }
+
+    const dmyMatch = str.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{2,4})$/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}.${y.length === 2 ? '20' + y : y}`;
+    }
+
+    const dmMatch = str.match(/^(\d{1,2})[,.](\d{1,2})$/);
+    if (dmMatch) {
+      const [, d, m] = dmMatch;
+      return `${d.padStart(2, '0')}.${m.padStart(2, '0')}`;
+    }
+
+    return str.replace(/[₴$€]|грн/gi, '').trim() || '—';
   };
 
   // Validation helper: strictly removes trailing empty rows and ghost formulas
@@ -458,15 +504,38 @@ export const ProjectsTab: React.FC<Props> = ({
     });
   }, [validProjects, searchQuery, selectedStatus, sortBy, sortDir]);
 
+  // Helper to extract effective budget (Сума проекту / замовлення в грн)
+  // Правило перерахунку курсу валют: множимо колонку І на колонку М
+  const getProjectBudget = (p: ProjectSheetRow): number => {
+    if (p.effectiveProjectSum && p.effectiveProjectSum > 0) {
+      return p.effectiveProjectSum;
+    }
+    const rate = parseFloat((p.colI || '').replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0;
+    const isRateActive = rate > 0 && Math.abs(rate - 1) > 0.0001;
+    const numM = parseFloat((p.colM || '').replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0;
+    const base = numM > 0 ? numM : 0;
+
+    if (isRateActive) {
+      return base * rate;
+    }
+
+    return base;
+  };
+
+  const isRateConverted = (p: ProjectSheetRow): boolean => {
+    if (p.isCurrencyConverted !== undefined) return p.isCurrencyConverted;
+    const rate = parseFloat((p.colI || '').replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0;
+    return rate > 0 && Math.abs(rate - 1) > 0.0001;
+  };
+
   // Aggregated Stats
   const stats = useMemo(() => {
     const totalProjects = validProjects.length;
     const totalExpenses = validProjects.reduce((acc, p) => acc + p.sumQRST, 0);
     
-    // Total Contract Sum (Col M) - user specified: "ну і сума договорів це колонка М, а не H, як вказано"
+    // Total Contract Sum (Col M) - calculated with currency rate conversion if rate != 1
     const totalContracts = validProjects.reduce((acc, p) => {
-      const n = parseFloat(p.colM.replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '')) || 0;
-      return acc + n;
+      return acc + getProjectBudget(p);
     }, 0);
 
     // Remaining Payments (Col N) - user specified: "додамо ще 'Залишок оплат' і покажемо суму колонки N"
@@ -1178,18 +1247,39 @@ export const ProjectsTab: React.FC<Props> = ({
                       </td>
 
                       {/* Col H */}
-                      <td className="p-2.5 border-r border-slate-200 text-right font-mono font-semibold text-slate-900 whitespace-nowrap">
-                        {p.colH || '—'}
+                      <td className="p-2.5 border-r border-slate-200 text-center font-mono text-slate-700 whitespace-nowrap">
+                        {formatInvoiceDate(p.colH)}
                       </td>
 
                       {/* Col I */}
                       <td className="p-2.5 border-r border-slate-200 text-right font-mono text-slate-700 whitespace-nowrap">
-                        {p.colI || '—'}
+                        {p.colI ? (
+                          isRateConverted(p) ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200" title="Курс валют (не дорівнює 1)">
+                              {p.colI}
+                            </span>
+                          ) : (
+                            p.colI
+                          )
+                        ) : (
+                          '—'
+                        )}
                       </td>
 
                       {/* Col M */}
                       <td className="p-2.5 border-r border-slate-200 text-right font-mono text-slate-600 whitespace-nowrap">
-                        {p.colM || '—'}
+                        <div className="flex flex-col items-end">
+                          <span className="font-semibold text-slate-900">
+                            {getProjectBudget(p) > 0 
+                              ? formatCurrency(getProjectBudget(p)) 
+                              : (p.colM || '—')}
+                          </span>
+                          {isRateConverted(p) && (
+                            <span className="text-[10px] text-blue-600 font-normal">
+                              ({p.colM} × {p.colI})
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Col N */}
@@ -1387,15 +1477,32 @@ export const ProjectsTab: React.FC<Props> = ({
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                 <div className="p-3 bg-blue-50/70 rounded-xl border border-blue-200">
                   <span className="text-blue-800 block text-[11px] font-bold">Сума договору ({getHeaderTitle('colM', 'M')} - M)</span>
-                  <span className="font-mono font-bold text-blue-950 text-xs">{selectedProject.colM || '—'} ₴</span>
+                  <span className="font-mono font-bold text-blue-950 text-xs">
+                    {getProjectBudget(selectedProject) > 0 ? formatCurrency(getProjectBudget(selectedProject)) : (selectedProject.colM || '—')}
+                  </span>
+                  {isRateConverted(selectedProject) && (
+                    <span className="text-[10px] text-blue-700 block font-mono mt-0.5">
+                      ({selectedProject.colM} × {selectedProject.colI})
+                    </span>
+                  )}
                 </div>
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 block text-[11px]">{getHeaderTitle('colH', 'H')} (H)</span>
-                  <span className="font-mono font-bold text-slate-900 text-xs">{selectedProject.colH || '—'} ₴</span>
+                  <span className="text-slate-400 block text-[11px] flex items-center gap-1">
+                    <Calendar className="w-3 h-3 text-slate-400" />
+                    {getHeaderTitle('colH', 'H')} (H)
+                  </span>
+                  <span className="font-mono font-bold text-slate-900 text-xs">
+                    {formatInvoiceDate(selectedProject.colH)}
+                  </span>
                 </div>
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-                  <span className="text-slate-400 block text-[11px]">{getHeaderTitle('colI', 'I')} (I)</span>
-                  <span className="font-mono font-bold text-slate-900 text-xs">{selectedProject.colI || '—'} ₴</span>
+                <div className={`p-3 rounded-xl border ${isRateConverted(selectedProject) ? 'bg-amber-50/80 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                  <span className="text-slate-400 block text-[11px] flex items-center justify-between">
+                    <span>{getHeaderTitle('colI', 'I')} (I)</span>
+                    {isRateConverted(selectedProject) && (
+                      <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 py-0.5 rounded">Курс ≠ 1</span>
+                    )}
+                  </span>
+                  <span className="font-mono font-bold text-slate-900 text-xs">{selectedProject.colI || '—'}</span>
                 </div>
                 <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-200">
                   <span className="text-indigo-700 block text-[11px] font-semibold">{getHeaderTitle('colU', 'U')} (U)</span>
