@@ -3962,6 +3962,7 @@ export default function App() {
         companyLists={companyLists}
         existingInvoices={existingInvoices}
         existingPayments={existingPayments}
+        existingOverheadExpenses={overheadExpenses}
         allDocuments={documents}
         onPrevDoc={handlePrevReviewDoc}
         onNextDoc={handleNextReviewDoc}

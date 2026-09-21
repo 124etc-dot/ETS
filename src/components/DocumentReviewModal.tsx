@@ -25,7 +25,7 @@ import {
   Download,
   Factory
 } from 'lucide-react';
-import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow } from '../types';
+import { ProcessedDocument, OCRResult, SheetCompanyLists, ExistingSheetRow, ExistingPaymentRow, OverheadExpenseRow } from '../types';
 import { OCRService } from '../services/ocrService';
 import { GoogleSheetsService } from '../services/googleSheets';
 import { KNOWN_PROJECT_ORDERS, DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
@@ -44,6 +44,7 @@ interface Props {
   companyLists: SheetCompanyLists;
   existingInvoices?: ExistingSheetRow[];
   existingPayments?: ExistingPaymentRow[];
+  existingOverheadExpenses?: OverheadExpenseRow[];
   allDocuments?: ProcessedDocument[];
   onPrevDoc?: () => void;
   onNextDoc?: () => void;
@@ -81,6 +82,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
   companyLists,
   existingInvoices = [],
   existingPayments = [],
+  existingOverheadExpenses = [],
   allDocuments = [],
   onPrevDoc,
   onNextDoc,
@@ -159,7 +161,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
       // For payments, automatically inherit order number from matched invoice if not present
       if (current.documentType === 'payment' && !current.handwrittenOrderNumber) {
-        const match = OCRService.matchPaymentWithInvoices(current, existingInvoices, allDocuments);
+        const match = OCRService.matchPaymentWithInvoices(current, existingInvoices, allDocuments, existingOverheadExpenses);
         if (match.matchedOrderNumber) {
           current.referencedOrderNumber = match.matchedOrderNumber;
           current.handwrittenOrderNumber = match.matchedOrderNumber;
@@ -196,7 +198,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
       // If updating payment amount or referenced invoice on payment, re-evaluate match
       if (updated.documentType === 'payment' && (field === 'totalAmount' || field === 'referencedInvoiceNumber' || field === 'referencedInvoiceNumbers' || field === 'paymentPurpose')) {
-        const allMatches = OCRService.matchPaymentWithAllInvoices(updated, existingInvoices, allDocuments);
+        const allMatches = OCRService.matchPaymentWithAllInvoices(updated, existingInvoices, allDocuments, existingOverheadExpenses);
         if (allMatches.length > 0) {
           updated.matchedInvoices = allMatches;
           updated.paymentStatus = allMatches[0].computedStatus;
@@ -354,7 +356,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
       }
 
       // Re-evaluate matching invoices
-      const allMatches = OCRService.matchPaymentWithAllInvoices(updated, existingInvoices, allDocuments);
+      const allMatches = OCRService.matchPaymentWithAllInvoices(updated, existingInvoices, allDocuments, existingOverheadExpenses);
       if (allMatches.length > 0) {
         updated.matchedInvoices = allMatches;
         updated.paymentStatus = allMatches[0].computedStatus;
@@ -378,7 +380,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
     };
 
     if (clean.documentType === 'payment') {
-      const match = OCRService.matchPaymentWithInvoices(clean, existingInvoices, allDocuments);
+      const match = OCRService.matchPaymentWithInvoices(clean, existingInvoices, allDocuments, existingOverheadExpenses);
       clean.paymentStatus = match.computedStatus;
       clean.matchedInvoiceNumber = match.matchedInvoiceNumber;
       clean.matchedInvoiceAmount = match.invoiceAmount;
@@ -460,10 +462,10 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
   // Find matched invoices for payment
   const paymentMatches = isPaymentDoc
-    ? OCRService.matchPaymentWithAllInvoices(formData, existingInvoices, allDocuments)
+    ? OCRService.matchPaymentWithAllInvoices(formData, existingInvoices, allDocuments, existingOverheadExpenses)
     : [];
   const paymentMatchInfo = isPaymentDoc
-    ? OCRService.matchPaymentWithInvoices(formData, existingInvoices, allDocuments)
+    ? OCRService.matchPaymentWithInvoices(formData, existingInvoices, allDocuments, existingOverheadExpenses)
     : null;
 
   // Find matched payments for invoice (when payment was uploaded first or is already in "Платіжки")

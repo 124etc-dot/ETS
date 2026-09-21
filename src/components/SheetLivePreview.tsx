@@ -455,10 +455,23 @@ export const SheetLivePreview: React.FC<Props> = ({
     return OCRService.reconcileInvoicesWithPayments(existingInvoices, existingPayments, existingOverheadExpenses);
   }, [existingInvoices, existingPayments, existingOverheadExpenses]);
 
-  const reconciledMap = useMemo(() => {
+  // Distinct maps for regular invoices vs workshop overhead expenses to prevent row index collision
+  const reconciledInvoiceMap = useMemo(() => {
     const map = new Map<number, (typeof reconciledMatches)[0]>();
     for (const m of reconciledMatches) {
-      map.set(m.invoiceRowIndex, m);
+      if (!m.isOverhead && m.targetTab !== 'Цех') {
+        map.set(m.invoiceRowIndex, m);
+      }
+    }
+    return map;
+  }, [reconciledMatches]);
+
+  const reconciledOverheadMap = useMemo(() => {
+    const map = new Map<number, (typeof reconciledMatches)[0]>();
+    for (const m of reconciledMatches) {
+      if (m.isOverhead || m.targetTab === 'Цех') {
+        map.set(m.invoiceRowIndex, m);
+      }
     }
     return map;
   }, [reconciledMatches]);
@@ -474,7 +487,7 @@ export const SheetLivePreview: React.FC<Props> = ({
     setUpdatingRowIndex(rowIndex);
     try {
       const targetInvoice = existingInvoices.find((i) => i.rowIndex === rowIndex);
-      const recMatch = reconciledMap.get(rowIndex);
+      const recMatch = reconciledInvoiceMap.get(rowIndex);
       const paidAmt =
         customPaidAmt !== undefined
           ? customPaidAmt
@@ -504,7 +517,7 @@ export const SheetLivePreview: React.FC<Props> = ({
       const batchItems = targetIndices.map((rIdx) => {
         const inv = existingInvoices.find((i) => i.rowIndex === rIdx);
         const exp = existingOverheadExpenses.find((e) => e.rowIndex === rIdx);
-        const matchForInv = reconciledMap.get(rIdx);
+        const matchForInv = (inv ? reconciledInvoiceMap.get(rIdx) : undefined) || (exp ? reconciledOverheadMap.get(rIdx) : undefined);
         const pAmt = matchForInv?.paidAmount || inv?.amount || exp?.amount || 0;
         return {
           invoiceRowIndex: rIdx,
@@ -1161,7 +1174,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                 <tbody className="divide-y divide-slate-100 font-sans">
                   {filteredInvoices.map((inv) => {
                     const invoiceAmount = inv.amount || 0;
-                    const recMatch = reconciledMap.get(inv.rowIndex);
+                    const recMatch = reconciledInvoiceMap.get(inv.rowIndex);
                     const dupInvoice = duplicateInvoicesMap.get(inv.rowIndex);
                     const paidAmount = inv.paidAmount !== undefined 
                       ? inv.paidAmount 
