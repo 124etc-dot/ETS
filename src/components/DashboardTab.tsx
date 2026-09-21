@@ -59,6 +59,7 @@ export const DashboardTab: React.FC<Props> = ({
   overheadExpenses,
   documents,
   projects: realProjectsProp,
+  projectHeaders,
   isLoadingProjects = false,
   isLiveProjectsFromSheet = false,
   projectsLastSyncTime,
@@ -68,6 +69,11 @@ export const DashboardTab: React.FC<Props> = ({
 }) => {
   // Use real projects if provided, otherwise fallback
   const projectRows = realProjectsProp && realProjectsProp.length > 0 ? realProjectsProp : SAMPLE_PROJECT_ROWS;
+
+  const getHeaderTitle = (key: string, fallbackLetter: string) => {
+    const h = projectHeaders?.find((header) => header.key === key);
+    return h && h.title ? h.title : `Колонка ${fallbackLetter}`;
+  };
 
   // Local search and filter for concise projects list
   const [searchQuery, setSearchQuery] = useState('');
@@ -1113,8 +1119,8 @@ export const DashboardTab: React.FC<Props> = ({
             <div className="grid grid-cols-2 gap-2 text-xs">
               {/* 3. Сума проекту - колонка М */}
               <div className="p-2.5 bg-blue-50/60 rounded-xl border border-blue-100">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-800 block">
-                  3. Сума проєкту (кол. М)
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-800 block truncate" title={getHeaderTitle('colM', 'M')}>
+                  3. {getHeaderTitle('colM', 'M')} (кол. М)
                 </span>
                 <div className="font-bold text-blue-950 font-mono text-sm mt-0.5">
                   {formatValueDisplay(selectedProject.colM || selectedProject.colH)}
@@ -1123,8 +1129,8 @@ export const DashboardTab: React.FC<Props> = ({
 
               {/* 4. Залишок - колонка N */}
               <div className="p-2.5 bg-amber-50/60 rounded-xl border border-amber-100">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-800 block">
-                  4. Залишок (кол. N)
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-800 block truncate" title={getHeaderTitle('colN', 'N')}>
+                  4. {getHeaderTitle('colN', 'N')} (кол. N)
                 </span>
                 <div className="font-bold text-amber-950 font-mono text-sm mt-0.5">
                   {formatValueDisplay(selectedProject.colN)}
@@ -1133,8 +1139,8 @@ export const DashboardTab: React.FC<Props> = ({
 
               {/* 5. Загальні витрати - колонка V */}
               <div className="p-2.5 bg-rose-50/60 rounded-xl border border-rose-100">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-800 block">
-                  5. Загальні витрати (кол. V)
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-800 block truncate" title={getHeaderTitle('colV', 'V')}>
+                  5. {getHeaderTitle('colV', 'V')} (кол. V)
                 </span>
                 <div className="font-bold text-rose-950 font-mono text-sm mt-0.5">
                   {formatValueDisplay(selectedProject.colV || selectedProject.sumQRST)}
@@ -1151,10 +1157,11 @@ export const DashboardTab: React.FC<Props> = ({
                     style={mStyle.containerStyle}
                   >
                     <span 
-                      className="text-[10px] font-semibold uppercase tracking-wider block"
+                      className="text-[10px] font-semibold uppercase tracking-wider block truncate"
                       style={mStyle.labelStyle}
+                      title={getHeaderTitle('colY', 'Y')}
                     >
-                      6. Маржинальність (кол. Y)
+                      6. {getHeaderTitle('colY', 'Y')} (кол. Y)
                     </span>
                     <div 
                       className="font-bold font-mono text-sm mt-0.5"
@@ -1187,31 +1194,102 @@ export const DashboardTab: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Expenses Breakdown */}
-            <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200/70 text-xs space-y-1.5">
-              <div className="font-semibold text-slate-700 text-[11px] uppercase tracking-wider">
-                Розподіл витрат проєкту:
+            {/* Real Project Expenses Breakdown */}
+            <div className="mt-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wider">
+                  Розподіл витрат проєкту:
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">
+                  Рядок {selectedProject.rowNumber}
+                </span>
               </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Матеріали (Q):</span>
-                <span className="font-mono">{formatCurrency(parseAmount(selectedProject.colQ))} грн</span>
+
+              <div className="space-y-1.5 pt-1">
+                {/* 1. Колонка O */}
+                <div className="flex justify-between items-center text-slate-700">
+                  <span className="text-slate-600 truncate max-w-[65%]" title={getHeaderTitle('colO', 'O')}>
+                    {getHeaderTitle('colO', 'O')} <span className="text-slate-400 text-[10px]">(кол. O):</span>
+                  </span>
+                  <span className="font-mono font-medium">{formatValueDisplay(selectedProject.colO)}</span>
+                </div>
+
+                {/* 2. Колонка P */}
+                <div className="flex justify-between items-center text-slate-700">
+                  <span className="text-slate-600 truncate max-w-[65%]" title={getHeaderTitle('colP', 'P')}>
+                    {getHeaderTitle('colP', 'P')} <span className="text-slate-400 text-[10px]">(кол. P):</span>
+                  </span>
+                  <span className="font-mono font-medium">{formatValueDisplay(selectedProject.colP)}</span>
+                </div>
+
+                {/* 3. Заробітня плата (Q + R + S + T) */}
+                <div className="bg-emerald-50/70 rounded-lg p-2.5 border border-emerald-100/80 space-y-1.5">
+                  <div className="flex justify-between items-center font-semibold text-emerald-950">
+                    <span className="flex items-center gap-1 truncate max-w-[65%]" title={getHeaderTitle('sumQRST', 'Q+R+S+T')}>
+                      <span>{getHeaderTitle('sumQRST', 'Q+R+S+T')}</span>
+                      <span className="text-emerald-700 text-[10px] font-normal shrink-0">(кол. Q+R+S+T):</span>
+                    </span>
+                    <span className="font-mono font-bold text-emerald-900 shrink-0">
+                      {formatCurrency(selectedProject.sumQRST)} грн
+                    </span>
+                  </div>
+                  {(selectedProject.colQ || selectedProject.colR || selectedProject.colS || selectedProject.colT) && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1 text-[10px] text-slate-600">
+                      <div className="bg-white/90 px-2 py-1 rounded border border-emerald-100 shadow-2xs">
+                        <span className="text-slate-400 block truncate" title={getHeaderTitle('colQ', 'Q')}>
+                          {getHeaderTitle('colQ', 'Q')} (Q):
+                        </span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {selectedProject.colQ || '0'}
+                        </span>
+                      </div>
+                      <div className="bg-white/90 px-2 py-1 rounded border border-emerald-100 shadow-2xs">
+                        <span className="text-slate-400 block truncate" title={getHeaderTitle('colR', 'R')}>
+                          {getHeaderTitle('colR', 'R')} (R):
+                        </span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {selectedProject.colR || '0'}
+                        </span>
+                      </div>
+                      <div className="bg-white/90 px-2 py-1 rounded border border-emerald-100 shadow-2xs">
+                        <span className="text-slate-400 block truncate" title={getHeaderTitle('colS', 'S')}>
+                          {getHeaderTitle('colS', 'S')} (S):
+                        </span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {selectedProject.colS || '0'}
+                        </span>
+                      </div>
+                      <div className="bg-white/90 px-2 py-1 rounded border border-emerald-100 shadow-2xs">
+                        <span className="text-slate-400 block truncate" title={getHeaderTitle('colT', 'T')}>
+                          {getHeaderTitle('colT', 'T')} (T):
+                        </span>
+                        <span className="font-mono font-semibold text-slate-800">
+                          {selectedProject.colT || '0'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Колонка U (якщо є) */}
+                {selectedProject.colU && (
+                  <div className="flex justify-between items-center text-slate-700">
+                    <span className="text-slate-600 truncate max-w-[65%]" title={getHeaderTitle('colU', 'U')}>
+                      {getHeaderTitle('colU', 'U')} <span className="text-slate-400 text-[10px]">(кол. U):</span>
+                    </span>
+                    <span className="font-mono font-medium">{formatValueDisplay(selectedProject.colU)}</span>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Зарплата цеху (R):</span>
-                <span className="font-mono">{formatCurrency(parseAmount(selectedProject.colR))} грн</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Електроенергія (S):</span>
-                <span className="font-mono">{formatCurrency(parseAmount(selectedProject.colS))} грн</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>Накладні витрати (T):</span>
-                <span className="font-mono">{formatCurrency(parseAmount(selectedProject.colT))} грн</span>
-              </div>
-              <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-slate-900">
-                <span>Всього витрат (sumQRST):</span>
-                <span className="font-mono text-indigo-700">
-                  {formatCurrency(selectedProject.sumQRST || (parseAmount(selectedProject.colQ) + parseAmount(selectedProject.colR) + parseAmount(selectedProject.colS) + parseAmount(selectedProject.colT)))} грн
+
+              {/* Загальні витрати (V) */}
+              <div className="pt-2 border-t border-slate-200 flex justify-between items-center font-bold text-slate-900">
+                <span className="flex items-center gap-1">
+                  <span>{getHeaderTitle('colV', 'V')}</span>
+                  <span className="text-slate-400 text-[10px] font-normal">(кол. V):</span>
+                </span>
+                <span className="font-mono text-rose-700 text-sm">
+                  {formatValueDisplay(selectedProject.colV || selectedProject.sumQRST)}
                 </span>
               </div>
             </div>

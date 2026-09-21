@@ -252,13 +252,13 @@ export interface ProjectSheetRow {
   colN: string; // Колонка N
   colO: string; // Колонка O
   colP: string; // Колонка P
-  colQ: string; // Колонка Q (Матеріали)
-  colR: string; // Колонка R (Зарплати)
-  colS: string; // Колонка S (Електроенергія)
-  colT: string; // Колонка T (Накладні витрати)
-  sumQRST: number; // Сума колонок Q + R + S + T (Собівартість / всі витрати)
-  colU: string; // Колонка U (Маржа / результат)
-  colV: string; // Колонка V (Маржинальність %)
+  colQ: string; // Колонка Q (компонент зарплати / собівартості)
+  colR: string; // Колонка R (компонент зарплати / собівартості)
+  colS: string; // Колонка S (компонент зарплати / собівартості)
+  colT: string; // Колонка T (компонент зарплати / собівартості)
+  sumQRST: number; // Сума колонок Q + R + S + T (Заробітня плата / собівартість)
+  colU: string; // Колонка U
+  colV: string; // Колонка V (Загальні витрати)
   colW: string; // Колонка W
   colX: string; // Колонка X
   colY: string; // Колонка Y

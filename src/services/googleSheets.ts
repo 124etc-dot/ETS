@@ -2626,8 +2626,8 @@ export class GoogleSheetsService {
       };
     }
 
-    // 1. Scan candidate rows (0..10 and row 109/Row 110) to determine the actual column header row
-    const targetCols = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 20, 21, 22, 23, 24];
+    // 1. Scan candidate rows (0..10 and rows 100..110) to determine the actual column header row
+    const targetCols = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24];
 
     const isNumOrDate = (val: string): boolean => {
       const s = val.trim();
@@ -2659,6 +2659,11 @@ export class GoogleSheetsService {
             lower.includes('оплат') ||
             lower.includes('аванс') ||
             lower.includes('витрат') ||
+            lower.includes('матеріал') ||
+            lower.includes('зарплат') ||
+            lower.includes('з/п') ||
+            lower.includes('цех') ||
+            lower.includes('монтаж') ||
             lower.includes('марж') ||
             lower.includes('приміт') ||
             lower.includes('комент') ||
@@ -2681,7 +2686,7 @@ export class GoogleSheetsService {
       return score;
     };
 
-    // Find candidate row with max score among rows 0..10 and row 109 (Row 110 in sheet)
+    // Find candidate row with max score among rows 0..10 and row 100..110 directly above data start
     let bestHeaderRowIdx = 0;
     let maxHeaderScore = getRowHeaderScore(0);
 
@@ -2693,12 +2698,12 @@ export class GoogleSheetsService {
       }
     }
 
-    // Also check row 109 (Row 110 in sheet) in case header is placed directly above row 111
-    if (rows.length > 109) {
-      const score110 = getRowHeaderScore(109);
-      if (score110 > maxHeaderScore && score110 >= 4) {
-        maxHeaderScore = score110;
-        bestHeaderRowIdx = 109;
+    // Check rows 100..110 (Row 101 to 111 in sheet) directly above projects start
+    for (let r = Math.max(10, 100); r < Math.min(111, rows.length); r++) {
+      const scoreR = getRowHeaderScore(r);
+      if (scoreR >= maxHeaderScore && scoreR >= 4) {
+        maxHeaderScore = scoreR;
+        bestHeaderRowIdx = r;
       }
     }
 
@@ -2707,30 +2712,29 @@ export class GoogleSheetsService {
       // 1. Try bestHeaderRowIdx
       const primaryVal = String(rows[bestHeaderRowIdx]?.[colIdx] ?? '').trim();
       if (primaryVal && !isNumOrDate(primaryVal)) {
-        // If row 0 has a category and row 1 has a sub-title
-        if (bestHeaderRowIdx === 1 && rows[0]?.[colIdx]) {
-          const topVal = String(rows[0][colIdx]).trim();
-          if (topVal && !isNumOrDate(topVal) && topVal !== primaryVal) {
+        if (bestHeaderRowIdx > 0 && rows[bestHeaderRowIdx - 1]?.[colIdx]) {
+          const topVal = String(rows[bestHeaderRowIdx - 1][colIdx]).trim();
+          if (topVal && !isNumOrDate(topVal) && topVal !== primaryVal && topVal.length < 30) {
             return `${topVal} / ${primaryVal}`;
           }
         }
         return primaryVal;
       }
 
-      // 2. Try rows 0..5
-      for (let r = 0; r < Math.min(5, rows.length); r++) {
-        if (r === bestHeaderRowIdx) continue;
+      // 2. Try nearby candidate header rows around bestHeaderRowIdx
+      for (let r = Math.max(0, bestHeaderRowIdx - 2); r <= Math.min(bestHeaderRowIdx + 2, 110); r++) {
+        if (r >= rows.length) continue;
         const val = String(rows[r]?.[colIdx] ?? '').trim();
         if (val && !isNumOrDate(val)) {
           return val;
         }
       }
 
-      // 3. Try row 109
-      if (rows.length > 109 && bestHeaderRowIdx !== 109) {
-        const val110 = String(rows[109]?.[colIdx] ?? '').trim();
-        if (val110 && !isNumOrDate(val110)) {
-          return val110;
+      // 3. Try rows 0..5
+      for (let r = 0; r < Math.min(5, rows.length); r++) {
+        const val = String(rows[r]?.[colIdx] ?? '').trim();
+        if (val && !isNumOrDate(val)) {
+          return val;
         }
       }
 
@@ -2751,6 +2755,10 @@ export class GoogleSheetsService {
       { key: 'colN', letter: 'N', title: getColumnHeaderTitle(13, 'N') },
       { key: 'colO', letter: 'O', title: getColumnHeaderTitle(14, 'O') },
       { key: 'colP', letter: 'P', title: getColumnHeaderTitle(15, 'P') },
+      { key: 'colQ', letter: 'Q', title: getColumnHeaderTitle(16, 'Q') },
+      { key: 'colR', letter: 'R', title: getColumnHeaderTitle(17, 'R') },
+      { key: 'colS', letter: 'S', title: getColumnHeaderTitle(18, 'S') },
+      { key: 'colT', letter: 'T', title: getColumnHeaderTitle(19, 'T') },
       // The user explicitly requested: "лише ту колонку де є сума колонок назви Заробітня плата"
       { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Заробітня плата' },
       { key: 'colU', letter: 'U', title: getColumnHeaderTitle(20, 'U') },
@@ -3660,6 +3668,10 @@ export class GoogleSheetsService {
       { key: 'colN', letter: 'N', title: getHeader(13, 'N', 'Колонка N') },
       { key: 'colO', letter: 'O', title: getHeader(14, 'O', 'Колонка O') },
       { key: 'colP', letter: 'P', title: getHeader(15, 'P', 'Колонка P') },
+      { key: 'colQ', letter: 'Q', title: getHeader(16, 'Q', 'Колонка Q') },
+      { key: 'colR', letter: 'R', title: getHeader(17, 'R', 'Колонка R') },
+      { key: 'colS', letter: 'S', title: getHeader(18, 'S', 'Колонка S') },
+      { key: 'colT', letter: 'T', title: getHeader(19, 'T', 'Колонка T') },
       { key: 'sumQRST', letter: 'Q+R+S+T', title: 'Витрати' },
       { key: 'colU', letter: 'U', title: getHeader(20, 'U', 'Результат') },
       { key: 'colV', letter: 'V', title: getHeader(21, 'V', 'Колонка V') },
@@ -3717,6 +3729,17 @@ export class GoogleSheetsService {
         continue;
       }
 
+      const parseNum = (v: any): number => {
+        if (typeof v === 'number') return isNaN(v) ? 0 : v;
+        const s = String(v ?? '')
+          .replace(/\s/g, '')
+          .replace(',', '.')
+          .replace(/[^0-9.-]/g, '');
+        const n = parseFloat(s);
+        return isNaN(n) ? 0 : n;
+      };
+      const sumQRST = parseNum(colQ) + parseNum(colR) + parseNum(colS) + parseNum(colT);
+
       projectRows.push({
         rowNumber: startRow + i,
         colA,
@@ -3736,7 +3759,7 @@ export class GoogleSheetsService {
         colR,
         colS,
         colT,
-        sumQRST: 0,
+        sumQRST,
         colU,
         colV,
         colW,
