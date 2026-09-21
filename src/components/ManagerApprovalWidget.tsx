@@ -19,6 +19,7 @@ import {
   Eye,
   ExternalLink,
   FolderOpen,
+  ArrowUpRight,
 } from 'lucide-react';
 import { ExistingSheetRow, ProcessedDocument, ProjectSheetRow, SheetConfig } from '../types';
 import { GoogleDriveService } from '../services/googleDrive';
@@ -72,6 +73,7 @@ interface ManagerApprovalWidgetProps {
     reason: string
   ) => Promise<void> | void;
   onViewAllInvoices?: () => void;
+  className?: string;
 }
 
 // Fallback demo queue when sheet has no pending unapproved rows yet
@@ -139,6 +141,7 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
   onApproveInvoice,
   onRejectInvoice,
   onViewAllInvoices,
+  className,
 }) => {
   // Set of dismissed/handled item IDs (to animate out instantly)
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
@@ -590,11 +593,17 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
     showToast('Чергу рахунків на погодження оновлено!', 'info');
   };
 
+  // Calculate total pending amount
+  const totalPendingAmount = useMemo(() => {
+    return pendingItems.reduce((acc, item) => acc + (item.amount || 0), 0);
+  }, [pendingItems]);
+
   return (
-    <div id="manager-approval-widget" className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
-      {/* Block Header: 📄 На погодження керівнику + лічильник кількості */}
-      <div>
-        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+    <div id="manager-approval-widget" className={`bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between h-full ${className || ''}`}>
+      {/* Top Section: Header & Scrollable List */}
+      <div className="flex flex-col flex-1 min-h-0">
+        {/* Block Header: 📄 На погодження керівнику + лічильник кількості */}
+        <div className="flex items-center justify-between pb-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
               <span className="text-base" role="img" aria-label="document">📄</span>
@@ -643,7 +652,7 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
 
         {/* Temporary toast alert */}
         {toastMessage && (
-          <div className={`mt-3 p-2.5 rounded-xl text-xs font-medium border flex items-center justify-between animate-fadeIn ${
+          <div className={`mt-3 p-2.5 rounded-xl text-xs font-medium border flex items-center justify-between shrink-0 animate-fadeIn ${
             toastMessage.type === 'success'
               ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
               : toastMessage.type === 'error'
@@ -660,8 +669,8 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
           </div>
         )}
 
-        {/* Cards List or Empty State */}
-        <div className="mt-4 space-y-3.5">
+        {/* Cards List or Empty State (Scrollable so invoices never descend endlessly) */}
+        <div className="mt-4 space-y-3.5 flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-1.5 max-h-[580px] lg:max-h-[600px] focus:outline-hidden">
           <AnimatePresence mode="popLayout">
             {pendingItems.length > 0 ? (
               pendingItems.map((item) => {
@@ -899,6 +908,28 @@ export const ManagerApprovalWidget: React.FC<ManagerApprovalWidgetProps> = ({
             )}
           </AnimatePresence>
         </div>
+      </div>
+
+      {/* Bottom Summary Bar: docked at the bottom of the card */}
+      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-xs text-slate-500 shrink-0">
+        <span className="truncate">
+          В черзі: <strong className="text-slate-900 font-bold">{pendingItems.length}</strong> {pendingItems.length === 1 ? 'рахунок' : pendingItems.length >= 2 && pendingItems.length <= 4 ? 'рахунки' : 'рахунків'}
+          {pendingItems.length > 0 && (
+            <span className="text-slate-500 font-medium ml-1.5 hidden sm:inline">
+              (на <strong className="text-slate-800 font-mono font-semibold">{formatCurrency(totalPendingAmount)} грн</strong>)
+            </span>
+          )}
+        </span>
+        {onViewAllInvoices && (
+          <button
+            type="button"
+            onClick={onViewAllInvoices}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+          >
+            <span>Всі рахунки</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Rejection Modal Dialog */}

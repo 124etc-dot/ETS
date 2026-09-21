@@ -147,7 +147,7 @@ export const DashboardTab: React.FC<Props> = ({
   // Local search and filter for concise projects list
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_progress' | 'completed'>('all');
-  const [visibleCount, setVisibleCount] = useState(6);
+  const [visibleCount, setVisibleCount] = useState(12);
   const [selectedProject, setSelectedProject] = useState<ProjectSheetRow | null>(null);
 
   // Helper number parser
@@ -684,11 +684,121 @@ export const DashboardTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Main Analytics Grid: Real Projects Concise Monitor (2 cols) & Invoices Balance (1 col) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Module 1: Реальні дані проєктів у стислому вигляді (2 cols) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
-          <div>
+      {/* Module 2: Фінансовий баланс Рахунків (Горизонтальна панель огляду) */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-2">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">
+                Баланс оплати рахунків
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Фінансовий стан оплат постачальникам за даними Google Таблиці
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onSelectTab('sheet')}
+            className="text-xs text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1 cursor-pointer transition-colors self-end sm:self-auto"
+          >
+            <span>Реєстр рахунків</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Visual breakdown cards: 3-column horizontal grid */}
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Card 1: Оплачено постачальникам */}
+          <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200/80 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  Оплачено постачальникам
+                </span>
+                <span className="font-mono font-bold text-emerald-800 text-sm">
+                  {formatCurrency(invoiceStats.totalPaid)} грн
+                </span>
+              </div>
+              <div className="w-full bg-emerald-200/60 rounded-full h-2 mt-2.5 overflow-hidden">
+                <div 
+                  className="bg-emerald-600 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${invoiceStats.paidPercentage}%` }}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-right text-[10px] text-emerald-700 font-mono font-semibold">
+              {invoiceStats.paidPercentage}% від загальної суми
+            </div>
+          </div>
+
+          {/* Card 2: Залишок до сплати */}
+          <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200/80 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-amber-900 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-amber-600" />
+                  Залишок до сплати
+                </span>
+                <span className="font-mono font-bold text-amber-900 text-sm">
+                  {formatCurrency(invoiceStats.remainingToPay)} грн
+                </span>
+              </div>
+              <div className="w-full bg-amber-200/60 rounded-full h-2 mt-2.5 overflow-hidden">
+                <div 
+                  className="bg-amber-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${100 - invoiceStats.paidPercentage}%` }}
+                />
+              </div>
+            </div>
+            <div className="mt-2 text-right text-[10px] text-amber-700 font-mono font-semibold">
+              {100 - invoiceStats.paidPercentage}% очікує оплати
+            </div>
+          </div>
+
+          {/* Card 3: Розподіл за статусами */}
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 flex flex-col justify-between">
+            <div className="text-xs font-semibold text-slate-700 mb-1.5">
+              Розподіл за статусами:
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  Повністю оплачено
+                </span>
+                <span className="font-mono font-bold text-slate-900">{invoiceStats.paidCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  Оплачено частково
+                </span>
+                <span className="font-mono font-bold text-slate-900">{invoiceStats.partialCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-slate-600 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                  Не оплачено
+                </span>
+                <span className="font-mono font-bold text-slate-900">{invoiceStats.pendingCount}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Aligned Workspaces Grid: Real Projects Monitor (left, 7 cols) & Manager Approval (right, 5 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Module 1: Реальні дані проєктів у стислому вигляді (7 cols) */}
+        <div className="lg:col-span-7 flex flex-col">
+          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between h-full">
+            <div className="flex flex-col flex-1 min-h-0">
             {/* Section Header with Data Source Switcher & Refresh */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-100 gap-3">
               <div className="flex items-center space-x-2.5">
@@ -839,8 +949,8 @@ export const DashboardTab: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Concise Real Projects List */}
-            <div className="mt-3.5 space-y-2.5">
+            {/* Concise Real Projects List (Scrollable to match height with Manager Approval) */}
+            <div className="mt-3.5 space-y-2.5 flex-1 min-h-0 overflow-y-auto pr-1 sm:pr-2 max-h-[580px] lg:max-h-[600px] focus:outline-hidden">
               {filteredProjects.length === 0 ? (
                 <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-200 rounded-xl bg-slate-50/50">
                   За запитом не знайдено проєктів
@@ -981,7 +1091,7 @@ export const DashboardTab: React.FC<Props> = ({
           </div>
 
           {/* Bottom Actions of Projects Module */}
-          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+          <div className="mt-4 pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
             <span className="text-xs text-slate-500">
               Показано {Math.min(visibleCount, filteredProjects.length)} із {filteredProjects.length} реальних проєктів
             </span>
@@ -1003,136 +1113,33 @@ export const DashboardTab: React.FC<Props> = ({
                 onClick={() => onSelectTab('projects')}
                 className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <span>Відкрити повну таблицю</span>
+                <span>Таблиця проєктів</span>
                 <ArrowUpRight className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
-        </div>
-
-        {/* Right Column: Баланс оплат рахунків (1 col) + На погодження керівнику */}
-        <div className="space-y-6 flex flex-col">
-          {/* Module 2: Фінансовий баланс Рахунків */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                <div className="flex items-center space-x-2">
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-                  <h3 className="text-sm font-bold text-slate-900">
-                    Баланс оплати рахунків
-                  </h3>
-                </div>
-                <button
-                  onClick={() => onSelectTab('sheet')}
-                  className="text-xs text-emerald-700 hover:text-emerald-900 font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <span>Деталі</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Visual breakdown cards */}
-              <div className="mt-4 space-y-3">
-                <div className="p-3.5 bg-emerald-50/60 rounded-xl border border-emerald-200/80">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      Оплачено постачальникам
-                    </span>
-                    <span className="font-mono font-bold text-emerald-800 text-sm">
-                      {formatCurrency(invoiceStats.totalPaid)} грн
-                    </span>
-                  </div>
-                  <div className="w-full bg-emerald-200/60 rounded-full h-2 mt-2.5 overflow-hidden">
-                    <div 
-                      className="bg-emerald-600 h-full rounded-full"
-                      style={{ width: `${invoiceStats.paidPercentage}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 text-right text-[10px] text-emerald-700 font-mono font-semibold">
-                    {invoiceStats.paidPercentage}% від загальної суми
-                  </div>
-                </div>
-
-                <div className="p-3.5 bg-amber-50/60 rounded-xl border border-amber-200/80">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-amber-900 flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-amber-600" />
-                      Залишок до сплати
-                    </span>
-                    <span className="font-mono font-bold text-amber-900 text-sm">
-                      {formatCurrency(invoiceStats.remainingToPay)} грн
-                    </span>
-                  </div>
-                  <div className="w-full bg-amber-200/60 rounded-full h-2 mt-2.5 overflow-hidden">
-                    <div 
-                      className="bg-amber-500 h-full rounded-full"
-                      style={{ width: `${100 - invoiceStats.paidPercentage}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 text-right text-[10px] text-amber-700 font-mono font-semibold">
-                    {100 - invoiceStats.paidPercentage}% очікує оплати
-                  </div>
-                </div>
-
-                {/* Status Breakdown Counters */}
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-2">
-                  <div className="text-xs font-semibold text-slate-700">
-                    Розподіл за статусами:
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                      Повністю оплачено
-                    </span>
-                    <span className="font-mono font-bold text-slate-900">{invoiceStats.paidCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      Оплачено частково
-                    </span>
-                    <span className="font-mono font-bold text-slate-900">{invoiceStats.partialCount}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-600 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-rose-500"></span>
-                      Не оплачено
-                    </span>
-                    <span className="font-mono font-bold text-slate-900">{invoiceStats.pendingCount}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-100">
-              <button
-                onClick={() => onSelectTab('sheet')}
-                className="w-full py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-              >
-                <span>Перейти до реєстру рахунків</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Module 3: 📄 На погодження керівнику (прямо під блоком «Баланс оплат рахунків») */}
-          <ManagerApprovalWidget
-            existingInvoices={existingInvoices}
-            documents={documents}
-            projects={projectRows}
-            userEmail={authState.userEmail || undefined}
-            sheetConfig={sheetConfig}
-            driveFolderId={driveFolderId}
-            accessToken={authState.accessToken || undefined}
-            canWriteToSheets={canWriteToSheets}
-            onRefresh={onRefresh}
-            onApproveInvoice={onApproveInvoice}
-            onRejectInvoice={onRejectInvoice}
-            onViewAllInvoices={() => onSelectTab('sheet')}
-          />
         </div>
       </div>
+
+      {/* Module 3: 📄 На погодження керівнику (5 cols, side-by-side with projects monitor) */}
+      <div className="lg:col-span-5 flex flex-col">
+        <ManagerApprovalWidget
+          existingInvoices={existingInvoices}
+          documents={documents}
+          projects={projectRows}
+          userEmail={authState.userEmail || undefined}
+          sheetConfig={sheetConfig}
+          driveFolderId={driveFolderId}
+          accessToken={authState.accessToken || undefined}
+          canWriteToSheets={canWriteToSheets}
+          onRefresh={onRefresh}
+          onApproveInvoice={onApproveInvoice}
+          onRejectInvoice={onRejectInvoice}
+          onViewAllInvoices={() => onSelectTab('sheet')}
+          className="h-full"
+        />
+      </div>
+    </div>
 
       {/* Quick Navigation Shortcuts Section */}
       <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-xs">
