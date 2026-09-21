@@ -19,6 +19,7 @@ export class GoogleSheetsService {
     'Статус',
     'Час завантаження',
     'Сума оплати',
+    'Посилання Drive',
   ];
 
   public static readonly INVOICE_HEADERS = [
@@ -33,7 +34,28 @@ export class GoogleSheetsService {
     'Час завантаження',
     'Сума оплати',
     'Погодження',
+    'Посилання Drive',
   ];
+
+  /**
+   * Helper to extract clean URL from spreadsheet cell (handles =HYPERLINK("...", ...), raw links, quotes)
+   */
+  public static cleanDriveUrl(raw: string): string {
+    if (!raw) return '';
+    const clean = String(raw).trim();
+    const matchHyperlink = clean.match(/HYPERLINK\s*\(\s*["']([^"']+)["']/i);
+    if (matchHyperlink && matchHyperlink[1]) {
+      return matchHyperlink[1].trim();
+    }
+    const matchDrive = clean.match(/https?:\/\/drive\.google\.com\/[^\s"'<>]+/);
+    if (matchDrive) {
+      return matchDrive[0].trim();
+    }
+    if (clean.startsWith('http://') || clean.startsWith('https://')) {
+      return clean.replace(/^["']|["']$/g, '').trim();
+    }
+    return '';
+  }
 
   public static readonly PAYMENT_HEADERS = [
     'Номер платіжки',
@@ -1070,6 +1092,8 @@ export class GoogleSheetsService {
           }
         }
 
+        const driveLink = GoogleSheetsService.cleanDriveUrl(rawDriveLink);
+
         parsedInvoices.push({
           rowIndex: startRowIdx + idx,
           orderNumber: OCRService.normalizeOrderNumber(rawOrder),
@@ -1084,7 +1108,7 @@ export class GoogleSheetsService {
           uploadedAt: rawUploadedAt,
           paidAmount,
           fileName: rawFileName || undefined,
-          driveLink: rawDriveLink || undefined,
+          driveLink: driveLink || undefined,
         });
       });
 
@@ -1333,7 +1357,17 @@ export class GoogleSheetsService {
       // 8. Metadata
       const currency = String(row[colCurrency] ?? 'UAH').trim() || 'UAH';
       const fileName = String(row[colFileName] ?? '').trim();
-      const driveLink = String(row[colDriveLink] ?? '').trim();
+      let rawDriveLink = colDriveLink >= 0 ? String(row[colDriveLink] ?? '').trim() : '';
+      if (!rawDriveLink) {
+        for (const c of row) {
+          const s = String(c || '').trim();
+          if (s.includes('drive.google.com') || (s.startsWith('http') && s.includes('drive'))) {
+            rawDriveLink = s;
+            break;
+          }
+        }
+      }
+      const driveLink = GoogleSheetsService.cleanDriveUrl(rawDriveLink);
       const uploadedAt = String(row[colUploadedAt] ?? '').trim();
 
       const hasMeaningfulContent = (
@@ -1421,6 +1455,8 @@ export class GoogleSheetsService {
       let colStatus = 6;     // G: Статус оплачено чи ні
       let colUploadedAt = 7; // H: Час завантаження
       let colPaidAmount = 8; // I: Сума оплати
+      let colDriveLink = 9;  // J: Посилання Drive
+      let colFileName = -1;
       let colDesc = -1;
       let colMonth = -1;
 
@@ -1454,6 +1490,10 @@ export class GoogleSheetsService {
               colCurrency = colIdx;
             } else if (str.includes('статус') || str === 'status') {
               colStatus = colIdx;
+            } else if (str.includes('drive') || str.includes('посилання') || str.includes('лінк') || str.includes('диск')) {
+              colDriveLink = colIdx;
+            } else if (str.includes('файл') || str.includes('документ')) {
+              colFileName = colIdx;
             } else if (str.includes('час') || str.includes('завантаження') || str.includes('внесення') || str === 'timestamp') {
               colUploadedAt = colIdx;
             } else if (str.includes('опис') || str.includes('призначення') || str.includes('найменування') || str === 'description') {
@@ -1496,6 +1536,29 @@ export class GoogleSheetsService {
         const rawPaidStr = String(colPaidAmount >= 0 ? (row[colPaidAmount] ?? '') : '').trim();
         const paidAmount = parseFloat(rawPaidStr.replace(/\s/g, '').replace(',', '.')) || (paymentStatus === 'Оплачено' ? amount : 0);
 
+        let rawDriveLink = colDriveLink >= 0 ? String(row[colDriveLink] ?? '').trim() : '';
+        if (!rawDriveLink) {
+          for (const c of row) {
+            const s = String(c || '').trim();
+            if (s.includes('drive.google.com') || (s.startsWith('http') && s.includes('drive'))) {
+              rawDriveLink = s;
+              break;
+            }
+          }
+        }
+        const driveLink = GoogleSheetsService.cleanDriveUrl(rawDriveLink);
+
+        let fileName = colFileName >= 0 ? String(row[colFileName] ?? '').trim() : '';
+        if (!fileName) {
+          for (const c of row) {
+            const s = String(c || '').trim();
+            if (/\.(pdf|jpg|jpeg|png|webp|heic|tiff|bmp)$/i.test(s)) {
+              fileName = s;
+              break;
+            }
+          }
+        }
+
         let description = colDesc >= 0 ? String(row[colDesc] ?? '').trim() : '';
         if (!description && invoiceNumber) {
           description = `Рахунок № ${invoiceNumber}`;
@@ -1521,6 +1584,8 @@ export class GoogleSheetsService {
             paidAmount,
             description,
             month: month || formatMonthYearUk(date),
+            driveLink: driveLink || undefined,
+            fileName: fileName || undefined,
           });
         }
       });
@@ -1605,7 +1670,7 @@ export class GoogleSheetsService {
       data.paidAmount ??
       (status === 'Оплачено' ? amount : 0);
 
-    // Exact row structure Columns A-I:
+    // Exact row structure Columns A-J:
     // A: Постачальник
     // B: Платник
     // C: Номер рахунку
@@ -1615,6 +1680,7 @@ export class GoogleSheetsService {
     // G: Статус оплачено чи ні
     // H: Час завантаження
     // I: Сума оплати
+    // J: Посилання Drive
     const row = [
       supplier,           // A - Постачальник
       buyer,              // B - Платник
@@ -1625,12 +1691,13 @@ export class GoogleSheetsService {
       status,             // G - Статус оплачено чи ні
       formattedTimestamp, // H - час завантаження
       paidAmount,         // I - Cума оплати
+      data.driveLink || '', // J - Посилання Drive
     ];
 
     await this.ensureTabExists(cleanId, accessToken, tabName, this.OVERHEAD_HEADERS);
     const safeTab = tabName.replace(/'/g, "''");
     const targetRow = await this.findFirstAvailableOverheadRow(cleanId, accessToken, tabName);
-    const range = `'${safeTab}'!A${targetRow}:I${targetRow}`;
+    const range = `'${safeTab}'!A${targetRow}:J${targetRow}`;
 
     await this.request<any>(
       `${cleanId}/values:batchUpdate`,
@@ -1776,7 +1843,7 @@ export class GoogleSheetsService {
       status === 'Оплачено' ? (data.ocr.totalAmount || 0) : 0
     );
 
-    // Exactly 11 columns: A to K
+    // Exactly 12 columns: A to L
     const row = [
       orderNum,                           // A: Номер замовлення (xxx-xx)
       supplier,                           // B: Постачальник
@@ -1789,6 +1856,7 @@ export class GoogleSheetsService {
       formattedTimestamp,                 // I: Час завантаження
       paidAmount,                         // J: Сума оплати
       data.ocr.approvalStatus || (status !== 'Оплачено' ? 'НЕ ПОГОДЖЕНО' : ''), // K: Погодження
+      data.driveLink || '',               // L: Посилання Drive
     ];
 
     // Ensure tab exists before writing
@@ -1798,7 +1866,7 @@ export class GoogleSheetsService {
     try {
       // Find the exact first available empty row (e.g. row 26, right below existing filled rows)
       const targetRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
-      const range = `'${safeTab}'!A${targetRow}:K${targetRow}`;
+      const range = `'${safeTab}'!A${targetRow}:L${targetRow}`;
 
       await this.request<any>(
         `${cleanId}/values:batchUpdate`,
@@ -1823,7 +1891,7 @@ export class GoogleSheetsService {
         // Fallback: force create tab and retry once
         await this.ensureTabExists(cleanId, accessToken, tabName, this.INVOICE_HEADERS);
         const retryRow = await this.findFirstAvailableInvoiceRow(cleanId, accessToken, tabName);
-        const retryRange = `'${safeTab}'!A${retryRow}:K${retryRow}`;
+        const retryRange = `'${safeTab}'!A${retryRow}:L${retryRow}`;
         await this.request<any>(
           `${cleanId}/values:batchUpdate`,
           accessToken,

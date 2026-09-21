@@ -26,7 +26,8 @@ import {
   CheckCheck,
   Lock,
   ShieldCheck,
-  Eye
+  Eye,
+  ExternalLink
 } from 'lucide-react';
 import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, InvoiceApprovalStatus, DuplicateRowMatch, ProcessedDocument, OCRResult, OverheadExpenseRow } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -118,6 +119,46 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [replacingInvoice, setReplacingInvoice] = useState<ExistingSheetRow | null>(null);
   const [localApprovalMap, setLocalApprovalMap] = useState<Map<number, InvoiceApprovalStatus>>(new Map());
   const [savingApprovalRow, setSavingApprovalRow] = useState<number | null>(null);
+
+  const getInvoiceDriveLink = (inv: ExistingSheetRow): string | undefined => {
+    if (inv.driveLink) return inv.driveLink;
+    if (!documents || documents.length === 0) return undefined;
+    const match = documents.find((d) => {
+      const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+      if (!link) return false;
+      if (inv.fileName && d.fileName && inv.fileName.toLowerCase() === d.fileName.toLowerCase()) return true;
+      const cleanInv = OCRService.sanitizeInvoiceNumber(inv.invoiceNumber || '');
+      if (cleanInv && cleanInv.length >= 2) {
+        const dInv = OCRService.sanitizeInvoiceNumber(d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '');
+        if (dInv === cleanInv) {
+          const invSup = OCRService.normalizeCompanyName(inv.supplier || '');
+          const dSup = OCRService.normalizeCompanyName(d.ocrResult?.supplierName || d.editedData?.supplierName || '');
+          if (!invSup || !dSup || invSup === dSup || invSup.includes(dSup) || dSup.includes(invSup)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+    return match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+  };
+
+  const getPaymentDriveLink = (pay: ExistingPaymentRow): string | undefined => {
+    if (pay.driveLink) return pay.driveLink;
+    if (!documents || documents.length === 0) return undefined;
+    const match = documents.find((d) => {
+      const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+      if (!link) return false;
+      if (pay.fileName && d.fileName && pay.fileName.toLowerCase() === d.fileName.toLowerCase()) return true;
+      const cleanPay = (pay.paymentNumber || '').trim();
+      if (cleanPay) {
+        const dPay = (d.ocrResult?.paymentNumber || d.editedData?.paymentNumber || '').trim();
+        if (dPay && dPay === cleanPay) return true;
+      }
+      return false;
+    });
+    return match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+  };
 
   const getApprovalStatus = (inv: ExistingSheetRow): InvoiceApprovalStatus | undefined => {
     if (localApprovalMap.has(inv.rowIndex)) {
@@ -1332,7 +1373,22 @@ export const SheetLivePreview: React.FC<Props> = ({
                         </td>
                         <td className="p-2.5 font-semibold text-slate-900">{inv.supplier || '—'}</td>
                         <td className="p-2.5 text-slate-700">{inv.buyer || '—'}</td>
-                        <td className="p-2.5 font-mono font-medium text-slate-900">{inv.invoiceNumber || '—'}</td>
+                        <td className="p-2.5 font-mono font-medium text-slate-900">
+                          <div>{inv.invoiceNumber || '—'}</div>
+                          {getInvoiceDriveLink(inv) && (
+                            <a
+                              href={getInvoiceDriveLink(inv)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
+                              title="Відкрити файл на Google Диску"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span>Google Диск</span>
+                              <ExternalLink className="w-2.5 h-2.5 inline" />
+                            </a>
+                          )}
+                        </td>
                         <td className="p-2.5 text-slate-600 font-mono">{inv.invoiceDate || '—'}</td>
                         <td className="p-2.5 text-right font-mono font-bold text-slate-900 bg-slate-50/50">
                           {invoiceAmount
@@ -1833,6 +1889,19 @@ export const SheetLivePreview: React.FC<Props> = ({
                         </td>
                         <td className="p-2.5 font-mono font-bold text-slate-900">
                           <div>{pay.paymentNumber || '—'}</div>
+                          {getPaymentDriveLink(pay) && (
+                            <a
+                              href={getPaymentDriveLink(pay)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
+                              title="Відкрити файл на Google Диску"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span>Google Диск</span>
+                              <ExternalLink className="w-2.5 h-2.5 inline" />
+                            </a>
+                          )}
                           {dupPayment && (
                             <div className="mt-0.5">
                               <span 

@@ -3926,6 +3926,7 @@ export default function App() {
             onRefresh={refreshSheetData}
             onNotify={notify}
             canWriteToSheets={canWriteToSheets}
+            documents={documents}
           />
         )}
       </main>

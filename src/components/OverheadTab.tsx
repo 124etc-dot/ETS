@@ -19,8 +19,9 @@ import {
   AlertCircle,
   Eye
 } from 'lucide-react';
-import { OverheadExpenseRow, SheetConfig, SheetCompanyLists, InvoicePaymentStatus } from '../types';
+import { OverheadExpenseRow, SheetConfig, SheetCompanyLists, InvoicePaymentStatus, ProcessedDocument } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
+import { OCRService } from '../services/ocrService';
 import { DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 import { formatMonthYearUk, UKRAINIAN_MONTH_NAMES } from '../utils/dateUtils';
 
@@ -32,6 +33,7 @@ interface Props {
   onRefresh: () => Promise<void>;
   onNotify?: (msg: string, type: 'info' | 'success' | 'error') => void;
   canWriteToSheets?: boolean;
+  documents?: ProcessedDocument[];
 }
 
 export const OverheadTab: React.FC<Props> = ({
@@ -42,7 +44,30 @@ export const OverheadTab: React.FC<Props> = ({
   onRefresh,
   onNotify,
   canWriteToSheets = true,
+  documents = [],
 }) => {
+  const getOverheadDriveLink = (exp: OverheadExpenseRow): string | undefined => {
+    if (exp.driveLink) return exp.driveLink;
+    if (!documents || documents.length === 0) return undefined;
+    const match = documents.find((d) => {
+      const link = d.driveLink || d.driveWebViewLink || (d.driveFileId ? `https://drive.google.com/file/d/${d.driveFileId}/view` : '');
+      if (!link) return false;
+      if (exp.fileName && d.fileName && exp.fileName.toLowerCase() === d.fileName.toLowerCase()) return true;
+      const cleanInv = OCRService.sanitizeInvoiceNumber(exp.invoiceNumber || '');
+      if (cleanInv && cleanInv.length >= 2) {
+        const dInv = OCRService.sanitizeInvoiceNumber(d.ocrResult?.invoiceNumber || d.editedData?.invoiceNumber || '');
+        if (dInv === cleanInv) {
+          const expSup = OCRService.normalizeCompanyName(exp.supplier || '');
+          const dSup = OCRService.normalizeCompanyName(d.ocrResult?.supplierName || d.editedData?.supplierName || '');
+          if (!expSup || !dSup || expSup === dSup || expSup.includes(dSup) || dSup.includes(expSup)) {
+            return true;
+          }
+        }
+      }
+      return false;
+    });
+    return match?.driveLink || match?.driveWebViewLink || (match?.driveFileId ? `https://drive.google.com/file/d/${match.driveFileId}/view` : undefined);
+  };
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoicePaymentStatus>('all');
@@ -675,12 +700,27 @@ export const OverheadTab: React.FC<Props> = ({
 
                       {/* C: Номер рахунку */}
                       <td className="py-3 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {exp.invoiceNumber ? (
-                          <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono text-[11px]">
-                            № {exp.invoiceNumber}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">б/н</span>
+                        <div>
+                          {exp.invoiceNumber ? (
+                            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 font-mono text-[11px]">
+                              № {exp.invoiceNumber}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">б/н</span>
+                          )}
+                        </div>
+                        {getOverheadDriveLink(exp) && (
+                          <a
+                            href={getOverheadDriveLink(exp)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
+                            title="Відкрити файл на Google Диску"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span>Google Диск</span>
+                            <ExternalLink className="w-2.5 h-2.5 inline" />
+                          </a>
                         )}
                       </td>
 
@@ -846,7 +886,20 @@ export const OverheadTab: React.FC<Props> = ({
                             {exp.buyer || '—'}
                           </td>
                           <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                            {exp.invoiceNumber ? `№ ${exp.invoiceNumber}` : 'б/н'}
+                            <div>{exp.invoiceNumber ? `№ ${exp.invoiceNumber}` : 'б/н'}</div>
+                            {getOverheadDriveLink(exp) && (
+                              <a
+                                href={getOverheadDriveLink(exp)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-0.5 inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-medium hover:underline font-sans font-normal"
+                                title="Відкрити файл на Google Диску"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span>Google Диск</span>
+                                <ExternalLink className="w-2.5 h-2.5 inline" />
+                              </a>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 font-mono font-medium text-slate-900 whitespace-nowrap">
                             {exp.date || '—'}
