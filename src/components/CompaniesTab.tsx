@@ -10,7 +10,8 @@ import {
   RefreshCw,
   Trash2,
   Plus,
-  Loader2
+  Loader2,
+  Eye
 } from 'lucide-react';
 import { SheetCompanyLists, SheetConfig } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -21,6 +22,7 @@ interface Props {
   onRefresh: () => Promise<void>;
   accessToken?: string;
   onNotify?: (msg: string, type: 'info' | 'success' | 'error') => void;
+  canWriteToSheets?: boolean;
 }
 
 export const CompaniesTab: React.FC<Props> = ({ 
@@ -28,7 +30,8 @@ export const CompaniesTab: React.FC<Props> = ({
   sheetConfig, 
   onRefresh, 
   accessToken,
-  onNotify 
+  onNotify,
+  canWriteToSheets = true,
 }) => {
   const [ourSearch, setOurSearch] = useState('');
   const [supplierSearch, setSupplierSearch] = useState('');
@@ -54,6 +57,10 @@ export const CompaniesTab: React.FC<Props> = ({
 
   const handleAddOurCompany = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!canWriteToSheets) {
+      onNotify?.('У вас обліковий запис з правами тільки перегляду. Додавання компаній заборонено.', 'error');
+      return;
+    }
     const clean = newOurName.trim();
     if (!clean) return;
     if (!sheetConfig?.spreadsheetId || !accessToken) {
@@ -85,6 +92,10 @@ export const CompaniesTab: React.FC<Props> = ({
 
   const handleAddSupplier = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!canWriteToSheets) {
+      onNotify?.('У вас обліковий запис з правами тільки перегляду. Додавання постачальників заборонено.', 'error');
+      return;
+    }
     const clean = newSupplierName.trim();
     if (!clean) return;
     if (!sheetConfig?.spreadsheetId || !accessToken) {
@@ -115,6 +126,10 @@ export const CompaniesTab: React.FC<Props> = ({
   };
 
   const handleCleanSheetDuplicates = async () => {
+    if (!canWriteToSheets) {
+      onNotify?.('У вас обліковий запис з правами тільки перегляду. Очищення дублікатів заборонено.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !accessToken) {
       onNotify?.('Будь ласка, переконайтеся що Google Таблицю підключено', 'info');
       return;
@@ -150,6 +165,15 @@ export const CompaniesTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-6">
+      {!canWriteToSheets && (
+        <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center space-x-2 text-xs text-amber-900">
+          <Eye className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            <strong>Режим тільки перегляду:</strong> додавання нових компаній та постачальників до Google Таблиці заблоковано.
+          </span>
+        </div>
+      )}
+
       {/* Intro info banner */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
         <div className="flex items-start space-x-3.5">
@@ -175,7 +199,7 @@ export const CompaniesTab: React.FC<Props> = ({
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
 
-                {accessToken && (
+                {canWriteToSheets && accessToken && (
                   <button
                     type="button"
                     onClick={handleCleanSheetDuplicates}
@@ -234,24 +258,26 @@ export const CompaniesTab: React.FC<Props> = ({
           </div>
 
           {/* Quick Add Our Company / FOP */}
-          <form onSubmit={handleAddOurCompany} className="flex gap-1.5">
-            <input
-              type="text"
-              value={newOurName}
-              onChange={(e) => setNewOurName(e.target.value)}
-              placeholder="Додати наш ФОП / ТОВ (напр. ФОП ПЕТРЕНКО І.В.)..."
-              className="flex-1 text-xs px-3 py-1.5 bg-indigo-50/40 border border-indigo-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 placeholder:text-slate-400"
-            />
-            <button
-              type="submit"
-              disabled={!newOurName.trim() || isAddingOur}
-              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0 transition-colors shadow-2xs"
-              title="Додати до вкладки «Наші компанії»"
-            >
-              {isAddingOur ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              <span>Додати</span>
-            </button>
-          </form>
+          {canWriteToSheets && (
+            <form onSubmit={handleAddOurCompany} className="flex gap-1.5">
+              <input
+                type="text"
+                value={newOurName}
+                onChange={(e) => setNewOurName(e.target.value)}
+                placeholder="Додати наш ФОП / ТОВ (напр. ФОП ПЕТРЕНКО І.В.)..."
+                className="flex-1 text-xs px-3 py-1.5 bg-indigo-50/40 border border-indigo-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-900 placeholder:text-slate-400"
+              />
+              <button
+                type="submit"
+                disabled={!newOurName.trim() || isAddingOur}
+                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0 transition-colors shadow-2xs"
+                title="Додати до вкладки «Наші компанії»"
+              >
+                {isAddingOur ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                <span>Додати</span>
+              </button>
+            </form>
+          )}
 
           <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
             {filteredOur.length === 0 ? (
@@ -310,24 +336,26 @@ export const CompaniesTab: React.FC<Props> = ({
           </div>
 
           {/* Quick Add Supplier / FOP */}
-          <form onSubmit={handleAddSupplier} className="flex gap-1.5">
-            <input
-              type="text"
-              value={newSupplierName}
-              onChange={(e) => setNewSupplierName(e.target.value)}
-              placeholder="Додати постачальника / ФОП (напр. ФОП СИДОРЕНКО О.П.)..."
-              className="flex-1 text-xs px-3 py-1.5 bg-slate-100/60 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-500 text-slate-900 placeholder:text-slate-400"
-            />
-            <button
-              type="submit"
-              disabled={!newSupplierName.trim() || isAddingSupplier}
-              className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0 transition-colors shadow-2xs"
-              title="Додати до вкладки «Постачальники»"
-            >
-              {isAddingSupplier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              <span>Додати</span>
-            </button>
-          </form>
+          {canWriteToSheets && (
+            <form onSubmit={handleAddSupplier} className="flex gap-1.5">
+              <input
+                type="text"
+                value={newSupplierName}
+                onChange={(e) => setNewSupplierName(e.target.value)}
+                placeholder="Додати постачальника / ФОП (напр. ФОП СИДОРЕНКО О.П.)..."
+                className="flex-1 text-xs px-3 py-1.5 bg-slate-100/60 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-slate-500 text-slate-900 placeholder:text-slate-400"
+              />
+              <button
+                type="submit"
+                disabled={!newSupplierName.trim() || isAddingSupplier}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 shrink-0 transition-colors shadow-2xs"
+                title="Додати до вкладки «Постачальники»"
+              >
+                {isAddingSupplier ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                <span>Додати</span>
+              </button>
+            </form>
+          )}
 
           <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
             {filteredSuppliers.length === 0 ? (

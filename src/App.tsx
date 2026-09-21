@@ -51,6 +51,7 @@ import { NewCompanyConfirmModal } from './components/NewCompanyConfirmModal';
 import { PLAN_SPREADSHEET_STORAGE_KEY } from './components/AddProjectModal';
 import { SAMPLE_PROJECT_HEADERS, SAMPLE_PROJECT_ROWS } from './data/sampleProjects';
 import { APP_VERSION } from './version';
+import { getUserPermissions } from './services/permissions';
 import { 
   DEFAULT_OUR_COMPANIES, 
   DEFAULT_SUPPLIERS, 
@@ -91,6 +92,11 @@ const saveDismissedDriveIds = (ids: Set<string>) => {
 
 export default function App() {
   const [authState, setAuthState] = useState<AuthState>(googleAuth.getAuthState());
+  const userPermissions = getUserPermissions(authState.userEmail);
+  const canReadDrive = userPermissions.canReadDriveFiles;
+  const canWriteToSheets = userPermissions.canWriteToSheets;
+  const canApproveInvoices = userPermissions.canApproveInvoices;
+
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead'>('dashboard');
 
@@ -1259,6 +1265,13 @@ export default function App() {
 
   // Fetch files from Google Drive folder
   const handleFetchDriveFiles = async (folderId: string, isAutoSync = false) => {
+    if (!canReadDrive) {
+      if (!isAutoSync) {
+        notify('У вас обліковий запис з правами тільки перегляду. Зчитування файлів з Google Диску заборонено.', 'error');
+      }
+      return;
+    }
+
     if (!authState.accessToken) {
       if (!isAutoSync) setIsAuthModalOpen(true);
       return;
@@ -2084,6 +2097,10 @@ export default function App() {
     newStatus: InvoicePaymentStatus,
     paidAmount?: number
   ) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Зміна статусів заблокована.', 'error');
+      return;
+    }
     const targetInvoice = existingInvoices.find((i) => i.rowIndex === rowIndex);
     const effectivePaidAmount =
       paidAmount !== undefined
@@ -2209,6 +2226,10 @@ export default function App() {
       oldFileName?: string;
     }
   ) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Заміна рахунків заблокована.', 'error');
+      return;
+    }
     const targetInvoice = existingInvoices.find((i) => i.rowIndex === targetRowIndex);
     const prevInfo = {
       invoiceNumber: previousInvoiceInfo?.invoiceNumber || targetInvoice?.invoiceNumber,
@@ -2484,6 +2505,10 @@ export default function App() {
       paidAmount: number;
     }>
   ) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Оновлення статусів оплати заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
       setExistingInvoices((prev) =>
         prev.map((inv) => {
@@ -2540,6 +2565,10 @@ export default function App() {
   const handleNormalizeOverpaidInvoices = async (
     items: Array<{ rowIndex: number; correctPaidAmount: number }>
   ) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Нормалізація оплат заблокована.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
       setExistingInvoices((prev) =>
         prev.map((inv) => {
@@ -2611,6 +2640,10 @@ export default function App() {
 
   // Delete duplicate rows from Google Sheets ("Рахунки" and "Платіжки") and trash duplicate files on Drive
   const handleDeleteDuplicateRows = async (duplicates: DuplicateRowMatch[]) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Видалення записів заблоковано.', 'error');
+      return;
+    }
     if (!authState.accessToken) {
       setIsAuthModalOpen(true);
       return;
@@ -2721,6 +2754,10 @@ export default function App() {
 
   // Compact empty/blank gap rows in a sheet tab
   const handleCompactEmptyRows = async (tabName: string) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Очищення пустих рядків заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
       notify('Потрібно підключити Google Таблицю для цієї операції.', 'error');
       return;
@@ -2752,6 +2789,10 @@ export default function App() {
   };
 
   const handleDeleteInvoiceRow = async (rowIndex: number) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Видалення рядка заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
@@ -2857,6 +2898,10 @@ export default function App() {
   };
 
   const handleDeletePaymentRow = async (rowIndex: number) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Видалення рядка заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
@@ -2966,6 +3011,10 @@ export default function App() {
     duplicateRowIndex: number,
     correctInvoiceNumber: string
   ) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Об\'єднання дублікатів заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
@@ -3014,6 +3063,10 @@ export default function App() {
   };
 
   const handleMoveInvoiceToPayments = async (inv: ExistingSheetRow) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Перенесення записів заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
@@ -3063,6 +3116,10 @@ export default function App() {
   };
 
   const handleMovePaymentToInvoices = async (pay: ExistingPaymentRow) => {
+    if (!canWriteToSheets) {
+      notify('У вас обліковий запис з правами тільки перегляду. Перенесення записів заблоковано.', 'error');
+      return;
+    }
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) return;
     setIsLoadingSheet(true);
     try {
@@ -3470,6 +3527,7 @@ export default function App() {
             lastAutoSyncTime={lastAutoSyncTime}
             nextAutoSyncSeconds={nextAutoSyncSeconds}
             isAutoSyncing={isAutoSyncing}
+            canReadDriveFiles={canReadDrive}
           />
 
           <SpreadsheetBar
@@ -3505,6 +3563,7 @@ export default function App() {
               onRetryDriveUpload={handleUploadDocToDrive}
               isProcessingAny={isProcessingBatch}
               isSyncingAny={isSyncingBatch}
+              canWriteToSheets={canWriteToSheets}
             />
           </div>
         )}
@@ -3535,6 +3594,7 @@ export default function App() {
               onAddLocalDocument={handleAddSingleLocalDocument}
               onMergeDuplicateInvoice={handleMergeDuplicateInvoice}
               onToggleInvoiceApproval={handleToggleInvoiceApproval}
+              canWriteToSheets={canWriteToSheets}
             />
           </div>
         )}
@@ -3577,6 +3637,7 @@ export default function App() {
             onRefresh={refreshSheetData}
             accessToken={authState.accessToken || undefined}
             onNotify={notify}
+            canWriteToSheets={canWriteToSheets}
           />
         )}
 
@@ -3611,6 +3672,7 @@ export default function App() {
             onLastSyncTimeChange={setProjectsLastSyncTime}
             isLoadingProjects={isLoadingProjects}
             onRefreshProjects={refreshProjectsData}
+            canWriteToSheets={canWriteToSheets}
             onOpenSpreadsheet={() => {
               if (sheetConfig?.spreadsheetUrl) {
                 window.open(sheetConfig.spreadsheetUrl, '_blank');
@@ -3628,6 +3690,7 @@ export default function App() {
             companyLists={companyLists}
             onRefresh={refreshSheetData}
             onNotify={notify}
+            canWriteToSheets={canWriteToSheets}
           />
         )}
       </main>

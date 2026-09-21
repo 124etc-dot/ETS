@@ -13,9 +13,11 @@ import {
   Server,
   Briefcase,
   Factory,
-  BarChart3
+  BarChart3,
+  Eye
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
+import { getUserPermissions } from '../services/permissions';
 import { SheetConfig } from '../types';
 import { APP_VERSION } from '../version';
 import { OCRService } from '../services/ocrService';
@@ -216,20 +218,38 @@ export const Header: React.FC<Props> = ({
                 </div>
               )}
 
-              {authState.isAuthenticated ? (
-                <div className="flex items-center space-x-1.5 sm:space-x-2">
-                  <span className="hidden sm:inline-block text-xs font-medium text-slate-600 max-w-[140px] truncate" title={authState.userEmail || ''}>
-                    {authState.userEmail}
-                  </span>
-                  <button
-                    onClick={onLogout}
-                    title="Від'єднати токен Google"
-                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : authState.isExpired ? (
+              {authState.isAuthenticated ? (() => {
+                const userPerms = getUserPermissions(authState.userEmail);
+                return (
+                  <div className="flex items-center space-x-1.5 sm:space-x-2">
+                    <div className="flex flex-col items-end">
+                      <span className="hidden sm:inline-block text-xs font-semibold text-slate-800 max-w-[150px] truncate" title={authState.userEmail || ''}>
+                        {authState.userEmail}
+                      </span>
+                      {userPerms.isRestricted ? (
+                        <span 
+                          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-300"
+                          title={userPerms.roleDescription}
+                        >
+                          <Eye className="w-2.5 h-2.5 text-amber-600" />
+                          <span>{userPerms.roleShortLabel}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium hidden sm:inline-block">
+                          {userPerms.roleShortLabel}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={onLogout}
+                      title="Від'єднати токен Google"
+                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </button>
+                  </div>
+                );
+              })() : authState.isExpired ? (
                 <button
                   onClick={onOpenAuthModal}
                   className="px-2.5 sm:px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 animate-pulse cursor-pointer"

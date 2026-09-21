@@ -35,6 +35,7 @@ interface AddProjectModalProps {
   accessToken?: string | null;
   spreadsheetId?: string;
   onProjectAdded?: (targetRow: number, projectNumber: string) => void;
+  canWriteToSheets?: boolean;
 }
 
 export const PLAN_SPREADSHEET_STORAGE_KEY = 'plan_shipments_spreadsheet_config';
@@ -49,6 +50,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   accessToken,
   spreadsheetId,
   onProjectAdded,
+  canWriteToSheets = true,
 }) => {
   // Current date formatted YYYY-MM-DD for standard HTML date input
   const getTodayString = () => {
@@ -399,6 +401,10 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   // 1. Номер проекту, Назва проекту, Старт проекту, Відділ, Менеджер проекту -> "План відвантажень" вкладка План (колонки А, В, D, C, H).
   // 2. Рахунок, Дата рахунку, Сума Договору -> "Оплати/Борги" вкладка Лист1 (перші пусті ячейки колонок відповідно G, H, M).
   const handleSaveProject = async () => {
+    if (!canWriteToSheets) {
+      setErrorMessage('У вас обліковий запис з правами тільки перегляду. Додавання проектів заборонено.');
+      return;
+    }
     setErrorMessage(null);
     setSuccessInfo(null);
 

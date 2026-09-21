@@ -29,6 +29,7 @@ interface Props {
   lastAutoSyncTime: Date | null;
   nextAutoSyncSeconds: number;
   isAutoSyncing: boolean;
+  canReadDriveFiles?: boolean;
 }
 
 export const DriveFolderBar: React.FC<Props> = ({
@@ -45,6 +46,7 @@ export const DriveFolderBar: React.FC<Props> = ({
   lastAutoSyncTime,
   nextAutoSyncSeconds,
   isAutoSyncing,
+  canReadDriveFiles = true,
 }) => {
   const [folderInput, setFolderInput] = useState(currentFolderId);
   const [recentFolders, setRecentFolders] = useState<GoogleDriveFolder[]>([]);
@@ -90,6 +92,10 @@ export const DriveFolderBar: React.FC<Props> = ({
     if (!folderInput.trim()) return;
 
     setFolderError(null);
+    if (!canReadDriveFiles) {
+      setFolderError('У вас права тільки перегляду: зчитування файлів з Google Диску заборонено.');
+      return;
+    }
     const cleanId = GoogleDriveService.extractFolderId(folderInput);
     onSelectFolder(cleanId);
     if (accessToken) {
@@ -139,6 +145,13 @@ export const DriveFolderBar: React.FC<Props> = ({
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
       <div>
+        {!canReadDriveFiles && (
+          <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-xs text-amber-900 font-medium">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>Ваш обліковий запис має права тільки перегляду: зчитування нових файлів з Google Диску вимкнено.</span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-2">
             <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700">
@@ -150,7 +163,7 @@ export const DriveFolderBar: React.FC<Props> = ({
           </div>
 
           <div className="flex items-center space-x-3">
-            {accessToken && (
+            {accessToken && canReadDriveFiles && (
               <button
                 type="button"
                 onClick={loadRecentFolders}
@@ -180,7 +193,8 @@ export const DriveFolderBar: React.FC<Props> = ({
 
           <button
             type="submit"
-            disabled={isLoading || !folderInput.trim()}
+            disabled={isLoading || !folderInput.trim() || !canReadDriveFiles}
+            title={!canReadDriveFiles ? 'Зчитування з Google Диску заблоковано для вашого облікового запису (режим перегляду)' : undefined}
             className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors flex items-center space-x-1.5 shrink-0 disabled:opacity-50"
           >
             {isLoading ? (
@@ -194,60 +208,62 @@ export const DriveFolderBar: React.FC<Props> = ({
       </div>
 
       {/* Auto-sync and Auto-OCR control strip */}
-      <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Auto OCR toggle */}
-          <button
-            type="button"
-            onClick={() => onToggleAutoOcr(!autoOcrEnabled)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center space-x-1.5 ${
-              autoOcrEnabled
-                ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
-                : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-            }`}
-            title="Автоматично запускати Gemini OCR для нових файлів одразу після зчитування"
-          >
-            <Sparkles className={`w-3.5 h-3.5 ${autoOcrEnabled ? 'text-indigo-600' : 'text-slate-400'}`} />
-            <span>Авто-розпізнавання: {autoOcrEnabled ? 'УВІМКНЕНО' : 'ВИМКНЕНО'}</span>
-          </button>
-
-          {/* Periodic auto-fetch dropdown */}
-          <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-slate-700">
-            <Clock className={`w-3.5 h-3.5 ${isAutoSyncing ? 'text-indigo-600 animate-spin' : 'text-slate-500'}`} />
-            <span className="text-[11px] font-medium text-slate-600">Авто-зчитування:</span>
-            <select
-              value={autoSyncIntervalMinutes ?? 0}
-              onChange={(e) => onChangeAutoSyncInterval(Number(e.target.value))}
-              className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
+      {canReadDriveFiles && (
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* Auto OCR toggle */}
+            <button
+              type="button"
+              onClick={() => onToggleAutoOcr(!autoOcrEnabled)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors flex items-center space-x-1.5 ${
+                autoOcrEnabled
+                  ? 'bg-indigo-50 border-indigo-200 text-indigo-900'
+                  : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+              }`}
+              title="Автоматично запускати Gemini OCR для нових файлів одразу після зчитування"
             >
-              <option value={15}>кожні 15 хв</option>
-              <option value={30}>кожні 30 хв</option>
-              <option value={60}>кожну 1 год</option>
-              <option value={120}>кожні 2 год</option>
-              <option value={0}>вимкнено</option>
-            </select>
-          </div>
-        </div>
+              <Sparkles className={`w-3.5 h-3.5 ${autoOcrEnabled ? 'text-indigo-600' : 'text-slate-400'}`} />
+              <span>Авто-розпізнавання: {autoOcrEnabled ? 'УВІМКНЕНО' : 'ВИМКНЕНО'}</span>
+            </button>
 
-        {/* Auto sync status countdown */}
-        {autoSyncIntervalMinutes > 0 && currentFolderId && (
-          <div className="text-[11px] text-slate-500 flex items-center space-x-1">
-            {isAutoSyncing ? (
-              <span className="inline-flex items-center text-indigo-600 font-semibold">
-                <RefreshCw className="w-3 h-3 animate-spin mr-1" />
-                Оновлення папки...
-              </span>
-            ) : (
-              <span>
-                Наступна перевірка: <strong className="text-slate-700">{formatCountdown(nextAutoSyncSeconds)}</strong>
-              </span>
-            )}
+            {/* Periodic auto-fetch dropdown */}
+            <div className="flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg text-slate-700">
+              <Clock className={`w-3.5 h-3.5 ${isAutoSyncing ? 'text-indigo-600 animate-spin' : 'text-slate-500'}`} />
+              <span className="text-[11px] font-medium text-slate-600">Авто-зчитування:</span>
+              <select
+                value={autoSyncIntervalMinutes ?? 0}
+                onChange={(e) => onChangeAutoSyncInterval(Number(e.target.value))}
+                className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer"
+              >
+                <option value={15}>кожні 15 хв</option>
+                <option value={30}>кожні 30 хв</option>
+                <option value={60}>кожну 1 год</option>
+                <option value={120}>кожні 2 год</option>
+                <option value={0}>вимкнено</option>
+              </select>
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Auto sync status countdown */}
+          {autoSyncIntervalMinutes > 0 && currentFolderId && (
+            <div className="text-[11px] text-slate-500 flex items-center space-x-1">
+              {isAutoSyncing ? (
+                <span className="inline-flex items-center text-indigo-600 font-semibold">
+                  <RefreshCw className="w-3 h-3 animate-spin mr-1" />
+                  Оновлення папки...
+                </span>
+              ) : (
+                <span>
+                  Наступна перевірка: <strong className="text-slate-700">{formatCountdown(nextAutoSyncSeconds)}</strong>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Recent Folders Quick Selection Dropdown */}
-      {recentFolders.length > 0 && (
+      {canReadDriveFiles && recentFolders.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
           <p className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mb-1.5">
             Нещодавні папки:

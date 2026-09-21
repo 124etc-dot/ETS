@@ -25,7 +25,8 @@ import {
   ShieldAlert,
   CheckCheck,
   Lock,
-  ShieldCheck
+  ShieldCheck,
+  Eye
 } from 'lucide-react';
 import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, InvoiceApprovalStatus, DuplicateRowMatch, ProcessedDocument, OCRResult } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -71,6 +72,7 @@ interface Props {
   onAddLocalDocument?: (file: File) => Promise<ProcessedDocument | null>;
   onMergeDuplicateInvoice?: (originalRowIndex: number, duplicateRowIndex: number, correctInvoiceNumber: string) => Promise<void>;
   onToggleInvoiceApproval?: (inv: ExistingSheetRow, newStatus: InvoiceApprovalStatus) => Promise<void> | void;
+  canWriteToSheets?: boolean;
 }
 
 export const SheetLivePreview: React.FC<Props> = ({
@@ -96,6 +98,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   onAddLocalDocument,
   onMergeDuplicateInvoice,
   onToggleInvoiceApproval,
+  canWriteToSheets = true,
 }) => {
   const [activeTab, setActiveTab] = useState<'invoices' | 'payments' | 'ourCompanies' | 'suppliers'>('invoices');
   const [filterText, setFilterText] = useState('');
@@ -228,6 +231,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   }, [overpaidInvoices]);
 
   const handleNormalizeAllOverpaid = async () => {
+    if (!canWriteToSheets) return;
     if (!onNormalizeOverpaidInvoices || overpaidInvoices.length === 0) return;
     const confirmed = window.confirm(
       `Нормалізувати суми оплат для ${overpaidInvoices.length} рахунків у Google Таблиці?\n\nВідповідно до правила закритих пар: статус «Оплачено» встановлює суму оплати суворо рівною сумі рахунку (100%), усуваючи заводвоєння чи затроєння сум.`
@@ -248,6 +252,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   };
 
   const handleNormalizeSingleOverpaid = async (item: (typeof overpaidInvoices)[0]) => {
+    if (!canWriteToSheets) return;
     if (!onNormalizeOverpaidInvoices) return;
     setIsNormalizingOverpaid(true);
     try {
@@ -260,6 +265,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   };
 
   const handleDeleteAllDuplicates = async () => {
+    if (!canWriteToSheets) return;
     if (!onDeleteDuplicates || allDuplicates.length === 0) return;
     if (!confirmDeleteAll) {
       setConfirmDeleteAll(true);
@@ -462,7 +468,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   const [batchUpdatingPaymentRowIndex, setBatchUpdatingPaymentRowIndex] = useState<number | null>(null);
 
   const handleStatusChange = async (rowIndex: number, newStatus: InvoicePaymentStatus, customPaidAmt?: number) => {
-    if (!onUpdateInvoiceStatus) return;
+    if (!canWriteToSheets || !onUpdateInvoiceStatus) return;
     setUpdatingRowIndex(rowIndex);
     try {
       const targetInvoice = existingInvoices.find((i) => i.rowIndex === rowIndex);
@@ -480,7 +486,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   };
 
   const handleApplyAllForPayment = async (recMatch: (typeof reconciledMatches)[0]) => {
-    if (!recMatch.allMatchedInvoiceRowIndices || recMatch.allMatchedInvoiceRowIndices.length === 0) return;
+    if (!canWriteToSheets || !recMatch.allMatchedInvoiceRowIndices || recMatch.allMatchedInvoiceRowIndices.length === 0) return;
     const paymentRowIdx = recMatch.matchedPaymentRowIndex || 0;
     setBatchUpdatingPaymentRowIndex(paymentRowIdx);
 
@@ -516,7 +522,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   };
 
   const handleBatchReconcileAllPending = async () => {
-    if (pendingReconciliations.length === 0) return;
+    if (!canWriteToSheets || pendingReconciliations.length === 0) return;
     setIsBatchReconciling(true);
     try {
       if (onBatchReconcile) {
@@ -690,6 +696,18 @@ export const SheetLivePreview: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {!canWriteToSheets && (
+        <div className="mx-4 mt-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between text-xs text-amber-900 shrink-0">
+          <div className="flex items-center space-x-2">
+            <Eye className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Режим тільки перегляду:</strong> внесення даних та редагування оплат у Google Таблиці вимкнено. 
+              <strong> Погодження рахунків (колонка K) дозволено.</strong>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Tab: Invoices */}
       {activeTab === 'invoices' && (
@@ -1304,7 +1322,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                           {inv.currency || 'UAH'}
                         </td>
                         <td className="p-2.5 text-center">
-                          {onUpdateInvoiceStatus ? (
+                          {onUpdateInvoiceStatus && canWriteToSheets ? (
                             <select
                               value={inv.paymentStatus || 'Не оплачено'}
                               disabled={updatingRowIndex === inv.rowIndex}
@@ -1323,6 +1341,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                             </select>
                           ) : (
                             <span
+                              title={!canWriteToSheets ? 'Режим перегляду: зміна статусу оплати заблокована' : undefined}
                               className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
                                 inv.paymentStatus === 'Оплачено'
                                   ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
@@ -1359,7 +1378,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                             </div>
                           )}
 
-                          {onReplaceInvoice && inv.paymentStatus === 'Не оплачено' && (
+                          {canWriteToSheets && onReplaceInvoice && inv.paymentStatus === 'Не оплачено' && (
                             <div className="mt-1 flex items-center justify-center">
                               <button
                                 type="button"
@@ -1386,7 +1405,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                                   </span>
                                 )}
                               </span>
-                              {onUpdateInvoiceStatus && (
+                              {canWriteToSheets && onUpdateInvoiceStatus && (
                                 <div className="flex flex-col items-center space-y-1 mt-1">
                                   <button
                                     type="button"
@@ -1437,7 +1456,7 @@ export const SheetLivePreview: React.FC<Props> = ({
                                   <span className="text-[9px] text-rose-600 font-semibold mt-0.5">
                                     Заводвоєно ({overpaid.multiplier}x замість {new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(overpaid.correctPaidAmount)})
                                   </span>
-                                  {onNormalizeOverpaidInvoices && (
+                                  {canWriteToSheets && onNormalizeOverpaidInvoices && (
                                     <button
                                       type="button"
                                       disabled={isNormalizingOverpaid}

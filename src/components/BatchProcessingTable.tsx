@@ -41,6 +41,7 @@ interface Props {
   onRetryDriveUpload?: (docId: string) => void;
   isProcessingAny: boolean;
   isSyncingAny: boolean;
+  canWriteToSheets?: boolean;
 }
 
 export const BatchProcessingTable: React.FC<Props> = ({
@@ -56,6 +57,7 @@ export const BatchProcessingTable: React.FC<Props> = ({
   onRetryDriveUpload,
   isProcessingAny,
   isSyncingAny,
+  canWriteToSheets = true,
 }) => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -499,13 +501,15 @@ export const BatchProcessingTable: React.FC<Props> = ({
 
             <button
               onClick={() => {
+                if (!canWriteToSheets) return;
                 const targetIds = selectedIds.size > 0
                   ? Array.from(selectedIds)
                   : filteredDocs.filter((d) => d.status === 'ready_for_review').map((d) => d.id);
                 onBatchSync(targetIds);
               }}
-              disabled={isSyncingAny || (selectedIds.size === 0 && readyToSyncCount === 0)}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50"
+              disabled={isSyncingAny || (selectedIds.size === 0 && readyToSyncCount === 0) || !canWriteToSheets}
+              title={!canWriteToSheets ? 'Внесення даних у таблицю заблоковано для вашого облікового запису (режим перегляду)' : undefined}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               {isSyncingAny ? (
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -1038,10 +1042,21 @@ export const BatchProcessingTable: React.FC<Props> = ({
                               <Sparkles className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={() => onSyncDoc(doc.id)}
-                              disabled={isSyncingAny}
-                              className="p-1 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="Занести в Google Таблицю"
+                              onClick={() => {
+                                if (!canWriteToSheets) return;
+                                onSyncDoc(doc.id);
+                              }}
+                              disabled={isSyncingAny || !canWriteToSheets}
+                              className={`p-1 rounded-lg transition-colors ${
+                                canWriteToSheets
+                                  ? 'text-emerald-600 hover:bg-emerald-50 cursor-pointer'
+                                  : 'text-slate-300 cursor-not-allowed'
+                              }`}
+                              title={
+                                !canWriteToSheets
+                                  ? 'Внесення в таблицю заблоковано (режим перегляду)'
+                                  : 'Занести в Google Таблицю'
+                              }
                             >
                               <FileSpreadsheet className="w-4 h-4" />
                             </button>
@@ -1080,10 +1095,21 @@ export const BatchProcessingTable: React.FC<Props> = ({
                             </span>
                             <button
                               type="button"
-                              onClick={() => onSyncDoc(doc.id, true)}
-                              disabled={isSyncingAny}
-                              className="p-1 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                              title="Запис випадково відсутній у таблиці? Натисніть, щоб примусово додати новий рядок"
+                              onClick={() => {
+                                if (!canWriteToSheets) return;
+                                onSyncDoc(doc.id, true);
+                              }}
+                              disabled={isSyncingAny || !canWriteToSheets}
+                              className={`p-1 rounded-lg transition-colors ${
+                                canWriteToSheets
+                                  ? 'text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 cursor-pointer'
+                                  : 'text-slate-300 cursor-not-allowed'
+                              }`}
+                              title={
+                                !canWriteToSheets
+                                  ? 'Внесення в таблицю заблоковано (режим перегляду)'
+                                  : 'Запис випадково відсутній у таблиці? Натисніть, щоб примусово додати новий рядок'
+                              }
                             >
                               <FileSpreadsheet className="w-3.5 h-3.5" />
                             </button>

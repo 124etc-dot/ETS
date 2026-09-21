@@ -66,6 +66,7 @@ interface Props {
       oldFileName?: string;
     }
   ) => Promise<void>;
+  canWriteToSheets?: boolean;
 }
 
 export const DocumentReviewModal: React.FC<Props> = ({
@@ -86,6 +87,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
   hasPrev,
   hasNext,
   onReplaceInvoice,
+  canWriteToSheets = true,
 }) => {
   const [formData, setFormData] = useState<OCRResult>({
     documentType: 'invoice',
@@ -1779,7 +1781,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
                 </div>
               ) : (
                 <div className="flex items-center space-x-2">
-                  {onReplaceInvoice && unpaidInvoices.length > 0 && !isPaymentDoc && (
+                  {canWriteToSheets && onReplaceInvoice && unpaidInvoices.length > 0 && !isPaymentDoc && (
                     <button
                       type="button"
                       onClick={() => {
@@ -1795,13 +1797,27 @@ export const DocumentReviewModal: React.FC<Props> = ({
                   )}
                   <button
                     type="button"
-                    onClick={() => handleSync(doc.alreadyInSheet ? true : false)}
-                    disabled={isSyncing}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 disabled:opacity-50 cursor-pointer"
+                    onClick={() => {
+                      if (!canWriteToSheets) return;
+                      handleSync(doc.alreadyInSheet ? true : false);
+                    }}
+                    disabled={isSyncing || !canWriteToSheets}
+                    title={!canWriteToSheets ? 'Внесення даних у таблицю заблоковано для вашого облікового запису (режим перегляду)' : undefined}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold shadow-xs transition-colors flex items-center space-x-1.5 ${
+                      canWriteToSheets
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-50'
+                        : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                    }`}
                   >
                     <FileSpreadsheet className="w-4 h-4" />
                     <span>
-                      {isSyncing ? 'Запис у таблицю...' : doc.alreadyInSheet ? 'Занести в Google Таблицю (все одно як новий рядок)' : 'Занести в Google Таблицю'}
+                      {!canWriteToSheets
+                        ? 'Внесення заблоковано (перегляд)'
+                        : isSyncing
+                        ? 'Запис у таблицю...'
+                        : doc.alreadyInSheet
+                        ? 'Занести в Google Таблицю (все одно як новий рядок)'
+                        : 'Занести в Google Таблицю'}
                     </span>
                   </button>
                 </div>

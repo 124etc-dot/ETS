@@ -24,6 +24,7 @@ import {
   Plus,
   Edit2,
   Save,
+  Eye,
 } from 'lucide-react';
 import { ProjectSheetRow, ProjectColumnHeader, SheetConfig } from '../types';
 import {
@@ -51,6 +52,7 @@ interface Props {
   onLastSyncTimeChange?: (val: string | null) => void;
   isLoadingProjects?: boolean;
   onRefreshProjects?: (source?: 'payments' | 'plan') => Promise<void>;
+  canWriteToSheets?: boolean;
 }
 
 export const ProjectsTab: React.FC<Props> = ({
@@ -69,6 +71,7 @@ export const ProjectsTab: React.FC<Props> = ({
   onLastSyncTimeChange,
   isLoadingProjects: _isLoadingProjectsProp,
   onRefreshProjects: _onRefreshProjectsProp,
+  canWriteToSheets = true,
 }) => {
   const [headers, setHeaders] = useState<ProjectColumnHeader[]>(initialHeaders || SAMPLE_PROJECT_HEADERS);
   const [projects, setProjects] = useState<ProjectSheetRow[]>(initialProjects || SAMPLE_PROJECT_ROWS);
@@ -565,6 +568,15 @@ export const ProjectsTab: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
+      {!canWriteToSheets && (
+        <div className="px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center space-x-2 text-xs text-amber-900">
+          <Eye className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>
+            <strong>Режим тільки перегляду:</strong> додавання нових проектів до Google Таблиці заблоковано для вашого облікового запису.
+          </span>
+        </div>
+      )}
+
       {/* Top Banner & Action Header */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-5">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -610,14 +622,16 @@ export const ProjectsTab: React.FC<Props> = ({
 
           <div className="flex items-center gap-2.5 flex-wrap shrink-0">
             {/* 1. Add Project */}
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-              title="Додати новий проект (запис у План відвантажень від 2094 та Оплати/Борги від 127)"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Додати проект</span>
-            </button>
+            {canWriteToSheets && (
+              <button
+                onClick={() => setIsAddModalOpen(true)}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                title="Додати новий проект (запис у План відвантажень від 2094 та Оплати/Борги від 127)"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Додати проект</span>
+              </button>
+            )}
 
             {/* 2. Update Plan Shipments button */}
             <button
@@ -1463,6 +1477,7 @@ export const ProjectsTab: React.FC<Props> = ({
         sheetConfig={sheetConfig}
         accessToken={authState?.accessToken}
         spreadsheetId={sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID}
+        canWriteToSheets={canWriteToSheets}
         onProjectAdded={async (newRowIndex, projNum) => {
           // Immediately reload latest project rows from active Google Sheet
           if (activeDataSource === 'plan') {
