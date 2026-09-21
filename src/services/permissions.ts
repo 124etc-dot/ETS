@@ -1,22 +1,12 @@
 /**
  * Permissions and Access Control Service
  * 
- * Rules for restricted users:
- * - 777vlad4406425@gmail.com
- * - kosss.koss@gmail.com
- * 
- * Permitted:
- * - View-only access to all application screens (Dashboard, Projects, Sheets, Invoices, Companies, Overhead)
- * - Approving invoices (updating approval status in Google Sheets column K and local state)
- * 
- * Restricted:
- * - Cannot read/fetch files from Google Drive
- * - Cannot insert or modify data in Google Sheets tables (appending invoices, payments, projects, companies, overhead, or changing payment statuses)
+ * Configurable list of restricted/view-only user emails.
+ * Users not in this list have full access (Drive sync, Sheets write/update, approval, etc.).
  */
 
 export const RESTRICTED_VIEW_USERS: readonly string[] = [
-  '777vlad4406425@gmail.com',
-  'kosss.koss@gmail.com',
+  // Both 777vlad4406425@gmail.com and kosss.koss@gmail.com now have full unrestricted access.
 ];
 
 export interface UserPermissions {
