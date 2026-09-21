@@ -866,17 +866,20 @@ export default function App() {
             continue;
           }
 
-          // For payments: if handwrittenOrderNumber is missing, inherit it from matching invoices
+          // For payments: if handwrittenOrderNumber is missing, inherit it from matching invoices or overhead
           let effectiveOcr = ocr;
           if (ocr.documentType === 'payment' && !ocr.handwrittenOrderNumber) {
-            const pMatch = OCRService.matchPaymentWithInvoices(ocr, rows, prevDocs);
-            if (pMatch.matchedOrderNumber) {
+            const pMatch = OCRService.matchPaymentWithInvoices(ocr, rows, prevDocs, overheadRows);
+            if (pMatch.matchedOrderNumber || pMatch.isOverhead || pMatch.targetTab === 'Цех') {
               effectiveOcr = {
                 ...ocr,
-                handwrittenOrderNumber: pMatch.matchedOrderNumber,
-                referencedOrderNumber: pMatch.matchedOrderNumber,
+                handwrittenOrderNumber: pMatch.matchedOrderNumber || (pMatch.isOverhead ? 'ЦЕХ' : ocr.handwrittenOrderNumber),
+                referencedOrderNumber: pMatch.matchedOrderNumber || (pMatch.isOverhead ? 'ЦЕХ' : ocr.referencedOrderNumber),
                 handwrittenConfidence: 'high',
                 matchedInvoiceNumber: pMatch.matchedInvoiceNumber || ocr.matchedInvoiceNumber,
+                isOverhead: pMatch.isOverhead || ocr.isOverhead,
+                expenseCategory: pMatch.isOverhead ? 'OVERHEAD' : ocr.expenseCategory,
+                matchedInvoiceTab: pMatch.targetTab,
               };
             }
           }
@@ -1044,13 +1047,21 @@ export default function App() {
         const match = OCRService.matchPaymentWithInvoices(
           ocrResult,
           existingInvoicesRef.current,
-          documentsRef.current
+          documentsRef.current,
+          overheadExpensesRef.current
         );
         ocrResult.matchedInvoiceNumber = match.matchedInvoiceNumber;
         ocrResult.matchedInvoiceAmount = match.invoiceAmount;
         ocrResult.matchedInvoiceRowIndex = match.matchedRowIndex;
         ocrResult.paymentStatus = match.computedStatus;
-        if (match.matchedOrderNumber) {
+        ocrResult.matchedInvoiceTab = match.targetTab;
+        if (match.isOverhead || match.targetTab === 'Цех') {
+          ocrResult.isOverhead = true;
+          ocrResult.expenseCategory = 'OVERHEAD';
+          ocrResult.handwrittenOrderNumber = match.matchedOrderNumber || 'ЦЕХ';
+          ocrResult.referencedOrderNumber = match.matchedOrderNumber || 'ЦЕХ';
+          ocrResult.handwrittenConfidence = 'high';
+        } else if (match.matchedOrderNumber) {
           ocrResult.referencedOrderNumber = match.matchedOrderNumber;
           ocrResult.handwrittenOrderNumber = match.matchedOrderNumber;
           ocrResult.handwrittenConfidence = 'high';
@@ -1139,16 +1150,19 @@ export default function App() {
             if (d.id === docId) return d;
             const data = d.editedData || d.ocrResult;
             if (data?.documentType === 'payment') {
-              const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, next);
-              if (pMatch.matchedInvoiceNumber || pMatch.matchedOrderNumber) {
+              const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, next, overheadExpensesRef.current);
+              if (pMatch.matchedInvoiceNumber || pMatch.matchedOrderNumber || pMatch.isOverhead) {
                 const updatedData: OCRResult = {
                   ...data,
-                  handwrittenOrderNumber: pMatch.matchedOrderNumber || data.handwrittenOrderNumber,
-                  referencedOrderNumber: pMatch.matchedOrderNumber || data.referencedOrderNumber,
-                  handwrittenConfidence: pMatch.matchedOrderNumber ? 'high' : data.handwrittenConfidence,
+                  handwrittenOrderNumber: pMatch.matchedOrderNumber || (pMatch.isOverhead ? 'ЦЕХ' : data.handwrittenOrderNumber),
+                  referencedOrderNumber: pMatch.matchedOrderNumber || (pMatch.isOverhead ? 'ЦЕХ' : data.referencedOrderNumber),
+                  handwrittenConfidence: (pMatch.matchedOrderNumber || pMatch.isOverhead) ? 'high' : data.handwrittenConfidence,
                   matchedInvoiceNumber: pMatch.matchedInvoiceNumber || data.matchedInvoiceNumber,
                   matchedInvoiceAmount: pMatch.invoiceAmount || data.matchedInvoiceAmount,
                   paymentStatus: pMatch.computedStatus || data.paymentStatus,
+                  isOverhead: pMatch.isOverhead || data.isOverhead,
+                  expenseCategory: pMatch.isOverhead ? 'OVERHEAD' : data.expenseCategory,
+                  matchedInvoiceTab: pMatch.targetTab,
                 };
                 return { ...d, ocrResult: updatedData, editedData: updatedData };
               }
@@ -1237,16 +1251,19 @@ export default function App() {
             };
           }
         } else if (data.documentType === 'payment') {
-          const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, prev);
-          if (pMatch.matchedInvoiceNumber || pMatch.matchedOrderNumber) {
+          const pMatch = OCRService.matchPaymentWithInvoices(data, existingInvoicesRef.current, prev, overheadExpensesRef.current);
+          if (pMatch.matchedInvoiceNumber || pMatch.matchedOrderNumber || pMatch.isOverhead) {
             const nextData: OCRResult = {
               ...data,
-              handwrittenOrderNumber: pMatch.matchedOrderNumber || data.handwrittenOrderNumber,
-              referencedOrderNumber: pMatch.matchedOrderNumber || data.referencedOrderNumber,
-              handwrittenConfidence: pMatch.matchedOrderNumber ? 'high' : data.handwrittenConfidence,
+              handwrittenOrderNumber: pMatch.matchedOrderNumber || (pMatch.isOverhead ? 'ЦЕХ' : data.handwrittenOrderNumber),
+              referencedOrderNumber: pMatch.matchedOrderNumber || (pMatch.isOverhead ? 'ЦЕХ' : data.referencedOrderNumber),
+              handwrittenConfidence: (pMatch.matchedOrderNumber || pMatch.isOverhead) ? 'high' : data.handwrittenConfidence,
               matchedInvoiceNumber: pMatch.matchedInvoiceNumber || data.matchedInvoiceNumber,
               matchedInvoiceAmount: pMatch.invoiceAmount || data.matchedInvoiceAmount,
               paymentStatus: pMatch.computedStatus || data.paymentStatus,
+              isOverhead: pMatch.isOverhead || data.isOverhead,
+              expenseCategory: pMatch.isOverhead ? 'OVERHEAD' : data.expenseCategory,
+              matchedInvoiceTab: pMatch.targetTab,
             };
             return {
               ...d,
@@ -1355,8 +1372,10 @@ export default function App() {
               handwrittenConfidence: 'none',
               confidenceScore: 100,
             };
-            const match = OCRService.matchPaymentWithInvoices(tempOcr, currentInvoices, documentsRef.current);
-            if (match.matchedOrderNumber) {
+            const match = OCRService.matchPaymentWithInvoices(tempOcr, currentInvoices, documentsRef.current, overheadExpensesRef.current);
+            if (match.isOverhead || match.targetTab === 'Цех') {
+              orderNumber = 'ЦЕХ';
+            } else if (match.matchedOrderNumber) {
               orderNumber = match.matchedOrderNumber;
             }
             if (match.matchedInvoiceNumber && !matchedInvNum) {
@@ -1395,9 +1414,12 @@ export default function App() {
             matchedData,
           };
         }
-        const iMatch = currentInvoices.find((inv) => {
+        // Strict check: if file is a payment order / slip, it MUST NEVER match as an invoice in "Рахунки"
+        const isPaymentFile = GoogleDriveService.isPaymentFileName(f.name);
+
+        const iMatch = !isPaymentFile ? currentInvoices.find((inv) => {
           if (!inv.supplier && !inv.buyer && !inv.amount && !inv.invoiceNumber) return false;
-          // 1. Direct drive link or file name match
+          // 1. Direct drive link or file name match (only if file name is not a payment)
           if (inv.driveLink && f.webViewLink && inv.driveLink.includes(f.id)) return true;
           if (inv.fileName && inv.fileName.trim().length > 3 && cleanName.length > 3 && inv.fileName.toLowerCase().trim() === cleanName) return true;
 
@@ -1414,7 +1436,7 @@ export default function App() {
           }
 
           return false;
-        });
+        }) : null;
         if (iMatch) {
           const matchedData: OCRResult = {
             documentType: 'invoice',
@@ -1791,32 +1813,45 @@ export default function App() {
         }
       }
 
-      // If it's a payment and matches an invoice, reconcile the invoice status
+      // If it's a payment and matches an invoice or overhead, reconcile the invoice/overhead status
       let paymentReconcileMsg = '';
       if (dataToSync.documentType === 'payment') {
         const allMatches = OCRService.matchPaymentWithAllInvoices(
           dataToSync,
           freshInvoices,
-          documentsRef.current
+          documentsRef.current,
+          overheadExpensesRef.current
         );
         for (const m of allMatches) {
           if (m.matchedRowIndex && m.computedStatus) {
             try {
-              await GoogleSheetsService.updateInvoicePaymentInSheet(
-                sheetConfig.spreadsheetId,
-                authState.accessToken,
-                m.matchedRowIndex,
-                m.computedStatus,
-                m.paidAmount || 0,
-                sheetConfig.invoicesSheetName
-              );
+              if (m.isOverhead || m.targetTab === 'Цех') {
+                await GoogleSheetsService.updateOverheadPaymentInSheet(
+                  sheetConfig.spreadsheetId,
+                  authState.accessToken,
+                  m.matchedRowIndex,
+                  m.computedStatus,
+                  m.paidAmount || 0,
+                  sheetConfig.overheadSheetName || 'Цех'
+                );
+              } else {
+                await GoogleSheetsService.updateInvoicePaymentInSheet(
+                  sheetConfig.spreadsheetId,
+                  authState.accessToken,
+                  m.matchedRowIndex,
+                  m.computedStatus,
+                  m.paidAmount || 0,
+                  sheetConfig.invoicesSheetName
+                );
+              }
             } catch (err) {
-              console.warn('Could not update invoice for duplicate payment:', err);
+              console.warn('Could not update invoice/overhead for duplicate payment:', err);
             }
           }
         }
         if (allMatches.length > 0) {
-          paymentReconcileMsg = ` Рахунки зв'язано зі статусом "${allMatches[0].computedStatus}".`;
+          const tabLabel = allMatches[0].isOverhead || allMatches[0].targetTab === 'Цех' ? 'Рахунки Цеху' : 'Рахунки';
+          paymentReconcileMsg = ` ${tabLabel} зв'язано зі статусом "${allMatches[0].computedStatus}".`;
         }
       }
 
@@ -1857,38 +1892,62 @@ export default function App() {
           paymentsTab: sheetConfig.paymentsSheetName,
         });
 
-        // 2. Fetch fresh invoices directly from Google Sheets to ensure exact row index and status
-        const freshInvoices = await GoogleSheetsService.loadExistingInvoices(
-          sheetConfig.spreadsheetId,
-          authState.accessToken,
-          sheetConfig.invoicesSheetName,
-          sheetConfig.availableSheets
-        );
+        // 2. Fetch fresh invoices & overhead expenses directly from Google Sheets to ensure exact row index and status
+        const [freshInvoices, freshOverheads] = await Promise.all([
+          GoogleSheetsService.loadExistingInvoices(
+            sheetConfig.spreadsheetId,
+            authState.accessToken,
+            sheetConfig.invoicesSheetName,
+            sheetConfig.availableSheets
+          ),
+          GoogleSheetsService.loadExistingOverheadExpenses(
+            sheetConfig.spreadsheetId,
+            authState.accessToken,
+            sheetConfig.overheadSheetName || 'Цех',
+            sheetConfig.availableSheets
+          ),
+        ]);
 
-        // 3. Match with fresh existing invoices and update status for ALL matched invoices on "Рахунки"
+        // 3. Match with fresh existing invoices and overheads and update status for ALL matched invoices on "Рахунки" and "Цех"
         const allMatches = OCRService.matchPaymentWithAllInvoices(
           dataToSync,
           freshInvoices.length > 0 ? freshInvoices : existingInvoicesRef.current,
-          documentsRef.current
+          documentsRef.current,
+          freshOverheads.length > 0 ? freshOverheads : overheadExpensesRef.current
         );
 
         if (allMatches.length > 0) {
           const updatedRowIndices = new Map<number, { status: InvoicePaymentStatus; paid: number }>();
+          const updatedOverheadRowIndices = new Map<number, { status: InvoicePaymentStatus; paid: number }>();
           const updatedDocIds = new Map<string, { status: InvoicePaymentStatus; paid: number }>();
           const updatedInvoiceNames: string[] = [];
 
           for (const m of allMatches) {
+            const isOverhead = m.isOverhead || m.targetTab === 'Цех';
             if (m.matchedRowIndex && m.computedStatus) {
-              await GoogleSheetsService.updateInvoicePaymentInSheet(
-                sheetConfig.spreadsheetId,
-                authState.accessToken,
-                m.matchedRowIndex,
-                m.computedStatus,
-                m.paidAmount || 0,
-                sheetConfig.invoicesSheetName
-              );
-              updatedRowIndices.set(m.matchedRowIndex, { status: m.computedStatus, paid: m.paidAmount || 0 });
-              updatedInvoiceNames.push(`№${m.invoiceNumber} -> "${m.computedStatus}" (${OCRService.formatCurrency(m.paidAmount || 0)})`);
+              if (isOverhead) {
+                await GoogleSheetsService.updateOverheadPaymentInSheet(
+                  sheetConfig.spreadsheetId,
+                  authState.accessToken,
+                  m.matchedRowIndex,
+                  m.computedStatus,
+                  m.paidAmount || 0,
+                  sheetConfig.overheadSheetName || 'Цех'
+                );
+                updatedOverheadRowIndices.set(m.matchedRowIndex, { status: m.computedStatus, paid: m.paidAmount || 0 });
+                updatedInvoiceNames.push(`[ЦЕХ] №${m.invoiceNumber} -> "${m.computedStatus}" (${OCRService.formatCurrency(m.paidAmount || 0)})`);
+              } else {
+                await GoogleSheetsService.updateInvoicePaymentInSheet(
+                  sheetConfig.spreadsheetId,
+                  authState.accessToken,
+                  m.matchedRowIndex,
+                  m.computedStatus,
+                  m.paidAmount || 0,
+                  sheetConfig.invoicesSheetName
+                );
+                updatedRowIndices.set(m.matchedRowIndex, { status: m.computedStatus, paid: m.paidAmount || 0 });
+                updatedInvoiceNames.push(`№${m.invoiceNumber} -> "${m.computedStatus}" (${OCRService.formatCurrency(m.paidAmount || 0)})`);
+              }
             }
 
             if (m.matchedDocId && m.computedStatus) {
@@ -1904,6 +1963,18 @@ export default function App() {
                   return { ...inv, paymentStatus: u.status, paidAmount: u.paid };
                 }
                 return inv;
+              })
+            );
+          }
+
+          if (updatedOverheadRowIndices.size > 0) {
+            setOverheadExpenses((prev) =>
+              prev.map((exp) => {
+                if (exp.rowIndex && updatedOverheadRowIndices.has(exp.rowIndex)) {
+                  const u = updatedOverheadRowIndices.get(exp.rowIndex)!;
+                  return { ...exp, paymentStatus: u.status, paidAmount: u.paid };
+                }
+                return exp;
               })
             );
           }
@@ -2208,6 +2279,132 @@ export default function App() {
     }
   };
 
+  // Manager One-Click Approval handler with metadata recording
+  const handleApproveInvoice = async (
+    targetInvoice: ExistingSheetRow,
+    approvedBy: string,
+    approvedAt: string
+  ) => {
+    // 1. Optimistic update in existingInvoices
+    setExistingInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.rowIndex === targetInvoice.rowIndex) {
+          return {
+            ...inv,
+            approvalStatus: 'ПОГОДЖЕНО',
+            approvedBy,
+            approvedAt,
+          };
+        }
+        return inv;
+      })
+    );
+
+    // 2. Also update in documents if matching
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (
+          doc.ocr?.invoiceNumber &&
+          targetInvoice.invoiceNumber &&
+          doc.ocr.invoiceNumber.trim().toLowerCase() === targetInvoice.invoiceNumber.trim().toLowerCase()
+        ) {
+          return {
+            ...doc,
+            approvalStatus: 'ПОГОДЖЕНО',
+            ocr: { ...doc.ocr, approvalStatus: 'ПОГОДЖЕНО' },
+          };
+        }
+        return doc;
+      })
+    );
+
+    // 3. Update in Google Sheets
+    if (sheetConfig?.spreadsheetId && authState.accessToken) {
+      try {
+        await GoogleSheetsService.updateInvoiceApprovalInSheet(
+          sheetConfig.spreadsheetId,
+          authState.accessToken,
+          targetInvoice.rowIndex,
+          'ПОГОДЖЕНО',
+          targetInvoice.invoiceNumber,
+          targetInvoice.supplier,
+          sheetConfig.invoicesSheetName || 'Рахунки',
+          { approvedBy, approvedAt }
+        );
+        notify(`Рахунок ${targetInvoice.supplier} погоджено та збережено в Google Таблиці`, 'success');
+      } catch (err: any) {
+        notify(err.message || 'Помилка збереження погодження в таблиці', 'error');
+        throw err;
+      }
+    } else {
+      notify(`Рахунок ${targetInvoice.supplier} погоджено`, 'success');
+    }
+  };
+
+  // Manager One-Click Rejection handler with reason and metadata recording
+  const handleRejectInvoice = async (
+    targetInvoice: ExistingSheetRow,
+    rejectedBy: string,
+    rejectedAt: string,
+    reason: string
+  ) => {
+    // 1. Optimistic update in existingInvoices
+    setExistingInvoices((prev) =>
+      prev.map((inv) => {
+        if (inv.rowIndex === targetInvoice.rowIndex) {
+          return {
+            ...inv,
+            approvalStatus: 'ВІДХИЛЕНО',
+            approvedBy: rejectedBy,
+            approvedAt: rejectedAt,
+            rejectionReason: reason,
+          };
+        }
+        return inv;
+      })
+    );
+
+    // 2. Also update in documents if matching
+    setDocuments((prev) =>
+      prev.map((doc) => {
+        if (
+          doc.ocr?.invoiceNumber &&
+          targetInvoice.invoiceNumber &&
+          doc.ocr.invoiceNumber.trim().toLowerCase() === targetInvoice.invoiceNumber.trim().toLowerCase()
+        ) {
+          return {
+            ...doc,
+            approvalStatus: 'ВІДХИЛЕНО',
+            ocr: { ...doc.ocr, approvalStatus: 'ВІДХИЛЕНО' },
+          };
+        }
+        return doc;
+      })
+    );
+
+    // 3. Update in Google Sheets
+    if (sheetConfig?.spreadsheetId && authState.accessToken) {
+      try {
+        await GoogleSheetsService.updateInvoiceApprovalInSheet(
+          sheetConfig.spreadsheetId,
+          authState.accessToken,
+          targetInvoice.rowIndex,
+          'ВІДХИЛЕНО',
+          targetInvoice.invoiceNumber,
+          targetInvoice.supplier,
+          sheetConfig.invoicesSheetName || 'Рахунки',
+          { approvedBy: rejectedBy, approvedAt: rejectedAt, rejectionReason: reason }
+        );
+        notify(`Рахунок ${targetInvoice.supplier} відхилено ("${reason}")`, 'info');
+      } catch (err: any) {
+        notify(err.message || 'Помилка збереження відхилення в таблиці', 'error');
+        throw err;
+      }
+    } else {
+      notify(`Рахунок ${targetInvoice.supplier} відхилено ("${reason}")`, 'info');
+    }
+  };
+
   // Replace an unpaid invoice row in-place with an updated document
   const handleReplaceInvoice = async (
     targetRowIndex: number,
@@ -2503,6 +2700,8 @@ export default function App() {
       invoiceRowIndex: number;
       computedStatus: InvoicePaymentStatus;
       paidAmount: number;
+      targetTab?: 'Рахунки' | 'Цех';
+      isOverhead?: boolean;
     }>
   ) => {
     if (!canWriteToSheets) {
@@ -2512,11 +2711,20 @@ export default function App() {
     if (!sheetConfig?.spreadsheetId || !authState.accessToken) {
       setExistingInvoices((prev) =>
         prev.map((inv) => {
-          const match = matches.find((m) => m.invoiceRowIndex === inv.rowIndex);
+          const match = matches.find((m) => m.invoiceRowIndex === inv.rowIndex && (!m.isOverhead && m.targetTab !== 'Цех'));
           if (match) {
             return { ...inv, paymentStatus: match.computedStatus, paidAmount: match.paidAmount };
           }
           return inv;
+        })
+      );
+      setOverheadExpenses((prev) =>
+        prev.map((exp) => {
+          const match = matches.find((m) => m.invoiceRowIndex === exp.rowIndex && (m.isOverhead || m.targetTab === 'Цех'));
+          if (match) {
+            return { ...exp, paymentStatus: match.computedStatus, paidAmount: match.paidAmount };
+          }
+          return exp;
         })
       );
       notify(`Оновлено статуси для ${matches.length} рахунків`, 'success');
@@ -2528,14 +2736,25 @@ export default function App() {
     try {
       for (const item of matches) {
         try {
-          await GoogleSheetsService.updateInvoicePaymentInSheet(
-            sheetConfig.spreadsheetId,
-            authState.accessToken,
-            item.invoiceRowIndex,
-            item.computedStatus,
-            item.paidAmount,
-            sheetConfig.invoicesSheetName
-          );
+          if (item.isOverhead || item.targetTab === 'Цех') {
+            await GoogleSheetsService.updateOverheadPaymentInSheet(
+              sheetConfig.spreadsheetId,
+              authState.accessToken,
+              item.invoiceRowIndex,
+              item.computedStatus,
+              item.paidAmount,
+              sheetConfig.overheadSheetName || 'Цех'
+            );
+          } else {
+            await GoogleSheetsService.updateInvoicePaymentInSheet(
+              sheetConfig.spreadsheetId,
+              authState.accessToken,
+              item.invoiceRowIndex,
+              item.computedStatus,
+              item.paidAmount,
+              sheetConfig.invoicesSheetName
+            );
+          }
           updatedCount++;
         } catch (e) {
           console.error(`Error updating row ${item.invoiceRowIndex}:`, e);
@@ -2543,15 +2762,24 @@ export default function App() {
       }
       setExistingInvoices((prev) =>
         prev.map((inv) => {
-          const match = matches.find((m) => m.invoiceRowIndex === inv.rowIndex);
+          const match = matches.find((m) => m.invoiceRowIndex === inv.rowIndex && (!m.isOverhead && m.targetTab !== 'Цех'));
           if (match) {
             return { ...inv, paymentStatus: match.computedStatus, paidAmount: match.paidAmount };
           }
           return inv;
         })
       );
+      setOverheadExpenses((prev) =>
+        prev.map((exp) => {
+          const match = matches.find((m) => m.invoiceRowIndex === exp.rowIndex && (m.isOverhead || m.targetTab === 'Цех'));
+          if (match) {
+            return { ...exp, paymentStatus: match.computedStatus, paidAmount: match.paidAmount };
+          }
+          return exp;
+        })
+      );
       notify(
-        `Успішно оновлено статуси оплат для ${updatedCount} рахунків у Google Таблиці!`,
+        `Успішно оновлено статуси оплат для ${updatedCount} рахунків у Google Таблиці (включно з вкладкою ЦЕХ)!`,
         'success'
       );
     } catch (err: any) {
@@ -3167,14 +3395,17 @@ export default function App() {
   const handleSaveLocalData = (docId: string, updatedOcr: OCRResult) => {
     let effectiveOcr = updatedOcr;
     if (updatedOcr.documentType === 'payment' && !updatedOcr.handwrittenOrderNumber) {
-      const match = OCRService.matchPaymentWithInvoices(updatedOcr, existingInvoicesRef.current, documentsRef.current);
-      if (match.matchedOrderNumber) {
+      const match = OCRService.matchPaymentWithInvoices(updatedOcr, existingInvoicesRef.current, documentsRef.current, overheadExpensesRef.current);
+      if (match.matchedOrderNumber || match.isOverhead || match.targetTab === 'Цех') {
         effectiveOcr = {
           ...updatedOcr,
-          handwrittenOrderNumber: match.matchedOrderNumber,
-          referencedOrderNumber: match.matchedOrderNumber,
+          handwrittenOrderNumber: match.matchedOrderNumber || (match.isOverhead ? 'ЦЕХ' : updatedOcr.handwrittenOrderNumber),
+          referencedOrderNumber: match.matchedOrderNumber || (match.isOverhead ? 'ЦЕХ' : updatedOcr.referencedOrderNumber),
           handwrittenConfidence: 'high',
           matchedInvoiceNumber: match.matchedInvoiceNumber || updatedOcr.matchedInvoiceNumber,
+          isOverhead: match.isOverhead || updatedOcr.isOverhead,
+          expenseCategory: match.isOverhead ? 'OVERHEAD' : updatedOcr.expenseCategory,
+          matchedInvoiceTab: match.targetTab,
         };
       }
     }
@@ -3575,6 +3806,7 @@ export default function App() {
               sheetConfig={sheetConfig}
               existingInvoices={existingInvoices}
               existingPayments={existingPayments}
+              existingOverheadExpenses={overheadExpenses}
               companyLists={companyLists}
               onRefresh={refreshSheetData}
               isLoading={isLoadingSheet}
@@ -3609,6 +3841,7 @@ export default function App() {
             existingPayments={existingPayments}
             overheadExpenses={overheadExpenses}
             documents={documents}
+            driveFolderId={driveFolderId}
             companyLists={companyLists}
             projects={projects}
             projectHeaders={projectHeaders}
@@ -3626,6 +3859,8 @@ export default function App() {
               }
               await refreshProjectsData(source);
             }}
+            onApproveInvoice={handleApproveInvoice}
+            onRejectInvoice={handleRejectInvoice}
           />
         )}
 

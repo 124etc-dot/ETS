@@ -1025,9 +1025,11 @@ export class GoogleSheetsService {
         let approvalStatus: InvoiceApprovalStatus | undefined = undefined;
         if (colApproval >= 0) {
           const rawApproval = String(row[colApproval] || '').trim().toLowerCase();
-          if (rawApproval.includes('не погоджено')) {
+          if (rawApproval.includes('не погоджено') || rawApproval.includes('pending')) {
             approvalStatus = 'НЕ ПОГОДЖЕНО';
-          } else if (rawApproval.includes('погоджено')) {
+          } else if (rawApproval.includes('відхилено') || rawApproval.includes('rejected')) {
+            approvalStatus = 'ВІДХИЛЕНО';
+          } else if (rawApproval.includes('погоджено') || rawApproval.includes('approved')) {
             approvalStatus = 'ПОГОДЖЕНО';
           }
         }
@@ -2058,7 +2060,12 @@ export class GoogleSheetsService {
     approvalStatus: InvoiceApprovalStatus,
     invoiceNumber?: string,
     supplier?: string,
-    invoicesTab = 'Рахунки'
+    invoicesTab = 'Рахунки',
+    metadata?: {
+      approvedBy?: string;
+      approvedAt?: string;
+      rejectionReason?: string;
+    }
   ): Promise<{ targetRow: number; updatedRange: string }> {
     const cleanId = this.extractSpreadsheetId(spreadsheetId);
     if (this.isProtectedTab(invoicesTab)) {
@@ -2211,6 +2218,12 @@ export class GoogleSheetsService {
     }
 
     const targetCellRange = `'${safeTab}'!${colLetter}${targetRow}`;
+    let cellValue = String(approvalStatus);
+    if (approvalStatus === 'ВІДХИЛЕНО' && metadata?.rejectionReason) {
+      cellValue = `ВІДХИЛЕНО (${metadata.rejectionReason})`;
+    } else if (approvalStatus === 'ПОГОДЖЕНО') {
+      cellValue = 'ПОГОДЖЕНО';
+    }
 
     await this.request<any>(
       `${cleanId}/values/${encodeURIComponent(targetCellRange)}?valueInputOption=USER_ENTERED`,
@@ -2219,7 +2232,7 @@ export class GoogleSheetsService {
         method: 'PUT',
         body: JSON.stringify({
           range: targetCellRange,
-          values: [[approvalStatus]],
+          values: [[cellValue]],
         }),
       }
     );

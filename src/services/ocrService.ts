@@ -1835,14 +1835,15 @@ export class OCRService {
   /**
    * Match payment with multiple invoices.
    * In Ukrainian accounting, an accountant may combine several invoices from the same supplier in one payment order.
-   * This method finds ALL matching invoices from the "Рахунки" sheet and local docs,
+   * This method finds ALL matching invoices from the "Рахунки" sheet, the "Цех" sheet, and local docs,
    * checks if the total payment covers each invoice (or all of them combined),
    * and calculates the proper payment status ("Оплачено" / "Оплачено частково") for each.
    */
   public static matchPaymentWithAllInvoices(
     paymentOcr: OCRResult,
     existingInvoices: ExistingSheetRow[] = [],
-    localDocuments: ProcessedDocument[] = []
+    localDocuments: ProcessedDocument[] = [],
+    existingOverheadExpenses: OverheadExpenseRow[] = []
   ): Array<{
     invoiceNumber: string;
     orderNumber?: string;
@@ -1857,6 +1858,8 @@ export class OCRService {
     buyer?: string;
     isClosedPair?: boolean;
     isAlreadyClosed?: boolean;
+    targetTab?: 'Рахунки' | 'Цех';
+    isOverhead?: boolean;
   }> {
     const paymentAmount = paymentOcr.amountPaid || paymentOcr.totalAmount || 0;
     const refNumbers = this.extractAllInvoiceNumbers(
@@ -1883,14 +1886,22 @@ export class OCRService {
       buyer?: string;
       isClosedPair?: boolean;
       isAlreadyClosed?: boolean;
+      targetTab?: 'Рахунки' | 'Цех';
+      isOverhead?: boolean;
     }> = [];
 
-    const matchedRowIndices = new Set<number>();
+    const matchedInvoiceRowIndices = new Set<number>();
+    const matchedOverheadRowIndices = new Set<number>();
     const matchedDocIds = new Set<string>();
 
-    // 1. Scan existing sheet rows for matches
+    // 1. Scan existing sheet rows from "Рахунки" for matches
     for (const inv of existingInvoices) {
-      if (inv.rowIndex && matchedRowIndices.has(inv.rowIndex)) continue;
+      const isInvOverhead = inv.isOverhead || inv.orderNumber === 'ЦЕХ';
+      if (isInvOverhead) {
+        if (inv.rowIndex && matchedOverheadRowIndices.has(inv.rowIndex)) continue;
+      } else {
+        if (inv.rowIndex && matchedInvoiceRowIndices.has(inv.rowIndex)) continue;
+      }
 
       const rawInvNum = (inv.invoiceNumber || '').trim();
       const cleanInvNum = this.normalizeInvoiceNumber(rawInvNum);
@@ -1959,7 +1970,11 @@ export class OCRService {
           reason = `Співпадіння за постачальником "${inv.supplier}" та сумою (${inv.amount} грн)`;
         }
 
-        if (inv.rowIndex) matchedRowIndices.add(inv.rowIndex);
+        if (isInvOverhead) {
+          if (inv.rowIndex) matchedOverheadRowIndices.add(inv.rowIndex);
+        } else {
+          if (inv.rowIndex) matchedInvoiceRowIndices.add(inv.rowIndex);
+        }
 
         const isAlreadyClosed =
           inv.paymentStatus === 'Оплачено' ||
@@ -1967,18 +1982,113 @@ export class OCRService {
 
         matches.push({
           invoiceNumber: inv.invoiceNumber,
-          orderNumber: inv.orderNumber,
+          orderNumber: isInvOverhead ? 'ЦЕХ' : inv.orderNumber,
           invoiceAmount: invAmount,
           previousPaidAmount: inv.paidAmount || 0,
           paidAmount: invAmount, // will be computed in step 3
           computedStatus: 'Оплачено',
           matchedRowIndex: inv.rowIndex,
-          matchReason: reason,
+          matchReason: isInvOverhead ? `${reason} (вкладка «ЦЕХ»)` : reason,
           supplier: inv.supplier,
           buyer: inv.buyer,
           isAlreadyClosed,
           isClosedPair: isAlreadyClosed,
+          targetTab: isInvOverhead ? 'Цех' : 'Рахунки',
+          isOverhead: isInvOverhead,
         });
+      }
+    }
+
+    // 1.5. Scan existing rows from "ЦЕХ" (overhead expenses) for matches
+    if (existingOverheadExpenses && existingOverheadExpenses.length > 0) {
+      for (const exp of existingOverheadExpenses) {
+        if (exp.rowIndex && matchedOverheadRowIndices.has(exp.rowIndex)) continue;
+
+        const rawInvNum = (exp.invoiceNumber || '').trim();
+        const cleanInvNum = this.normalizeInvoiceNumber(rawInvNum);
+        const invSupplier = this.normalizeCompanyName(exp.supplier || '');
+        const invAmount = exp.amount || 0;
+
+        const isDateString = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
+        const isInvNumActuallyDate = isDateString(rawInvNum);
+
+        // Criterion A: Match against any extracted invoice number from the payment
+        const hasInvNumMatch =
+          !isInvNumActuallyDate &&
+          cleanInvNum.length >= 1 &&
+          (cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn)) ||
+            this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
+            (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
+
+        // Criterion B: Match by Supplier / Payee
+        const isSupplierMatch = Boolean(
+          payeeName &&
+          invSupplier &&
+          (this.isCompanyNameMatch(invSupplier, payeeName) ||
+            (invSupplier.length >= 4 && purpose.includes(invSupplier.toLowerCase())))
+        );
+
+        // Criterion C: Match by Amount
+        const isAmountMatch = paymentAmount > 0 && invAmount > 0 && Math.abs(paymentAmount - invAmount) <= 0.50;
+        const isPartialAmountMatch = paymentAmount > 0 && invAmount > 0 && paymentAmount < invAmount - 0.50;
+
+        // Criterion D: Overhead Context (keyword "цех", "цехові", "накладні" or order "ЦЕХ")
+        const isOverheadContext =
+          refOrder === 'цех' ||
+          purpose.includes('цех') ||
+          purpose.includes('цехові') ||
+          purpose.includes('накладні') ||
+          purpose.includes('загальновиробничі');
+
+        const isCleanInvPlaceholder = this.isPlaceholderNumber(cleanInvNum);
+        const hasContradictingInvoice =
+          !isCleanInvPlaceholder &&
+          refOrder &&
+          refOrder !== 'цех' &&
+          !this.isPlaceholderNumber(refOrder) &&
+          !this.isInvoiceNumberMatch(cleanInvNum, refOrder) &&
+          !hasInvNumMatch;
+
+        const hasContradictingProjectOrder =
+          Boolean(refOrder && refOrder !== 'цех' && !this.isPlaceholderNumber(refOrder) && !hasInvNumMatch && !isOverheadContext);
+
+        const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch || isAmountMatch);
+        const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingProjectOrder;
+        const matchByOverheadSupplierAndAmount = isOverheadContext && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
+
+        if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOverheadSupplierAndAmount) {
+          let reason = '';
+          if (matchByInvoiceNum) {
+            reason = `Співпадіння за номером рахунку "${exp.invoiceNumber}" (вкладка «ЦЕХ»)`;
+          } else if (matchByOverheadSupplierAndAmount) {
+            reason = `Співпадіння за витратами цеху, постачальником "${exp.supplier}" та сумою (${exp.amount} грн) (вкладка «ЦЕХ»)`;
+          } else {
+            reason = `Співпадіння за постачальником "${exp.supplier}" та сумою (${exp.amount} грн) (вкладка «ЦЕХ»)`;
+          }
+
+          if (exp.rowIndex) matchedOverheadRowIndices.add(exp.rowIndex);
+
+          const isAlreadyClosed =
+            exp.paymentStatus === 'Оплачено' ||
+            (invAmount > 0 && (exp.paidAmount || 0) >= invAmount - 0.50);
+
+          matches.push({
+            invoiceNumber: exp.invoiceNumber || `Рахунок (${exp.supplier})`,
+            orderNumber: 'ЦЕХ',
+            invoiceAmount: invAmount,
+            previousPaidAmount: exp.paidAmount || 0,
+            paidAmount: invAmount,
+            computedStatus: 'Оплачено',
+            matchedRowIndex: exp.rowIndex,
+            matchReason: reason,
+            supplier: exp.supplier,
+            buyer: exp.buyer,
+            isAlreadyClosed,
+            isClosedPair: isAlreadyClosed,
+            targetTab: 'Цех',
+            isOverhead: true,
+          });
+        }
       }
     }
 
@@ -1994,6 +2104,12 @@ export class OCRService {
       const invSupplier = this.normalizeCompanyName(ocr.supplierName || '');
       const invAmount = ocr.totalAmount || 0;
       const isDatePattern = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
+      const isDocOverhead =
+        doc.isOverhead ||
+        doc.expenseCategory === 'OVERHEAD' ||
+        ocr.isOverhead ||
+        ocr.expenseCategory === 'OVERHEAD' ||
+        cleanOrderNum === 'цех';
 
       // Check if this local document corresponds to an already matched sheet row (prevent duplicate counting)
       const existingSheetMatch = matches.find((m) => {
@@ -2033,7 +2149,7 @@ export class OCRService {
           existingSheetMatch.invoiceNumber = ocr.invoiceNumber;
         }
         if (!existingSheetMatch.orderNumber && ocr.handwrittenOrderNumber) {
-          existingSheetMatch.orderNumber = ocr.handwrittenOrderNumber;
+          existingSheetMatch.orderNumber = isDocOverhead ? 'ЦЕХ' : ocr.handwrittenOrderNumber;
         }
         continue;
       }
@@ -2090,6 +2206,10 @@ export class OCRService {
           reason = `Співпадіння за постачальником "${ocr.supplierName}" та сумою (${ocr.totalAmount} грн)`;
         }
 
+        if (isDocOverhead) {
+          reason += ' (вкладка «ЦЕХ»)';
+        }
+
         matchedDocIds.add(doc.id);
 
         const isAlreadyClosed =
@@ -2098,7 +2218,7 @@ export class OCRService {
 
         matches.push({
           invoiceNumber: ocr.invoiceNumber,
-          orderNumber: ocr.handwrittenOrderNumber,
+          orderNumber: isDocOverhead ? 'ЦЕХ' : ocr.handwrittenOrderNumber,
           invoiceAmount: invAmount,
           previousPaidAmount: (doc.editedData?.amountPaid || ocr.amountPaid || 0),
           paidAmount: invAmount,
@@ -2109,6 +2229,8 @@ export class OCRService {
           buyer: ocr.buyerName,
           isAlreadyClosed,
           isClosedPair: isAlreadyClosed,
+          targetTab: isDocOverhead ? 'Цех' : 'Рахунки',
+          isOverhead: isDocOverhead,
         });
       }
     }
@@ -2117,11 +2239,11 @@ export class OCRService {
     // Safety check: if multiple matches were found purely by supplier + amount (no specific invoice or order number),
     // it is ambiguous and would erroneously pay multiple invoices. Keep only specific matches.
     const purelyGenericMatches = matches.filter(
-      (m) => !m.matchReason?.includes('номеру рахунку') && !m.matchReason?.includes('замовленням')
+      (m) => !m.matchReason?.includes('номеру рахунку') && !m.matchReason?.includes('замовленням') && !m.matchReason?.includes('витратами цеху')
     );
     if (purelyGenericMatches.length > 1) {
       const specificMatches = matches.filter(
-        (m) => m.matchReason?.includes('номеру рахунку') || m.matchReason?.includes('замовленням')
+        (m) => m.matchReason?.includes('номеру рахунку') || m.matchReason?.includes('замовленням') || m.matchReason?.includes('витратами цеху')
       );
       matches = specificMatches;
     }
@@ -2191,7 +2313,8 @@ export class OCRService {
   public static matchPaymentWithInvoices(
     paymentOcr: OCRResult,
     existingInvoices: ExistingSheetRow[] = [],
-    localDocuments: ProcessedDocument[] = []
+    localDocuments: ProcessedDocument[] = [],
+    existingOverheadExpenses: OverheadExpenseRow[] = []
   ): {
     matchedInvoiceNumber?: string;
     matchedOrderNumber?: string;
@@ -2205,6 +2328,8 @@ export class OCRService {
     matchedSupplier?: string;
     matchedBuyer?: string;
     isClosedPair?: boolean;
+    targetTab?: 'Рахунки' | 'Цех';
+    isOverhead?: boolean;
     matchedInvoices?: Array<{
       invoiceNumber: string;
       orderNumber?: string;
@@ -2218,10 +2343,12 @@ export class OCRService {
       supplier?: string;
       buyer?: string;
       isClosedPair?: boolean;
+      targetTab?: 'Рахунки' | 'Цех';
+      isOverhead?: boolean;
     }>;
   } {
     const paymentAmount = paymentOcr.amountPaid || paymentOcr.totalAmount || 0;
-    const allMatches = this.matchPaymentWithAllInvoices(paymentOcr, existingInvoices, localDocuments);
+    const allMatches = this.matchPaymentWithAllInvoices(paymentOcr, existingInvoices, localDocuments, existingOverheadExpenses);
 
     if (allMatches.length === 0) {
       return {
@@ -2253,6 +2380,8 @@ export class OCRService {
       matchedSupplier: supplierList || first.supplier,
       matchedBuyer: buyerList || first.buyer,
       isClosedPair: first.isClosedPair,
+      targetTab: first.targetTab,
+      isOverhead: first.isOverhead,
       matchedInvoices: allMatches,
     };
   }
@@ -2502,7 +2631,8 @@ export class OCRService {
    */
   public static reconcileInvoicesWithPayments(
     existingInvoices: ExistingSheetRow[] = [],
-    existingPayments: ExistingPaymentRow[] = []
+    existingPayments: ExistingPaymentRow[] = [],
+    existingOverheadExpenses: OverheadExpenseRow[] = []
   ): Array<{
     invoiceRowIndex: number;
     invoiceNumber: string;
@@ -2522,6 +2652,8 @@ export class OCRService {
     allMatchedInvoiceRowIndices?: number[];
     siblingUnpaidInvoiceRowIndices?: number[];
     multiInvoiceCount?: number;
+    targetTab?: 'Рахунки' | 'Цех';
+    isOverhead?: boolean;
   }> {
     const results: Array<{
       invoiceRowIndex: number;
@@ -2542,6 +2674,8 @@ export class OCRService {
       allMatchedInvoiceRowIndices?: number[];
       siblingUnpaidInvoiceRowIndices?: number[];
       multiInvoiceCount?: number;
+      targetTab?: 'Рахунки' | 'Цех';
+      isOverhead?: boolean;
     }> = [];
 
     // 1. Analyze every payment in existingPayments to determine which invoices it matches,
@@ -2581,7 +2715,7 @@ export class OCRService {
         confidenceScore: 100,
       };
 
-      const matchedInvs = this.matchPaymentWithAllInvoices(pOcr, existingInvoices);
+      const matchedInvs = this.matchPaymentWithAllInvoices(pOcr, existingInvoices, [], existingOverheadExpenses);
       const allRowIndices = Array.from(
         new Set(
           matchedInvs
@@ -2592,7 +2726,10 @@ export class OCRService {
 
       const unpaidRowIndices = allRowIndices.filter((rowIndex) => {
         const inv = existingInvoices.find((i) => i.rowIndex === rowIndex);
-        return inv && inv.paymentStatus !== 'Оплачено';
+        if (inv) return inv.paymentStatus !== 'Оплачено';
+        const exp = existingOverheadExpenses.find((e) => e.rowIndex === rowIndex);
+        if (exp) return exp.paymentStatus !== 'Оплачено';
+        return false;
       });
 
       const extractedRefNums = this.extractAllInvoiceNumbers(p.referencedInvoiceNumber, undefined, p.paymentPurpose);
@@ -2654,10 +2791,12 @@ export class OCRService {
         const unpaidIndices = payInfo?.unpaidRowIndices || [];
         const multiCount = payInfo?.totalInvoiceCount || (allIndices.length > 1 ? allIndices.length : 1);
 
+        const isOverhead = inv.isOverhead || inv.orderNumber === 'ЦЕХ';
+
         results.push({
           invoiceRowIndex: inv.rowIndex,
           invoiceNumber: inv.invoiceNumber,
-          orderNumber: inv.orderNumber,
+          orderNumber: isOverhead ? 'ЦЕХ' : inv.orderNumber,
           supplier: inv.supplier,
           invoiceAmount: inv.amount,
           currentStatus: inv.paymentStatus,
@@ -2677,7 +2816,81 @@ export class OCRService {
           allMatchedInvoiceRowIndices: allIndices,
           siblingUnpaidInvoiceRowIndices: unpaidIndices.filter((idx) => idx !== inv.rowIndex),
           multiInvoiceCount: multiCount,
+          targetTab: isOverhead ? 'Цех' : 'Рахунки',
+          isOverhead,
         });
+      }
+    }
+
+    // Pass 1.5: Process overhead expenses from "Цех" already marked "Оплачено"
+    if (existingOverheadExpenses && existingOverheadExpenses.length > 0) {
+      for (const exp of existingOverheadExpenses) {
+        if (!exp.rowIndex) continue;
+        if (exp.paymentStatus === 'Оплачено') {
+          const mockOcr: OCRResult = {
+            invoiceNumber: exp.invoiceNumber || '',
+            invoiceDate: exp.date || '',
+            handwrittenOrderNumber: 'ЦЕХ',
+            supplierName: exp.supplier,
+            buyerName: exp.buyer || '',
+            totalAmount: exp.amount,
+            currency: 'UAH',
+            documentType: 'invoice',
+            documentTypeUkrainian: 'Витрати цеху',
+            handwrittenConfidence: 'high',
+            confidenceScore: 1,
+            paymentStatus: 'Оплачено',
+            expenseCategory: 'OVERHEAD',
+            isOverhead: true,
+          };
+
+          const match = this.matchInvoiceWithPayments(mockOcr, existingPayments);
+          const firstPay = match.matchedPaymentRows[0];
+          const payInfo = firstPay?.rowIndex ? paymentMatchedInvoicesMap.get(firstPay.rowIndex) : undefined;
+
+          if (match.matchedPaymentRows.length > 0) {
+            for (const p of match.matchedPaymentRows) {
+              const pInfo = p.rowIndex ? paymentMatchedInvoicesMap.get(p.rowIndex) : undefined;
+              const hasUnpaidRemaining = pInfo && pInfo.unpaidRowIndices.length > 0;
+              if (!hasUnpaidRemaining) {
+                if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
+                const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+                consumedPaymentSemanticKeys.add(semKey);
+              }
+            }
+          }
+
+          const allIndices = payInfo?.allRowIndices && payInfo.allRowIndices.length > 0
+            ? payInfo.allRowIndices
+            : (firstPay?.rowIndex ? [exp.rowIndex] : []);
+          const unpaidIndices = payInfo?.unpaidRowIndices || [];
+          const multiCount = payInfo?.totalInvoiceCount || (allIndices.length > 1 ? allIndices.length : 1);
+
+          results.push({
+            invoiceRowIndex: exp.rowIndex,
+            invoiceNumber: exp.invoiceNumber || `Рахунок (${exp.supplier})`,
+            orderNumber: 'ЦЕХ',
+            supplier: exp.supplier,
+            invoiceAmount: exp.amount,
+            currentStatus: 'Оплачено',
+            computedStatus: 'Оплачено',
+            paidAmount: exp.amount,
+            matchedPaymentRowIndex: firstPay?.rowIndex,
+            matchedPaymentNumber: firstPay?.paymentNumber,
+            matchedPaymentDate: firstPay?.paymentDate,
+            matchedPaymentAmount: firstPay?.amountPaid,
+            matchedPaymentPayee: firstPay?.payee,
+            matchReason: firstPay
+              ? `🔒 Пара закрита (вкладка «ЦЕХ»): рахунок цеху оплачено платіжкою №${firstPay.paymentNumber || ''}`
+              : `🔒 Витрату цеху закрито (статус «Оплачено», сума ${this.formatCurrency(exp.amount)})`,
+            isClosedPair: true,
+            allMatchedInvoiceRowIndices: allIndices,
+            siblingUnpaidInvoiceRowIndices: unpaidIndices.filter((idx) => idx !== exp.rowIndex),
+            multiInvoiceCount: multiCount,
+            targetTab: 'Цех',
+            isOverhead: true,
+          });
+        }
       }
     }
 
@@ -2748,10 +2961,12 @@ export class OCRService {
           customMatchReason = `Платіжка №${firstPay.paymentNumber || ''} (рядок ${firstPay.rowIndex}) містить ${multiCount} рахунки. За цим рахунком сума: ${this.formatCurrency(inv.amount)}.`;
         }
 
+        const isOverhead = inv.isOverhead || inv.orderNumber === 'ЦЕХ';
+
         results.push({
           invoiceRowIndex: inv.rowIndex,
           invoiceNumber: inv.invoiceNumber,
-          orderNumber: inv.orderNumber,
+          orderNumber: isOverhead ? 'ЦЕХ' : inv.orderNumber,
           supplier: inv.supplier,
           invoiceAmount: inv.amount,
           currentStatus: inv.paymentStatus,
@@ -2767,7 +2982,99 @@ export class OCRService {
           allMatchedInvoiceRowIndices: allIndices,
           siblingUnpaidInvoiceRowIndices: unpaidIndices.filter((idx) => idx !== inv.rowIndex),
           multiInvoiceCount: multiCount,
+          targetTab: isOverhead ? 'Цех' : 'Рахунки',
+          isOverhead,
         });
+      }
+    }
+
+    // Pass 2.5: Process remaining open overhead expenses from "Цех"
+    if (existingOverheadExpenses && existingOverheadExpenses.length > 0) {
+      for (const exp of existingOverheadExpenses) {
+        if (!exp.rowIndex) continue;
+        if (exp.paymentStatus === 'Оплачено') continue;
+
+        const availablePayments = existingPayments.filter((p) => {
+          if (!p.rowIndex) return true;
+          const pInfo = paymentMatchedInvoicesMap.get(p.rowIndex);
+          if (pInfo && pInfo.allRowIndices.includes(exp.rowIndex!)) {
+            return true;
+          }
+          if (consumedPaymentRowIndices.has(p.rowIndex)) return false;
+          const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+          if (consumedPaymentSemanticKeys.has(semKey)) return false;
+          return true;
+        });
+
+        const mockOcr: OCRResult = {
+          invoiceNumber: exp.invoiceNumber || '',
+          invoiceDate: exp.date || '',
+          handwrittenOrderNumber: 'ЦЕХ',
+          supplierName: exp.supplier,
+          buyerName: exp.buyer || '',
+          totalAmount: exp.amount,
+          currency: 'UAH',
+          documentType: 'invoice',
+          documentTypeUkrainian: 'Витрати цеху',
+          handwrittenConfidence: 'high',
+          confidenceScore: 1,
+          paymentStatus: exp.paymentStatus || 'Не оплачено',
+          expenseCategory: 'OVERHEAD',
+          isOverhead: true,
+        };
+
+        const match = this.matchInvoiceWithPayments(mockOcr, availablePayments);
+
+        if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
+          const firstPay = match.matchedPaymentRows[0];
+          const payInfo = firstPay?.rowIndex ? paymentMatchedInvoicesMap.get(firstPay.rowIndex) : undefined;
+
+          if (match.computedStatus === 'Оплачено') {
+            for (const p of match.matchedPaymentRows) {
+              const pInfo = p.rowIndex ? paymentMatchedInvoicesMap.get(p.rowIndex) : undefined;
+              const remainingSiblingsUnpaid = pInfo ? pInfo.unpaidRowIndices.filter((idx) => idx !== exp.rowIndex) : [];
+              if (!pInfo?.isMultiInvoice || remainingSiblingsUnpaid.length === 0) {
+                if (p.rowIndex) consumedPaymentRowIndices.add(p.rowIndex);
+                const semKey = `${(p.paymentNumber || '').trim().toLowerCase()}_${p.amountPaid || 0}_${this.normalizeCompanyName(p.payee || '')}_${p.paymentDate || ''}`;
+                consumedPaymentSemanticKeys.add(semKey);
+              }
+            }
+          }
+
+          const allIndices = payInfo?.allRowIndices && payInfo.allRowIndices.length > 0
+            ? payInfo.allRowIndices
+            : (firstPay?.rowIndex ? [exp.rowIndex] : []);
+          const unpaidIndices = payInfo?.unpaidRowIndices || [];
+          const multiCount = payInfo?.totalInvoiceCount || (allIndices.length > 1 ? allIndices.length : 1);
+
+          let customMatchReason = match.matchReason;
+          if (payInfo?.isMultiInvoice && firstPay) {
+            customMatchReason = `Платіжка №${firstPay.paymentNumber || ''} (рядок ${firstPay.rowIndex}) містить кілька рахунків. За цим рахунком цеху сума: ${this.formatCurrency(exp.amount)}.`;
+          }
+
+          results.push({
+            invoiceRowIndex: exp.rowIndex,
+            invoiceNumber: exp.invoiceNumber || `Рахунок (${exp.supplier})`,
+            orderNumber: 'ЦЕХ',
+            supplier: exp.supplier,
+            invoiceAmount: exp.amount,
+            currentStatus: exp.paymentStatus || 'Не оплачено',
+            computedStatus: match.computedStatus,
+            paidAmount: match.computedStatus === 'Оплачено' ? exp.amount : Math.min(match.totalPaidAmount, exp.amount),
+            matchedPaymentRowIndex: firstPay?.rowIndex,
+            matchedPaymentNumber: firstPay?.paymentNumber,
+            matchedPaymentDate: firstPay?.paymentDate,
+            matchedPaymentAmount: firstPay?.amountPaid,
+            matchedPaymentPayee: firstPay?.payee,
+            matchReason: customMatchReason || `Знайдено платіжку для рахунку цеху на суму ${this.formatCurrency(match.totalPaidAmount)} (вкладка «ЦЕХ»)`,
+            isClosedPair: match.computedStatus === 'Оплачено',
+            allMatchedInvoiceRowIndices: allIndices,
+            siblingUnpaidInvoiceRowIndices: unpaidIndices.filter((idx) => idx !== exp.rowIndex),
+            multiInvoiceCount: multiCount,
+            targetTab: 'Цех',
+            isOverhead: true,
+          });
+        }
       }
     }
 

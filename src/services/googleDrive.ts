@@ -151,6 +151,135 @@ export class GoogleDriveService {
   }
 
   /**
+   * Helper to identify if a file name or string indicates a payment order / bank receipt / slip (not an invoice)
+   */
+  public static isPaymentFileName(name: string): boolean {
+    if (!name) return false;
+    const lower = name.toLowerCase().trim();
+
+    // Check for explicit invoice naming first: e.g. "Рахунок на оплату", "Рахунок-фактура на оплату"
+    // (these contain "оплат", but are genuine invoices, unless prefixed by payment terms like "Оплата рахунку...")
+    const isJustInvoiceForPayment = /^(?:свідоцтво|акт|)?\s*(?:рахунок(?:-фактура)?|счет(?:-фактура)?|invoice)\s+(?:на|до)\s+оплат/i.test(lower);
+    const hasStrongPaymentPrefix = /^(?:платіж|платеж|пд|pd|пл|квитанц|виписк|чек|оплата|сплата|payment|receipt|банк|privat|mono)/i.test(lower);
+    if (isJustInvoiceForPayment && !hasStrongPaymentPrefix) {
+      return false;
+    }
+
+    // 1. Core Ukrainian and Russian payment terminology
+    if (
+      lower.includes('платіж') ||
+      lower.includes('платиж') ||
+      lower.includes('платеж') ||
+      lower.includes('інструкц') ||
+      lower.includes('инструкц') ||
+      lower.includes('доручен') ||
+      lower.includes('поручен') ||
+      lower.includes('квитанц') ||
+      lower.includes('квитанция') ||
+      lower.includes('квит.') ||
+      lower.includes('виписк') ||
+      lower.includes('выписк') ||
+      lower.includes('чек') ||
+      lower.includes('ордер') ||
+      lower.includes('меморіал') ||
+      lower.includes('мемориал') ||
+      lower.includes('касов') ||
+      lower.includes('кассов') ||
+      lower.includes('переказ') ||
+      lower.includes('перерахуван')
+    ) {
+      return true;
+    }
+
+    // 2. English payment keywords
+    if (
+      lower.includes('payment') ||
+      lower.includes('receipt') ||
+      lower.includes('bank_slip') ||
+      lower.includes('order_pay') ||
+      lower.includes('pay_order') ||
+      lower.includes('statement') ||
+      lower.includes('swift') ||
+      lower.includes('uetr')
+    ) {
+      return true;
+    }
+
+    // 3. Banking systems & bank export names
+    if (
+      lower.includes('privat') ||
+      lower.includes('приват') ||
+      lower.includes('p24') ||
+      lower.includes('monobank') ||
+      lower.includes('монобанк') ||
+      lower.includes('mono_') ||
+      lower.includes('mono ') ||
+      lower.includes('raiffeisen') ||
+      lower.includes('райффайзен') ||
+      lower.includes('aval') ||
+      lower.includes('аваль') ||
+      lower.includes('ukrsib') ||
+      lower.includes('укрсиб') ||
+      lower.includes('pumb') ||
+      lower.includes('пумб') ||
+      lower.includes('otp') ||
+      lower.includes('kredo') ||
+      lower.includes('кредо') ||
+      lower.includes('sense_') ||
+      lower.includes('universalbank') ||
+      lower.includes('ibank') ||
+      lower.includes('clientbank') ||
+      lower.includes('клієнтбанк') ||
+      lower.includes('клиентбанк')
+    ) {
+      return true;
+    }
+
+    // 4. Abbreviations & short banking codes: PD / ПД / Пл.дор / ПКО / ВКО / МО
+    if (/(^|[_\s./\\-])(пд|pd|пл[._\s-]?дор|вко|пко|мо)([_\s./\\-]|\d|№|n|$)/i.test(lower)) {
+      return true;
+    }
+
+    // 5. Payment action prefix or combination: e.g. "оплата_207-26", "оплата рахунку 142", "сплата за рах", "pay_456"
+    if (/(^|[_\s./\\-])(оплата|сплата|payment|paid|pay|plat)([_\s./\\-]|\d|$)/i.test(lower)) {
+      return true;
+    }
+    if (/(оплат[аиі]|сплат[аиі]|payment|paid)[_\s.-]*(рахун|рах|inv|счет|до|за|по|№|\d)/i.test(lower)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Helper to identify if a file name indicates an invoice / bill / act (and is NOT a payment slip)
+   */
+  public static isInvoiceFileName(name: string): boolean {
+    if (!name) return false;
+    if (this.isPaymentFileName(name)) return false;
+
+    const lower = name.toLowerCase().trim();
+    return (
+      lower.includes('рахунок') ||
+      lower.includes('рахун') ||
+      lower.includes('рах_') ||
+      lower.includes('рах.') ||
+      lower.includes('рах-') ||
+      lower.includes('рах ') ||
+      lower.includes('счет') ||
+      lower.includes('счёт') ||
+      lower.includes('фактур') ||
+      lower.includes('invoice') ||
+      lower.includes('inv_') ||
+      lower.includes('inv.') ||
+      lower.includes('inv-') ||
+      lower.includes('inv ') ||
+      lower.includes('bill') ||
+      lower.includes('акт')
+    );
+  }
+
+  /**
    * Search for an invoice or payment file in the folder by invoice number, payment number, order number, supplier, or file name
    */
   public static async findFileInFolder(
@@ -164,14 +293,43 @@ export class GoogleDriveService {
       payee?: string;
       fileName?: string;
       amount?: number;
+      documentType?: 'invoice' | 'payment';
     }
   ): Promise<GoogleDriveFile | null> {
     const cleanFolderId = this.extractFolderId(folderId);
     if (!cleanFolderId) return null;
 
     try {
-      const files = await this.listFilesInFolder(cleanFolderId, accessToken);
-      if (!files || files.length === 0) return null;
+      const allFiles = await this.listFilesInFolder(cleanFolderId, accessToken);
+      if (!allFiles || allFiles.length === 0) return null;
+
+      // Filter files strictly by documentType if requested
+      let files = allFiles;
+      if (query.documentType === 'invoice') {
+        files = allFiles.filter((f) => {
+          if (this.isPaymentFileName(f.name)) return false;
+          if (f.appProperties) {
+            const ocr = this.extractOcrFromDriveProperties(f.appProperties);
+            if (ocr && ocr.documentType === 'payment') return false;
+            if (f.appProperties.doc_type === 'payment') return false;
+            if (f.appProperties.ocr_type === 'payment') return false;
+          }
+          return true;
+        });
+      } else if (query.documentType === 'payment') {
+        files = allFiles.filter((f) => {
+          if (this.isPaymentFileName(f.name)) return true;
+          if (f.appProperties) {
+            const ocr = this.extractOcrFromDriveProperties(f.appProperties);
+            if (ocr && ocr.documentType === 'payment') return true;
+            if (f.appProperties.doc_type === 'payment') return true;
+            if (f.appProperties.ocr_type === 'payment') return true;
+          }
+          return !this.isInvoiceFileName(f.name);
+        });
+      }
+
+      if (files.length === 0) return null;
 
       const cleanInvNum = query.invoiceNumber
         ? query.invoiceNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase()
@@ -187,9 +345,10 @@ export class GoogleDriveService {
         : '';
       const cleanFileNameNoExt = cleanFileName.replace(/\.[^/.]+$/, '');
 
-      // 1. Direct file name match
-      if (cleanFileName) {
+      // 1. Direct file name match (only if not a payment file when searching for invoice)
+      if (cleanFileName && (query.documentType !== 'invoice' || !this.isPaymentFileName(cleanFileName))) {
         const directMatch = files.find((f) => {
+          if (query.documentType === 'invoice' && this.isPaymentFileName(f.name)) return false;
           const fn = f.name.toLowerCase().trim();
           const fnNoExt = fn.replace(/\.[^/.]+$/, '');
           return fn === cleanFileName || fnNoExt === cleanFileNameNoExt;
@@ -202,6 +361,9 @@ export class GoogleDriveService {
         if (f.appProperties) {
           const ocr = this.extractOcrFromDriveProperties(f.appProperties);
           if (ocr) {
+            // If searching for invoice, do not match payment documents
+            if (query.documentType === 'invoice' && ocr.documentType === 'payment') continue;
+
             // Invoice number match
             if (cleanInvNum && ocr.invoiceNumber) {
               const ocrCleanInv = ocr.invoiceNumber.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
@@ -209,8 +371,8 @@ export class GoogleDriveService {
                 return f;
               }
             }
-            // Payment number match
-            if (cleanPaymentNum && (ocr.paymentNumber || ocr.invoiceNumber)) {
+            // Payment number match (for payments only)
+            if (query.documentType !== 'invoice' && cleanPaymentNum && (ocr.paymentNumber || ocr.invoiceNumber)) {
               const ocrCleanPay = (ocr.paymentNumber || ocr.invoiceNumber || '').replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
               if (ocrCleanPay && (ocrCleanPay === cleanPaymentNum || ocrCleanPay.includes(cleanPaymentNum) || cleanPaymentNum.includes(ocrCleanPay))) {
                 return f;
@@ -228,15 +390,24 @@ export class GoogleDriveService {
 
       // 3. Match file name containing the invoice number (minimum 2 chars)
       if (cleanInvNum && cleanInvNum.length >= 2) {
+        // Prioritize files whose name indicates an invoice
+        const byInvoiceNamed = files.find((f) => {
+          if (this.isPaymentFileName(f.name)) return false;
+          const fn = f.name.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
+          return fn.includes(cleanInvNum) && this.isInvoiceFileName(f.name);
+        });
+        if (byInvoiceNamed) return byInvoiceNamed;
+
         const byName = files.find((f) => {
+          if (this.isPaymentFileName(f.name)) return false;
           const fn = f.name.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
           return fn.includes(cleanInvNum);
         });
         if (byName) return byName;
       }
 
-      // 4. Match file name containing payment number (minimum 2 chars)
-      if (cleanPaymentNum && cleanPaymentNum.length >= 2) {
+      // 4. Match file name containing payment number (minimum 2 chars) - for payments only
+      if (query.documentType !== 'invoice' && cleanPaymentNum && cleanPaymentNum.length >= 2) {
         const byPayName = files.find((f) => {
           const fn = f.name.replace(/[^\w\dа-яА-Яіїєґ]/gi, '').toLowerCase();
           return fn.includes(cleanPaymentNum);
@@ -246,11 +417,28 @@ export class GoogleDriveService {
 
       // 5. Match file name containing order number (e.g. "142-26")
       if (cleanOrderNum && cleanOrderNum.length >= 4) {
-        const byOrder = files.find((f) => {
-          const fn = f.name.toLowerCase();
-          return fn.includes(cleanOrderNum);
-        });
-        if (byOrder) return byOrder;
+        // Prioritize files with invoice keywords in name if looking for an invoice
+        if (query.documentType === 'invoice') {
+          const byOrderInvoice = files.find((f) => {
+            if (this.isPaymentFileName(f.name)) return false;
+            const fn = f.name.toLowerCase();
+            return fn.includes(cleanOrderNum) && this.isInvoiceFileName(f.name);
+          });
+          if (byOrderInvoice) return byOrderInvoice;
+
+          const byOrderNonPayment = files.find((f) => {
+            if (this.isPaymentFileName(f.name)) return false;
+            const fn = f.name.toLowerCase();
+            return fn.includes(cleanOrderNum);
+          });
+          if (byOrderNonPayment) return byOrderNonPayment;
+        } else {
+          const byOrder = files.find((f) => {
+            const fn = f.name.toLowerCase();
+            return fn.includes(cleanOrderNum);
+          });
+          if (byOrder) return byOrder;
+        }
       }
 
       return null;
@@ -388,7 +576,7 @@ export class GoogleDriveService {
   public static async downloadFileBase64(
     fileId: string,
     accessToken: string
-  ): Promise<{ base64: string; mimeType: string; blob: Blob }> {
+  ): Promise<{ base64: string; mimeType: string; blob: Blob; fileName?: string }> {
     // 1. Get file metadata for mimeType and name
     const meta = await this.request<any>(`files/${fileId}?fields=id,name,mimeType`, accessToken);
     let detectedMime = meta.mimeType || '';
@@ -449,6 +637,7 @@ export class GoogleDriveService {
       base64: cleanDataUrl,
       mimeType: detectedMime,
       blob: cleanBlob,
+      fileName: meta.name || '',
     };
   }
 

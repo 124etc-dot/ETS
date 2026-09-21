@@ -28,7 +28,7 @@ import {
   ShieldCheck,
   Eye
 } from 'lucide-react';
-import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, InvoiceApprovalStatus, DuplicateRowMatch, ProcessedDocument, OCRResult } from '../types';
+import { SheetConfig, ExistingSheetRow, ExistingPaymentRow, SheetCompanyLists, InvoicePaymentStatus, InvoiceApprovalStatus, DuplicateRowMatch, ProcessedDocument, OCRResult, OverheadExpenseRow } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
 import { OCRService } from '../services/ocrService';
 import { ReplaceInvoiceModal } from './ReplaceInvoiceModal';
@@ -37,6 +37,7 @@ interface Props {
   sheetConfig: SheetConfig | null;
   existingInvoices: ExistingSheetRow[];
   existingPayments?: ExistingPaymentRow[];
+  existingOverheadExpenses?: OverheadExpenseRow[];
   companyLists: SheetCompanyLists;
   onRefresh: () => Promise<void>;
   isLoading: boolean;
@@ -79,6 +80,7 @@ export const SheetLivePreview: React.FC<Props> = ({
   sheetConfig,
   existingInvoices,
   existingPayments = [],
+  existingOverheadExpenses = [],
   companyLists,
   onRefresh,
   isLoading,
@@ -448,10 +450,10 @@ export const SheetLivePreview: React.FC<Props> = ({
   const uniqueOur = GoogleSheetsService.deduplicateCompanyList(companyLists.ourCompanies);
   const uniqueSuppliers = GoogleSheetsService.deduplicateCompanyList(companyLists.suppliers);
 
-  // Reconcile invoices with payments from "Платіжки"
+  // Reconcile invoices with payments from "Платіжки" (including "Цех" tab)
   const reconciledMatches = useMemo(() => {
-    return OCRService.reconcileInvoicesWithPayments(existingInvoices, existingPayments);
-  }, [existingInvoices, existingPayments]);
+    return OCRService.reconcileInvoicesWithPayments(existingInvoices, existingPayments, existingOverheadExpenses);
+  }, [existingInvoices, existingPayments, existingOverheadExpenses]);
 
   const reconciledMap = useMemo(() => {
     const map = new Map<number, (typeof reconciledMatches)[0]>();
@@ -493,17 +495,23 @@ export const SheetLivePreview: React.FC<Props> = ({
     try {
       const targetIndices = recMatch.allMatchedInvoiceRowIndices.filter((rIdx) => {
         const inv = existingInvoices.find((i) => i.rowIndex === rIdx);
-        return inv && inv.paymentStatus !== 'Оплачено';
+        if (inv) return inv.paymentStatus !== 'Оплачено';
+        const exp = existingOverheadExpenses.find((e) => e.rowIndex === rIdx);
+        if (exp) return exp.paymentStatus !== 'Оплачено';
+        return false;
       });
 
       const batchItems = targetIndices.map((rIdx) => {
         const inv = existingInvoices.find((i) => i.rowIndex === rIdx);
+        const exp = existingOverheadExpenses.find((e) => e.rowIndex === rIdx);
         const matchForInv = reconciledMap.get(rIdx);
-        const pAmt = matchForInv?.paidAmount || inv?.amount || 0;
+        const pAmt = matchForInv?.paidAmount || inv?.amount || exp?.amount || 0;
         return {
           invoiceRowIndex: rIdx,
           computedStatus: 'Оплачено' as InvoicePaymentStatus,
           paidAmount: pAmt,
+          targetTab: matchForInv?.targetTab || (exp ? 'Цех' : 'Рахунки'),
+          isOverhead: matchForInv?.isOverhead || !!exp,
         };
       });
 

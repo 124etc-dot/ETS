@@ -1,6 +1,6 @@
 export type DocumentType = 'invoice' | 'payment' | 'other';
 export type InvoicePaymentStatus = 'Оплачено' | 'Не оплачено' | 'Оплачено частково';
-export type InvoiceApprovalStatus = 'ПОГОДЖЕНО' | 'НЕ ПОГОДЖЕНО';
+export type InvoiceApprovalStatus = 'ПОГОДЖЕНО' | 'НЕ ПОГОДЖЕНО' | 'ВІДХИЛЕНО' | 'Approved' | 'Pending' | 'Rejected';
 export type ExpenseCategory = 'PROJECT' | 'OVERHEAD';
 
 export interface ExtractedLineItem {
@@ -59,6 +59,7 @@ export interface OCRResult {
   matchedInvoiceAmount?: number;
   matchedInvoicePreviousPaid?: number;
   matchedInvoiceRowIndex?: number;
+  matchedInvoiceTab?: 'Рахунки' | 'Цех';
   matchedInvoices?: Array<{
     invoiceNumber: string;
     orderNumber?: string;
@@ -69,6 +70,10 @@ export interface OCRResult {
     matchedRowIndex?: number;
     matchedDocId?: string;
     matchReason?: string;
+    targetTab?: 'Рахунки' | 'Цех';
+    isOverhead?: boolean;
+    supplier?: string;
+    buyer?: string;
   }>;
   matchedPaymentNumber?: string;
   matchedPaymentAmount?: number;
@@ -107,6 +112,7 @@ export interface ProcessedDocument {
   isOverhead?: boolean;
   ocrResult?: OCRResult;
   editedData?: OCRResult;
+  ocr?: OCRResult; // Alias for ocrResult/editedData compatibility
   syncedRowIndex?: number;
   syncedAt?: string;
   createdAt?: number; // Timestamp in ms for sorting newest first
@@ -176,7 +182,10 @@ export interface ExistingSheetRow {
   amount: number;
   currency: string;
   paymentStatus: InvoicePaymentStatus; // "Не оплачено" | "Оплачено" | "Оплачено частково"
-  approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО"
+  approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО" | "ВІДХИЛЕНО"
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
   uploadedAt: string;
   paidAmount?: number; // Column J: Сума оплати
   paymentDate?: string;
