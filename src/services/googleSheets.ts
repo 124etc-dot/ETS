@@ -3506,7 +3506,12 @@ export class GoogleSheetsService {
               s.trim().toLowerCase() === targetTab!.trim().toLowerCase() ||
               s.trim().toLowerCase().includes(targetTab!.trim().toLowerCase())
           );
-          if (matched) targetTab = matched;
+          if (matched) {
+            targetTab = matched;
+          } else if (details.sheets.length > 0) {
+            // If requested tab is not found in this spreadsheet, fallback to first sheet
+            targetTab = details.sheets[0];
+          }
         } else {
           targetTab =
             details.sheets.find(

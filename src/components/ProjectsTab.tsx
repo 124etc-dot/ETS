@@ -1601,6 +1601,9 @@ export const ProjectsTab: React.FC<Props> = ({
         onClose={() => setIsAddModalOpen(false)}
         existingManagers={projects.map((p) => p.colG)}
         existingProjectNumbers={projects.map((p) => p.colA).filter(Boolean)}
+        existingProjects={projects}
+        planSheetConfig={planSheetConfig}
+        onPlanSheetConfigChange={setPlanSheetConfig}
         sheetConfig={sheetConfig}
         accessToken={authState?.accessToken}
         spreadsheetId={sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID}

@@ -20,7 +20,7 @@ import {
   Bookmark,
   Sparkles,
 } from 'lucide-react';
-import { SheetConfig } from '../types';
+import { ProjectSheetRow, SheetConfig } from '../types';
 import {
   GoogleSheetsService,
   DEFAULT_PROJECTS_SPREADSHEET_ID,
@@ -31,6 +31,13 @@ interface AddProjectModalProps {
   onClose: () => void;
   existingManagers?: string[];
   existingProjectNumbers?: string[];
+  existingProjects?: ProjectSheetRow[];
+  planSheetConfig?: {
+    id: string;
+    title: string;
+    url: string;
+  } | null;
+  onPlanSheetConfigChange?: (cfg: { id: string; title: string; url: string } | null) => void;
   sheetConfig?: SheetConfig | null;
   accessToken?: string | null;
   spreadsheetId?: string;
@@ -41,11 +48,122 @@ interface AddProjectModalProps {
 export const PLAN_SPREADSHEET_STORAGE_KEY = 'plan_shipments_spreadsheet_config';
 export const LAST_RECORDED_PROJECT_NUMBER_KEY = 'last_recorded_project_number';
 
+export interface ProjectNumberResult {
+  latestNumber: string;
+  latestRow?: number | null;
+  latestTab?: string | null;
+}
+
+/**
+ * Robust algorithm to determine the true latest project number:
+ * 1. Checks tab "План" (where active projects start at row 2094 downwards).
+ *    Identifies the entry with the highest row index (e.g. row 2095: 245-26).
+ * 2. Checks across all known sources (Plan, Payments, existing rows) for the current year (e.g. 26).
+ *    Finds the maximum sequence number (e.g. 245 > 107).
+ * 3. Reconciles both strategies to ensure row 2095 (245-26) or the true highest number is chosen,
+ *    preventing accidental pick of historical or random rows like 107-26.
+ */
+export function determineLatestProjectNumber(
+  sheetItems: Array<{ number: string; row: number; tab?: string }>,
+  fallbackNumbers: string[] = [],
+  fallbackProjects: ProjectSheetRow[] = []
+): ProjectNumberResult {
+  interface Candidate {
+    clean: string;
+    seq: number;
+    year: number;
+    row?: number;
+    tab?: string;
+    isFromPlan2094?: boolean;
+  }
+
+  const parseNumber = (
+    numStr: string,
+    row?: number,
+    tab?: string
+  ): Candidate | null => {
+    if (!numStr) return null;
+    const clean = numStr.trim().replace(/^[№#]\s*/, '');
+    const match = clean.match(/^(\d+)-(\d{2})$/);
+    if (match) {
+      const seq = parseInt(match[1], 10);
+      const year = parseInt(match[2], 10);
+      const isPlanTab = Boolean(tab && tab.toLowerCase().includes('план'));
+      const isFromPlan2094 = isPlanTab && typeof row === 'number' && row >= 2094;
+      return { clean, seq, year, row, tab, isFromPlan2094 };
+    }
+    return null;
+  };
+
+  const candidates: Candidate[] = [];
+
+  // 1. Sheet items retrieved directly with row numbers and tab info
+  for (const item of sheetItems) {
+    const c = parseNumber(item.number, item.row, item.tab);
+    if (c) candidates.push(c);
+  }
+
+  // 2. Existing projects from props (with row numbers if available)
+  for (const p of fallbackProjects) {
+    if (p.colA) {
+      const c = parseNumber(p.colA, p.rowNumber, 'План');
+      if (c) candidates.push(c);
+    }
+  }
+
+  // 3. Fallback number strings
+  for (const num of fallbackNumbers) {
+    const c = parseNumber(num);
+    if (c) candidates.push(c);
+  }
+
+  if (candidates.length === 0) {
+    return { latestNumber: '', latestRow: null, latestTab: null };
+  }
+
+  // Identify highest year (e.g. 26 for 2026)
+  const maxYear = Math.max(...candidates.map((c) => c.year));
+
+  // Strategy A: Latest row in tab "План" with row >= 2094 (active section of "План відвантажень")
+  const planRowsFrom2094 = candidates
+    .filter((c) => c.isFromPlan2094 && typeof c.row === 'number' && c.year === maxYear)
+    .sort((a, b) => (a.row! - b.row!));
+
+  let planRowCandidate: Candidate | null = null;
+  if (planRowsFrom2094.length > 0) {
+    planRowCandidate = planRowsFrom2094[planRowsFrom2094.length - 1];
+  }
+
+  // Strategy B: Maximum sequence number for the active year (e.g. 245 > 107)
+  const yearCandidates = candidates.filter((c) => c.year === maxYear);
+  yearCandidates.sort((a, b) => b.seq - a.seq);
+  const maxSeqCandidate = yearCandidates[0];
+
+  // Pick the winner:
+  let chosen: Candidate = maxSeqCandidate;
+  if (planRowCandidate) {
+    if (planRowCandidate.seq >= maxSeqCandidate.seq) {
+      chosen = planRowCandidate;
+    } else {
+      chosen = maxSeqCandidate;
+    }
+  }
+
+  return {
+    latestNumber: chosen.clean,
+    latestRow: chosen.row || null,
+    latestTab: chosen.tab || null,
+  };
+}
+
 export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   isOpen,
   onClose,
   existingManagers = [],
   existingProjectNumbers = [],
+  existingProjects = [],
+  planSheetConfig: propPlanSheetConfig,
+  onPlanSheetConfigChange,
   sheetConfig,
   accessToken,
   spreadsheetId,
@@ -132,9 +250,17 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   const [showManagerSuggestions, setShowManagerSuggestions] = useState(false);
   const managerContainerRef = useRef<HTMLDivElement>(null);
 
+  // Sync planSheetConfig if prop changes
+  useEffect(() => {
+    if (propPlanSheetConfig) {
+      setPlanSheetConfig(propPlanSheetConfig);
+    }
+  }, [propPlanSheetConfig]);
+
   // Project Numbers & Duplicate Prevention State
   const [knownProjectNumbers, setKnownProjectNumbers] = useState<string[]>([]);
   const [lastRecordedNumber, setLastRecordedNumber] = useState<string>('');
+  const [lastRecordedRow, setLastRecordedRow] = useState<number | null>(null);
   const [isCheckingNumbers, setIsCheckingNumbers] = useState(false);
   const [lastCheckNotice, setLastCheckNotice] = useState<string | null>(null);
 
@@ -154,36 +280,70 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
     );
   }, [cleanEnteredNumber, knownProjectNumbers]);
 
-  // Calculate suggested next project number based on lastRecordedNumber (e.g. 235-26 -> 236-26)
+  // Calculate suggested next project number based on lastRecordedNumber (e.g. 245-26 -> 246-26)
   const suggestedNextNumber = useMemo(() => {
     if (!lastRecordedNumber) return null;
     const match = lastRecordedNumber.trim().match(/^(\d+)-(\d+)$/);
     if (!match) return null;
-    const nextVal = parseInt(match[1], 10) + 1;
+    const baseVal = parseInt(match[1], 10);
     const yearPart = match[2];
-    const candidate = `${String(nextVal).padStart(3, '0')}-${yearPart}`;
-    // Ensure candidate isn't already used
-    if (knownProjectNumbers.some((n) => n.trim().replace(/^[№#]\s*/, '').toLowerCase() === candidate.toLowerCase())) {
-      return null;
+    let val = baseVal + 1;
+    let candidate = `${String(val).padStart(3, '0')}-${yearPart}`;
+
+    const isTaken = (cand: string) =>
+      knownProjectNumbers.some(
+        (n) => n.trim().replace(/^[№#]\s*/, '').toLowerCase() === cand.toLowerCase()
+      );
+
+    while (isTaken(candidate) && val < baseVal + 100) {
+      val++;
+      candidate = `${String(val).padStart(3, '0')}-${yearPart}`;
     }
+
     return candidate;
   }, [lastRecordedNumber, knownProjectNumbers]);
 
   /**
    * Authoritative Live Check: Queries Google Sheets directly in real-time
    * to discover the actual existing project numbers and the true last recorded number.
-   * If a user manually deletes a row in Google Sheets (e.g. 244-26), this clears
-   * any stale cache and allows re-entering that number immediately.
+   * Checks both "План відвантажень" (tab "План", where active projects start from row 2094 downwards)
+   * and "Оплати/Борги", finding the true latest entry (e.g. row 2095: 245-26 -> next 246-26).
    */
   const refreshProjectNumbersFromSheets = useCallback(async () => {
     if (!accessToken) return;
     setIsCheckingNumbers(true);
     setLastCheckNotice('Опитування Google Таблиць наживо...');
     try {
+      // 1. Resolve or auto-discover "План відвантажень" spreadsheet ID
+      let targetPlanId = planSheetConfig?.id;
+      if (!targetPlanId) {
+        try {
+          const found = await GoogleSheetsService.findSpreadsheetByName(accessToken, 'План відвантажень');
+          if (found?.id) {
+            targetPlanId = found.id;
+            const cfg = {
+              id: found.id,
+              title: found.title,
+              url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}/edit`,
+            };
+            setPlanSheetConfig(cfg);
+            onPlanSheetConfigChange?.(cfg);
+            try {
+              localStorage.setItem(PLAN_SPREADSHEET_STORAGE_KEY, JSON.stringify(cfg));
+            } catch {}
+          }
+        } catch (e) {
+          console.warn('Auto-discovery of plan spreadsheet error:', e);
+        }
+      }
+
+      if (!targetPlanId) {
+        targetPlanId = effectivePaymentsId;
+      }
+
       const fetchTasks: Promise<{ number: string; row: number; tab: string }[]>[] = [];
 
       // 1. Target Plan spreadsheet ("План відвантажень", tab "План")
-      const targetPlanId = planSheetConfig?.id || effectivePaymentsId;
       if (targetPlanId) {
         fetchTasks.push(
           GoogleSheetsService.getExistingProjectNumbersWithRows(targetPlanId, accessToken, 'План')
@@ -202,7 +362,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       const results = await Promise.all(fetchTasks);
       const allFound = results.flat();
 
-      // Deduplicate numbers while preserving actual order from Google Sheets
+      // Deduplicate numbers while collecting all known project numbers
       const liveNumbers: string[] = [];
       const seen = new Set<string>();
       for (const item of allFound) {
@@ -214,13 +374,26 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         }
       }
 
-      // Determine true latest project number matching standard xxx-xx format (e.g. 243-26)
-      const validFormatted = liveNumbers.filter((n) => /^\d{3}-\d{2}$/.test(n));
-      const trueLatestNumber = validFormatted.length > 0 ? validFormatted[validFormatted.length - 1] : '';
+      // Merge with initial fallback numbers so knownProjectNumbers is comprehensive
+      const initialPropsNumbers = (existingProjectNumbers || [])
+        .map((p) => p.trim().replace(/^[№#]\s*/, ''))
+        .filter(Boolean);
+      for (const pNum of initialPropsNumbers) {
+        const key = pNum.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          liveNumbers.push(pNum);
+        }
+      }
+
+      // Determine true latest project number matching standard xxx-xx format (e.g. 245-26 in row 2095)
+      const latestResult = determineLatestProjectNumber(allFound, initialPropsNumbers, existingProjects);
+      const trueLatestNumber = latestResult.latestNumber;
 
       // Direct assignment — Google Sheets is the single source of truth!
       setKnownProjectNumbers(liveNumbers);
       setLastRecordedNumber(trueLatestNumber);
+      setLastRecordedRow(latestResult.latestRow || null);
 
       // Update or clear localStorage cache so deleted numbers never persist
       if (trueLatestNumber) {
@@ -234,14 +407,25 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       }
 
       const timeStr = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLastCheckNotice(`Перевірено з Google Таблиць о ${timeStr}`);
+      setLastCheckNotice(
+        latestResult.latestRow
+          ? `Перевірено з Google Таблиць о ${timeStr}: останній ${trueLatestNumber} (рядок ${latestResult.latestRow})`
+          : `Перевірено з Google Таблиць о ${timeStr}: останній ${trueLatestNumber || 'не знайдено'}`
+      );
     } catch (err) {
       console.warn('Real-time project numbers check error:', err);
       setLastCheckNotice('Помилка підключення під час перевірки');
     } finally {
       setIsCheckingNumbers(false);
     }
-  }, [accessToken, planSheetConfig?.id, effectivePaymentsId]);
+  }, [
+    accessToken,
+    planSheetConfig?.id,
+    effectivePaymentsId,
+    existingProjectNumbers,
+    existingProjects,
+    onPlanSheetConfigChange,
+  ]);
 
   // Reset and trigger live check when modal opens
   useEffect(() => {
@@ -254,14 +438,27 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         setStartDate(getTodayString());
       }
 
-      // Read stored last recorded number as initial hint before live check finishes
-      const storedLast = localStorage.getItem(LAST_RECORDED_PROJECT_NUMBER_KEY) || '';
       const initialPropsNumbers = (existingProjectNumbers || [])
         .map((p) => p.trim().replace(/^[№#]\s*/, ''))
         .filter(Boolean);
 
-      setLastRecordedNumber(storedLast);
-      // Notice: Do NOT merge storedLast into knownProjectNumbers to avoid phantom duplicate locks if deleted!
+      // Immediately calculate the best known latest number from existingProjects and existingProjectNumbers
+      const initialLatest = determineLatestProjectNumber([], initialPropsNumbers, existingProjects);
+      const storedLast = localStorage.getItem(LAST_RECORDED_PROJECT_NUMBER_KEY) || '';
+
+      let effectiveInitialLast = initialLatest.latestNumber || storedLast;
+      if (storedLast && initialLatest.latestNumber) {
+        const matchStored = storedLast.match(/^(\d+)-(\d+)$/);
+        const matchInit = initialLatest.latestNumber.match(/^(\d+)-(\d+)$/);
+        if (matchStored && matchInit) {
+          const seqStored = parseInt(matchStored[1], 10);
+          const seqInit = parseInt(matchInit[1], 10);
+          effectiveInitialLast = seqInit >= seqStored ? initialLatest.latestNumber : storedLast;
+        }
+      }
+
+      setLastRecordedNumber(effectiveInitialLast);
+      setLastRecordedRow(initialLatest.latestRow || null);
       setKnownProjectNumbers(initialPropsNumbers);
 
       // Immediately run real-time live check directly against Google Sheets!
@@ -269,7 +466,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         refreshProjectNumbersFromSheets();
       }
     }
-  }, [isOpen, accessToken, refreshProjectNumbersFromSheets]);
+  }, [isOpen, accessToken, refreshProjectNumbersFromSheets, existingProjectNumbers, existingProjects]);
 
   // Attempt to auto-discover "План відвантажень" spreadsheet on Google Drive when modal opens
   useEffect(() => {
@@ -529,6 +726,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
 
       // Update duplicate cache and last recorded number
       setLastRecordedNumber(cleanNumber);
+      setLastRecordedRow(result.plan.row);
       setKnownProjectNumbers((prev) => Array.from(new Set([...prev, cleanNumber])));
       try {
         localStorage.setItem(LAST_RECORDED_PROJECT_NUMBER_KEY, cleanNumber);
@@ -842,6 +1040,11 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                     {lastRecordedNumber ? (
                       <span className="font-mono font-extrabold text-amber-950 bg-amber-200/80 px-1.5 py-0.2 rounded border border-amber-300/80 shrink-0">
                         {lastRecordedNumber}
+                        {lastRecordedRow ? (
+                          <span className="text-[10px] text-amber-800 font-semibold ml-1">
+                            (рядок {lastRecordedRow})
+                          </span>
+                        ) : null}
                       </span>
                     ) : isCheckingNumbers ? (
                       <span className="text-[10px] text-blue-700 font-semibold italic shrink-0">
@@ -896,7 +1099,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                       setProjectNumber(e.target.value);
                       clearFieldError('projectNumber');
                     }}
-                    placeholder={suggestedNextNumber || "235-26"}
+                    placeholder={suggestedNextNumber || "246-26"}
                     disabled={isSubmitting}
                     className={`w-full px-3 py-2 border rounded-lg text-xs font-mono font-bold transition-colors focus:outline-none focus:ring-2 ${
                       isDuplicateNumber
