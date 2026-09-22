@@ -19,6 +19,7 @@ import {
   Layers,
   Bookmark,
   Sparkles,
+  Info,
 } from 'lucide-react';
 import { ProjectSheetRow, SheetConfig } from '../types';
 import {
@@ -242,7 +243,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       tab: string;
       title: string;
       id: string;
-    };
+    } | null;
   } | null>(null);
 
   // Manager suggestions & memory
@@ -257,6 +258,28 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
     }
   }, [propPlanSheetConfig]);
 
+  // Stable refs for props and external state to prevent callback recreation and re-render loops
+  const existingProjectNumbersRef = useRef(existingProjectNumbers);
+  existingProjectNumbersRef.current = existingProjectNumbers;
+
+  const existingProjectsRef = useRef(existingProjects);
+  existingProjectsRef.current = existingProjects;
+
+  const planSheetConfigRef = useRef(planSheetConfig);
+  planSheetConfigRef.current = planSheetConfig;
+
+  const onPlanSheetConfigChangeRef = useRef(onPlanSheetConfigChange);
+  onPlanSheetConfigChangeRef.current = onPlanSheetConfigChange;
+
+  const accessTokenRef = useRef(accessToken);
+  accessTokenRef.current = accessToken;
+
+  const effectivePaymentsIdRef = useRef(effectivePaymentsId);
+  effectivePaymentsIdRef.current = effectivePaymentsId;
+
+  const isFetchingRef = useRef(false);
+  const hasLoadedOnOpenRef = useRef(false);
+
   // Project Numbers & Duplicate Prevention State
   const [knownProjectNumbers, setKnownProjectNumbers] = useState<string[]>([]);
   const [lastRecordedNumber, setLastRecordedNumber] = useState<string>('');
@@ -270,6 +293,10 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
 
   // Cleaned entered number
   const cleanEnteredNumber = projectNumber.trim().replace(/^[№#]\s*/, '');
+
+  // Is Department MK selected?
+  // When MK is chosen: Section 2 ("Оплати/Борги") is disabled, not required, and not written to.
+  const isMk = department === 'МК';
 
   // Duplicate Check against all known project numbers currently present in Google Sheets (case-insensitive)
   const isDuplicateNumber = useMemo(() => {
@@ -306,19 +333,20 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   /**
    * Authoritative Live Check: Queries Google Sheets directly in real-time
    * to discover the actual existing project numbers and the true last recorded number.
-   * Checks both "План відвантажень" (tab "План", where active projects start from row 2094 downwards)
-   * and "Оплати/Борги", finding the true latest entry (e.g. row 2095: 245-26 -> next 246-26).
+   * Runs strictly once on modal opening or upon manual click on refresh.
    */
   const refreshProjectNumbersFromSheets = useCallback(async () => {
-    if (!accessToken) return;
+    const token = accessTokenRef.current;
+    if (!token || isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setIsCheckingNumbers(true);
     setLastCheckNotice('Опитування Google Таблиць наживо...');
     try {
       // 1. Resolve or auto-discover "План відвантажень" spreadsheet ID
-      let targetPlanId = planSheetConfig?.id;
+      let targetPlanId = planSheetConfigRef.current?.id;
       if (!targetPlanId) {
         try {
-          const found = await GoogleSheetsService.findSpreadsheetByName(accessToken, 'План відвантажень');
+          const found = await GoogleSheetsService.findSpreadsheetByName(token, 'План відвантажень');
           if (found?.id) {
             targetPlanId = found.id;
             const cfg = {
@@ -327,7 +355,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
               url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}/edit`,
             };
             setPlanSheetConfig(cfg);
-            onPlanSheetConfigChange?.(cfg);
+            onPlanSheetConfigChangeRef.current?.(cfg);
             try {
               localStorage.setItem(PLAN_SPREADSHEET_STORAGE_KEY, JSON.stringify(cfg));
             } catch {}
@@ -338,7 +366,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       }
 
       if (!targetPlanId) {
-        targetPlanId = effectivePaymentsId;
+        targetPlanId = effectivePaymentsIdRef.current;
       }
 
       const fetchTasks: Promise<{ number: string; row: number; tab: string }[]>[] = [];
@@ -346,15 +374,16 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       // 1. Target Plan spreadsheet ("План відвантажень", tab "План")
       if (targetPlanId) {
         fetchTasks.push(
-          GoogleSheetsService.getExistingProjectNumbersWithRows(targetPlanId, accessToken, 'План')
+          GoogleSheetsService.getExistingProjectNumbersWithRows(targetPlanId, token, 'План')
             .then((res) => res.map((r) => ({ ...r, tab: 'План' })))
         );
       }
 
       // 2. Payments spreadsheet ("Оплати/Борги", tab "Лист1") if distinct from Plan
-      if (effectivePaymentsId && effectivePaymentsId !== targetPlanId) {
+      const paymentsId = effectivePaymentsIdRef.current;
+      if (paymentsId && paymentsId !== targetPlanId) {
         fetchTasks.push(
-          GoogleSheetsService.getExistingProjectNumbersWithRows(effectivePaymentsId, accessToken, 'Лист1')
+          GoogleSheetsService.getExistingProjectNumbersWithRows(paymentsId, token, 'Лист1')
             .then((res) => res.map((r) => ({ ...r, tab: 'Лист1' })))
         );
       }
@@ -375,7 +404,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       }
 
       // Merge with initial fallback numbers so knownProjectNumbers is comprehensive
-      const initialPropsNumbers = (existingProjectNumbers || [])
+      const initialPropsNumbers = (existingProjectNumbersRef.current || [])
         .map((p) => p.trim().replace(/^[№#]\s*/, ''))
         .filter(Boolean);
       for (const pNum of initialPropsNumbers) {
@@ -387,7 +416,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       }
 
       // Determine true latest project number matching standard xxx-xx format (e.g. 245-26 in row 2095)
-      const latestResult = determineLatestProjectNumber(allFound, initialPropsNumbers, existingProjects);
+      const latestResult = determineLatestProjectNumber(allFound, initialPropsNumbers, existingProjectsRef.current);
       const trueLatestNumber = latestResult.latestNumber;
 
       // Direct assignment — Google Sheets is the single source of truth!
@@ -416,91 +445,60 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       console.warn('Real-time project numbers check error:', err);
       setLastCheckNotice('Помилка підключення під час перевірки');
     } finally {
+      isFetchingRef.current = false;
       setIsCheckingNumbers(false);
     }
-  }, [
-    accessToken,
-    planSheetConfig?.id,
-    effectivePaymentsId,
-    existingProjectNumbers,
-    existingProjects,
-    onPlanSheetConfigChange,
-  ]);
+  }, []);
 
-  // Reset and trigger live check when modal opens
+  // Reset and trigger live check EXACTLY ONCE when modal opens
   useEffect(() => {
-    if (isOpen) {
-      setErrorMessage(null);
-      setSuccessInfo(null);
-      setValidationErrors({});
-      setIsEditingPlanSheet(false);
-      if (!startDate) {
-        setStartDate(getTodayString());
-      }
+    if (!isOpen) {
+      hasLoadedOnOpenRef.current = false;
+      return;
+    }
 
-      const initialPropsNumbers = (existingProjectNumbers || [])
-        .map((p) => p.trim().replace(/^[№#]\s*/, ''))
-        .filter(Boolean);
+    // Guard: strictly execute only once per modal open
+    if (hasLoadedOnOpenRef.current) {
+      return;
+    }
+    hasLoadedOnOpenRef.current = true;
 
-      // Immediately calculate the best known latest number from existingProjects and existingProjectNumbers
-      const initialLatest = determineLatestProjectNumber([], initialPropsNumbers, existingProjects);
-      const storedLast = localStorage.getItem(LAST_RECORDED_PROJECT_NUMBER_KEY) || '';
+    setErrorMessage(null);
+    setSuccessInfo(null);
+    setValidationErrors({});
+    setIsEditingPlanSheet(false);
+    if (!startDate) {
+      setStartDate(getTodayString());
+    }
 
-      let effectiveInitialLast = initialLatest.latestNumber || storedLast;
-      if (storedLast && initialLatest.latestNumber) {
-        const matchStored = storedLast.match(/^(\d+)-(\d+)$/);
-        const matchInit = initialLatest.latestNumber.match(/^(\d+)-(\d+)$/);
-        if (matchStored && matchInit) {
-          const seqStored = parseInt(matchStored[1], 10);
-          const seqInit = parseInt(matchInit[1], 10);
-          effectiveInitialLast = seqInit >= seqStored ? initialLatest.latestNumber : storedLast;
-        }
-      }
+    const initialPropsNumbers = (existingProjectNumbersRef.current || [])
+      .map((p) => p.trim().replace(/^[№#]\s*/, ''))
+      .filter(Boolean);
 
-      setLastRecordedNumber(effectiveInitialLast);
-      setLastRecordedRow(initialLatest.latestRow || null);
-      setKnownProjectNumbers(initialPropsNumbers);
+    // Immediately calculate the best known latest number from existingProjects and existingProjectNumbers
+    const initialLatest = determineLatestProjectNumber([], initialPropsNumbers, existingProjectsRef.current);
+    const storedLast = localStorage.getItem(LAST_RECORDED_PROJECT_NUMBER_KEY) || '';
 
-      // Immediately run real-time live check directly against Google Sheets!
-      if (accessToken) {
-        refreshProjectNumbersFromSheets();
+    let effectiveInitialLast = initialLatest.latestNumber || storedLast;
+    if (storedLast && initialLatest.latestNumber) {
+      const matchStored = storedLast.match(/^(\d+)-(\d+)$/);
+      const matchInit = initialLatest.latestNumber.match(/^(\d+)-(\d+)$/);
+      if (matchStored && matchInit) {
+        const seqStored = parseInt(matchStored[1], 10);
+        const seqInit = parseInt(matchInit[1], 10);
+        effectiveInitialLast = seqInit >= seqStored ? initialLatest.latestNumber : storedLast;
       }
     }
-  }, [isOpen, accessToken, refreshProjectNumbersFromSheets, existingProjectNumbers, existingProjects]);
 
-  // Attempt to auto-discover "План відвантажень" spreadsheet on Google Drive when modal opens
-  useEffect(() => {
-    if (!isOpen || !accessToken || planSheetConfig) return;
+    setLastRecordedNumber(effectiveInitialLast);
+    setLastRecordedRow(initialLatest.latestRow || null);
+    setKnownProjectNumbers(initialPropsNumbers);
 
-    let isMounted = true;
-    (async () => {
-      try {
-        const found = await GoogleSheetsService.findSpreadsheetByName(
-          accessToken,
-          'План відвантажень'
-        );
-        if (found && isMounted) {
-          const cfg = {
-            id: found.id,
-            title: found.title,
-            url: found.webViewLink || `https://docs.google.com/spreadsheets/d/${found.id}/edit`,
-          };
-          setPlanSheetConfig(cfg);
-          try {
-            localStorage.setItem(PLAN_SPREADSHEET_STORAGE_KEY, JSON.stringify(cfg));
-          } catch (e) {
-            console.warn('Failed to cache plan spreadsheet config:', e);
-          }
-        }
-      } catch (err) {
-        console.warn('Auto-discovery of plan spreadsheet skipped:', err);
-      }
-    })();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen, accessToken, planSheetConfig]);
+    // Immediately run real-time live check directly against Google Sheets exactly 1 time!
+    if (accessToken) {
+      refreshProjectNumbersFromSheets();
+    }
+  }, [isOpen, accessToken, refreshProjectNumbersFromSheets]);
 
   // Load saved managers from localStorage and merge with existingManagers
   useEffect(() => {
@@ -633,16 +631,20 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       errors.manager = 'Поле «Менеджер проекту» не заповнено';
     }
 
-    if (!invoiceNumber.trim()) {
-      errors.invoiceNumber = 'Поле «Рахунок» не заповнено';
-    }
+    // Section 2 fields ("Оплати/Борги") validation:
+    // User directive: "при внесенні нового проекту при виборі Відділу МК - поле 2. Таблиця 'Оплати/Борги' де вноситься Рахунок Дата Рахунку зробити неактивним, не перевіряти обов'язковість заповнення та не робити запис в Таблицю цього поля 2. Запис виконуємо тільки з першого поля для Таблиці План Відвантажень."
+    if (!isMk) {
+      if (!invoiceNumber.trim()) {
+        errors.invoiceNumber = 'Поле «Рахунок» не заповнено';
+      }
 
-    if (!invoiceDate.trim()) {
-      errors.invoiceDate = 'Поле «Дата рахунку» не заповнено';
-    }
+      if (!invoiceDate.trim()) {
+        errors.invoiceDate = 'Поле «Дата рахунку» не заповнено';
+      }
 
-    if (!contractAmount.trim()) {
-      errors.contractAmount = 'Поле «Сума Договору» не заповнено';
+      if (!contractAmount.trim()) {
+        errors.contractAmount = 'Поле «Сума Договору» не заповнено';
+      }
     }
 
     // If any field is empty or invalid, do NOT record and issue specific warning
@@ -681,17 +683,17 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         managerRef.current?.focus();
         return;
       }
-      if (errors.invoiceNumber) {
+      if (!isMk && errors.invoiceNumber) {
         setErrorMessage('Будь ласка, заповніть поле «Рахунок». Поле не може бути пустим.');
         invoiceNumberRef.current?.focus();
         return;
       }
-      if (errors.invoiceDate) {
+      if (!isMk && errors.invoiceDate) {
         setErrorMessage('Будь ласка, заповніть поле «Дата рахунку». Поле не може бути пустим.');
         invoiceDateRef.current?.focus();
         return;
       }
-      if (errors.contractAmount) {
+      if (!isMk && errors.contractAmount) {
         setErrorMessage('Будь ласка, заповніть поле «Сума Договору». Поле не може бути пустим.');
         contractAmountRef.current?.focus();
         return;
@@ -715,9 +717,9 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         department: department,
         startDate: startDate.trim(),
         manager: manager.trim(),
-        invoiceNumber: invoiceNumber.trim(),
-        invoiceDate: invoiceDate.trim(),
-        contractAmount: contractAmount.trim(),
+        invoiceNumber: isMk ? '' : invoiceNumber.trim(),
+        invoiceDate: isMk ? '' : invoiceDate.trim(),
+        contractAmount: isMk ? '0' : contractAmount.trim(),
         planSpreadsheetId: planSheetConfig?.id || undefined,
         paymentsSpreadsheetId: effectivePaymentsId,
         planTabName: 'План',
@@ -742,14 +744,16 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
           title: result.plan.spreadsheetTitle || 'План відвантажень',
           id: result.plan.spreadsheetId,
         },
-        payments: {
-          rowG: result.payments.rowG,
-          rowH: result.payments.rowH,
-          rowM: result.payments.rowM,
-          tab: result.payments.tab,
-          title: result.payments.spreadsheetTitle || 'Оплати/Борги',
-          id: result.payments.spreadsheetId,
-        },
+        payments: result.payments
+          ? {
+              rowG: result.payments.rowG,
+              rowH: result.payments.rowH,
+              rowM: result.payments.rowM,
+              tab: result.payments.tab,
+              title: result.payments.spreadsheetTitle || 'Оплати/Борги',
+              id: result.payments.spreadsheetId,
+            }
+          : null,
       });
 
       // Update planSheetConfig if discovery returned an ID
@@ -812,12 +816,23 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                 <span className="text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md">
                   «План відвантажень» [План]
                 </span>
-                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
-                  «Оплати/Борги» [Лист1]
-                </span>
+                {isMk ? (
+                  <span
+                    className="text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md"
+                    title="Для Відділу МК таблиця «Оплати/Борги» не заповнюється"
+                  >
+                    «Оплати/Борги» [не записується для МК]
+                  </span>
+                ) : (
+                  <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                    «Оплати/Борги» [Лист1]
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Запис у дві цільові таблиці згідно з новими прив'язками колонок
+                {isMk
+                  ? "Запис здійснюється виключно в таблицю «План відвантажень» (від рядка 2094)"
+                  : "Запис у дві цільові таблиці згідно з новими прив'язками колонок"}
               </p>
             </div>
           </div>
@@ -936,10 +951,14 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
           <div className="mx-6 mt-4 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-900 animate-in fade-in space-y-2.5">
             <div className="flex items-center gap-2 font-bold text-emerald-950 text-sm">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-              <span>Проект № {successInfo.projectNumber} успішно записано в дві Google Таблиці!</span>
+              <span>
+                {successInfo.payments
+                  ? `Проект № ${successInfo.projectNumber} успішно записано в дві Google Таблиці!`
+                  : `Проект № ${successInfo.projectNumber} (відділ МК) успішно збережено в «План відвантажень»!`}
+              </span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1 text-[11px]">
+            <div className={`grid gap-2.5 pt-1 text-[11px] ${successInfo.payments ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
               {/* Plan shipment result */}
               <div className="bg-white/90 border border-blue-200 rounded-lg p-2.5 space-y-1">
                 <div className="font-bold text-blue-950 flex items-center justify-between">
@@ -968,31 +987,44 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                 </a>
               </div>
 
-              {/* Payments result */}
-              <div className="bg-white/90 border border-emerald-200 rounded-lg p-2.5 space-y-1">
-                <div className="font-bold text-emerald-950 flex items-center justify-between">
-                  <span>💳 «Оплати/Борги»</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono">
-                    Вкладка «{successInfo.payments.tab}»
-                  </span>
+              {/* Payments result if ETS or Note if MK */}
+              {successInfo.payments ? (
+                <div className="bg-white/90 border border-emerald-200 rounded-lg p-2.5 space-y-1">
+                  <div className="font-bold text-emerald-950 flex items-center justify-between">
+                    <span>💳 «Оплати/Борги»</span>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono">
+                      Вкладка «{successInfo.payments.tab}»
+                    </span>
+                  </div>
+                  <p className="text-slate-600">
+                    Записано в перші пусті ячейки колонок від рядка 127:
+                  </p>
+                  <div className="bg-emerald-50/60 p-1.5 rounded border border-emerald-100 text-[10px] font-mono text-slate-700 space-y-0.5">
+                    <div>• Кол. A, B, C: Проєкт та замовлення (рядок {successInfo.payments.rowG})</div>
+                    <div>• Кол. G: Рахунок (рядок {successInfo.payments.rowG})</div>
+                    <div>• Кол. H: Дата рахунку (рядок {successInfo.payments.rowH})</div>
+                    <div>• Кол. M: Сума Договору (рядок {successInfo.payments.rowM})</div>
+                  </div>
+                  <a
+                    href={`https://docs.google.com/spreadsheets/d/${successInfo.payments.id}/edit`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="pt-1 inline-flex items-center gap-1 text-emerald-700 font-semibold hover:underline"
+                  >
+                    Переглянути в Google Таблиці <ExternalLink className="w-3 h-3" />
+                  </a>
                 </div>
-                <p className="text-slate-600">
-                  Записано в перші пусті ячейки колонок від рядка 127:
-                </p>
-                <div className="bg-emerald-50/60 p-1.5 rounded border border-emerald-100 text-[10px] font-mono text-slate-700 space-y-0.5">
-                  <div>• Кол. G: Рахунок (рядок {successInfo.payments.rowG})</div>
-                  <div>• Кол. H: Дата рахунку (рядок {successInfo.payments.rowH})</div>
-                  <div>• Кол. M: Сума Договору (рядок {successInfo.payments.rowM})</div>
+              ) : (
+                <div className="bg-blue-50/70 border border-blue-200 rounded-lg p-2.5 text-[11px] text-blue-900 flex items-start gap-2">
+                  <span className="font-bold text-blue-700 text-xs mt-0.5">ℹ️</span>
+                  <div>
+                    <div className="font-bold text-blue-950">Відділ МК (Металоконструкції)</div>
+                    <p className="mt-0.5 text-blue-800 leading-relaxed">
+                      Проєкти з позначкою МК не відображаються у вкладці «Проекти» та не переносяться до списку проектів. Дані зафіксовані виключно в таблиці «План відвантажень».
+                    </p>
+                  </div>
                 </div>
-                <a
-                  href={`https://docs.google.com/spreadsheets/d/${successInfo.payments.id}/edit`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="pt-1 inline-flex items-center gap-1 text-emerald-700 font-semibold hover:underline"
-                >
-                  Переглянути в Google Таблиці <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
+              )}
             </div>
           </div>
         )}
@@ -1252,6 +1284,9 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                     onClick={() => {
                       setDepartment('МК');
                       clearFieldError('department');
+                      clearFieldError('invoiceNumber');
+                      clearFieldError('invoiceDate');
+                      clearFieldError('contractAmount');
                     }}
                     disabled={isSubmitting}
                     className={`py-2 px-3 rounded-lg border text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
@@ -1363,28 +1398,50 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
           </div>
 
           {/* SECTION 2: Оплати/Борги (вкладка Лист1) */}
-          <div className="p-4 bg-emerald-50/50 border border-emerald-200/90 rounded-2xl space-y-3.5">
-            <div className="flex items-center justify-between pb-2 border-b border-emerald-200/70">
+          <div
+            className={`p-4 rounded-2xl space-y-3.5 transition-all duration-200 ${
+              isMk
+                ? 'bg-slate-100/80 border border-slate-200/90'
+                : 'bg-emerald-50/50 border border-emerald-200/90'
+            }`}
+          >
+            <div className={`flex items-center justify-between pb-2 border-b ${isMk ? 'border-slate-200' : 'border-emerald-200/70'}`}>
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-                <span className="text-xs font-bold text-emerald-950 uppercase tracking-wide">
+                <span className={`w-2.5 h-2.5 rounded-full ${isMk ? 'bg-slate-400' : 'bg-emerald-600'}`}></span>
+                <span className={`text-xs font-bold uppercase tracking-wide ${isMk ? 'text-slate-600' : 'text-emerald-950'}`}>
                   2. Таблиця «Оплати/Борги» • Вкладка «Лист1»
                 </span>
               </div>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
-                Перші пусті ячейки колонок: G, H, M • Запис від рядка 127
-              </span>
+              {isMk ? (
+                <span className="text-[10px] font-bold text-slate-600 bg-slate-200/80 px-2 py-0.5 rounded-md flex items-center gap-1">
+                  Неактивно для Відділу МК (без запису)
+                </span>
+              ) : (
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
+                  Перші пусті ячейки колонок: G, H, M • Запис від рядка 127
+                </span>
+              )}
             </div>
+
+            {/* Inactive notice when MK department is selected */}
+            {isMk && (
+              <div className="flex items-start gap-2.5 p-3 bg-amber-50/90 border border-amber-200/90 rounded-xl text-amber-900 text-xs animate-in fade-in">
+                <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-bold">Поле 2 неактивне для Відділу МК:</span> заповнення полів «Рахунок», «Дата рахунку» та «Сума Договору» не вимагається, і запис у таблицю «Оплати/Борги» <b>не виконується</b>. Запис проекту здійснюється виключно з першого поля в таблицю «План відвантажень».
+                </div>
+              </div>
+            )}
 
             {/* Row: Рахунок та Дата рахунку */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-slate-800 font-semibold flex items-center gap-1.5">
-                    <Receipt className="w-3.5 h-3.5 text-emerald-600" />
-                    Рахунок <span className="text-red-500 font-bold">*</span>
+                  <label className={`block font-semibold flex items-center gap-1.5 ${isMk ? 'text-slate-400' : 'text-slate-800'}`}>
+                    <Receipt className={`w-3.5 h-3.5 ${isMk ? 'text-slate-400' : 'text-emerald-600'}`} />
+                    Рахунок {!isMk && <span className="text-red-500 font-bold">*</span>}
                   </label>
-                  <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-100/80 px-1.5 py-0.2 rounded">
+                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${isMk ? 'text-slate-400 bg-slate-200/60' : 'text-emerald-700 bg-emerald-100/80'}`}>
                     Кол. G (від рядка 127)
                   </span>
                 </div>
@@ -1396,15 +1453,17 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                     setInvoiceNumber(e.target.value);
                     clearFieldError('invoiceNumber');
                   }}
-                  disabled={isSubmitting}
-                  placeholder="напр. № 142 від ТОВ '...'"
-                  className={`w-full px-3 py-2 border rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 transition-colors ${
-                    validationErrors.invoiceNumber
-                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500'
-                      : 'border-slate-300 bg-white focus:ring-emerald-500'
+                  disabled={isSubmitting || isMk}
+                  placeholder={isMk ? 'Не заповнюється для Відділу МК' : "напр. № 142 від ТОВ '...'"}
+                  className={`w-full px-3 py-2 border rounded-lg text-xs font-medium focus:outline-none focus:ring-2 transition-colors ${
+                    isMk
+                      ? 'border-slate-200 bg-slate-200/50 text-slate-400 cursor-not-allowed'
+                      : validationErrors.invoiceNumber
+                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500 text-slate-800'
+                      : 'border-slate-300 bg-white focus:ring-emerald-500 text-slate-800'
                   }`}
                 />
-                {validationErrors.invoiceNumber && (
+                {!isMk && validationErrors.invoiceNumber && (
                   <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" /> {validationErrors.invoiceNumber}
                   </p>
@@ -1413,11 +1472,11 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-slate-800 font-semibold flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                    Дата рахунку <span className="text-red-500 font-bold">*</span>
+                  <label className={`block font-semibold flex items-center gap-1.5 ${isMk ? 'text-slate-400' : 'text-slate-800'}`}>
+                    <Calendar className={`w-3.5 h-3.5 ${isMk ? 'text-slate-400' : 'text-emerald-600'}`} />
+                    Дата рахунку {!isMk && <span className="text-red-500 font-bold">*</span>}
                   </label>
-                  <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-100/80 px-1.5 py-0.2 rounded">
+                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${isMk ? 'text-slate-400 bg-slate-200/60' : 'text-emerald-700 bg-emerald-100/80'}`}>
                     Кол. H (від рядка 127)
                   </span>
                 </div>
@@ -1429,14 +1488,16 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                     setInvoiceDate(e.target.value);
                     clearFieldError('invoiceDate');
                   }}
-                  disabled={isSubmitting}
-                  className={`w-full px-3 py-2 border rounded-lg text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 transition-colors ${
-                    validationErrors.invoiceDate
-                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500'
-                      : 'border-slate-300 bg-white focus:ring-emerald-500'
+                  disabled={isSubmitting || isMk}
+                  className={`w-full px-3 py-2 border rounded-lg text-xs font-medium focus:outline-none focus:ring-2 transition-colors ${
+                    isMk
+                      ? 'border-slate-200 bg-slate-200/50 text-slate-400 cursor-not-allowed'
+                      : validationErrors.invoiceDate
+                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500 text-slate-800'
+                      : 'border-slate-300 bg-white focus:ring-emerald-500 text-slate-800'
                   }`}
                 />
-                {validationErrors.invoiceDate && (
+                {!isMk && validationErrors.invoiceDate && (
                   <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" /> {validationErrors.invoiceDate}
                   </p>
@@ -1447,11 +1508,11 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
             {/* Row: Сума Договору */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="block text-slate-800 font-semibold flex items-center gap-1.5">
-                  <DollarSign className="w-3.5 h-3.5 text-emerald-600" />
-                  Сума Договору <span className="text-red-500 font-bold">*</span>
+                <label className={`block font-semibold flex items-center gap-1.5 ${isMk ? 'text-slate-400' : 'text-slate-800'}`}>
+                  <DollarSign className={`w-3.5 h-3.5 ${isMk ? 'text-slate-400' : 'text-emerald-600'}`} />
+                  Сума Договору {!isMk && <span className="text-red-500 font-bold">*</span>}
                 </label>
-                <span className="text-[10px] text-emerald-700 font-mono font-bold bg-emerald-100/80 px-1.5 py-0.2 rounded">
+                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${isMk ? 'text-slate-400 bg-slate-200/60' : 'text-emerald-700 bg-emerald-100/80'}`}>
                   Кол. M (від рядка 127)
                 </span>
               </div>
@@ -1464,27 +1525,29 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                     setContractAmount(e.target.value);
                     clearFieldError('contractAmount');
                   }}
-                  disabled={isSubmitting}
-                  placeholder="0.00"
-                  className={`w-full pl-3 pr-8 py-2 border rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 transition-colors ${
-                    validationErrors.contractAmount
-                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500'
-                      : 'border-slate-300 bg-white focus:ring-emerald-500'
+                  disabled={isSubmitting || isMk}
+                  placeholder={isMk ? 'Не заповнюється для Відділу МК' : '0.00'}
+                  className={`w-full pl-3 pr-8 py-2 border rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 transition-colors ${
+                    isMk
+                      ? 'border-slate-200 bg-slate-200/50 text-slate-400 cursor-not-allowed'
+                      : validationErrors.contractAmount
+                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500 text-slate-900'
+                      : 'border-slate-300 bg-white focus:ring-emerald-500 text-slate-900'
                   }`}
                 />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 font-bold text-slate-400">
+                <span className={`absolute right-3 top-1/2 -translate-y-1/2 font-bold ${isMk ? 'text-slate-300' : 'text-slate-400'}`}>
                   ₴
                 </span>
               </div>
-              {validationErrors.contractAmount ? (
+              {!isMk && validationErrors.contractAmount ? (
                 <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
                   <AlertCircle className="w-3 h-3" /> {validationErrors.contractAmount}
                 </p>
-              ) : (
+              ) : !isMk ? (
                 <p className="text-[11px] text-slate-500 mt-1">
                   Вноситься у першу зверху пусту ячейку колонки M вкладки «Лист1» (від рядка 127)
                 </p>
-              )}
+              ) : null}
             </div>
           </div>
         </form>
@@ -1494,7 +1557,13 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
           <div className="flex items-center gap-2 text-[11px] text-slate-600 truncate">
             <Layers className="w-3.5 h-3.5 text-blue-600 shrink-0" />
             <span className="truncate">
-              <b>«План»</b>: A, B, C, D, H (від рядка 2094) <span className="text-slate-400">•</span> <b>«Лист1»</b>: G, H, M (від рядка 127)
+              <b>«План»</b>: A, B, C, D, H (від рядка 2094){' '}
+              <span className="text-slate-400">•</span>{' '}
+              {isMk ? (
+                <b className="text-slate-500">«Лист1»: без запису (відділ МК)</b>
+              ) : (
+                <b>«Лист1»: G, H, M (від рядка 127)</b>
+              )}
             </span>
           </div>
 
@@ -1521,6 +1590,8 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
               title={
                 isDuplicateNumber
                   ? 'Запис заблоковано: номер вже існує'
+                  : isMk
+                  ? 'Записати проект у таблицю «План відвантажень» (без запису в Оплати/Борги)'
                   : "Записати проект згідно з новими прив'язками"
               }
             >
@@ -1537,7 +1608,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
               ) : (
                 <>
                   <Plus className="w-4 h-4" />
-                  <span>Записати проект</span>
+                  <span>{isMk ? 'Записати проект (тільки План)' : 'Записати проект'}</span>
                 </>
               )}
             </button>

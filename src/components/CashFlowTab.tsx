@@ -38,7 +38,6 @@ import {
   CompanyWeeklyCashFlow,
 } from '../types';
 import { aggregateCashFlow } from '../services/cashFlowService';
-import { CASH_FLOW_COMPANIES } from '../utils/weekUtils';
 import { DEFAULT_OUR_COMPANIES } from '../data/sampleDocuments';
 
 interface Props {
@@ -248,22 +247,17 @@ export const CashFlowTab: React.FC<Props> = ({
 
   // Build clean, deduplicated list of our companies directly from "Наші компанії"
   const availableCompanies = useMemo(() => {
-    // 1. Source companies: from Google Sheets tab "Наші компанії", fallback to DEFAULT_OUR_COMPANIES
+    // 1. Source companies: strictly from Google Sheets tab "Наші компанії"
+    // (fallback to DEFAULT_OUR_COMPANIES only if "Наші компанії" list is empty or not yet loaded)
     const rawList =
       companyLists?.ourCompanies && companyLists.ourCompanies.length > 0
         ? companyLists.ourCompanies
         : DEFAULT_OUR_COMPANIES;
 
-    // 2. Map keyed by core name to eliminate duplicates (e.g., prevents "Шоп Інтеріор" vs "ТОВ ШОП ІНТЕРІОР")
+    // 2. Map keyed by normalized core name to eliminate duplicates (e.g., prevents "Шоп Інтеріор" vs "ТОВ ШОП ІНТЕРІОР")
     const companyMap = new Map<string, string>();
 
-    // Seed with standard canonical companies from specification
-    for (const std of CASH_FLOW_COMPANIES) {
-      const core = getCompanyCoreKey(std);
-      companyMap.set(core, std);
-    }
-
-    // Process companies from "Наші компанії"
+    // Process companies strictly from "Наші компанії"
     for (const raw of rawList) {
       const trimmed = (raw || '').trim();
       if (!trimmed || trimmed.length < 2) continue;
@@ -277,6 +271,8 @@ export const CashFlowTab: React.FC<Props> = ({
         const hasLegalPrefix = /^(тов|фоп|пат|прат|пп|тдв)\s*/i.test(trimmed);
         const existingHasPrefix = /^(тов|фоп|пат|прат|пп|тдв)\s*/i.test(existing);
         if (hasLegalPrefix && !existingHasPrefix) {
+          companyMap.set(core, trimmed);
+        } else if (hasLegalPrefix === existingHasPrefix && trimmed.length > existing.length) {
           companyMap.set(core, trimmed);
         }
       }

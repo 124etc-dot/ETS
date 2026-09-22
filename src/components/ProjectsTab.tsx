@@ -31,6 +31,8 @@ import {
   GoogleSheetsService,
   DEFAULT_PROJECTS_SPREADSHEET_ID,
   DEFAULT_PROJECTS_SPREADSHEET_URL,
+  isMkProject,
+  isEtsProject,
 } from '../services/googleSheets';
 import { AuthState } from '../services/googleAuth';
 import { SAMPLE_PROJECT_HEADERS, SAMPLE_PROJECT_ROWS } from '../data/sampleProjects';
@@ -171,8 +173,9 @@ export const ProjectsTab: React.FC<Props> = ({
           `У вкладці «${res.tabNameUsed}» починаючи з рядка 111 не знайдено заповнених рядків. Показано зразки.`
         );
       } else {
-        setProjects(res.rows);
-        onProjectsChange?.(res.rows);
+        const cleanRows = res.rows.filter((p) => !isMkProject(p));
+        setProjects(cleanRows);
+        onProjectsChange?.(cleanRows);
         setHeaders(res.headers);
         onHeadersChange?.(res.headers);
         setIsLiveFromSheet(true);
@@ -183,7 +186,7 @@ export const ProjectsTab: React.FC<Props> = ({
         const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(time);
         onLastSyncTimeChange?.(time);
-        setSyncNotice(`Дані з таблиці «Оплати/Борги» (вкладка «${res.tabNameUsed}», рядки 111+) успішно оновлено о ${time}. Завантажено ${res.rows.length} проєктів.`);
+        setSyncNotice(`Дані з таблиці «Оплати/Борги» (вкладка «${res.tabNameUsed}», рядки 111+) успішно оновлено о ${time}. Завантажено ${cleanRows.length} проєктів (проєкти відділу МК виключено).`);
       }
     } catch (err: any) {
       console.error('Failed to load projects from sheet «Оплати/Борги»:', err);
@@ -258,8 +261,9 @@ export const ProjectsTab: React.FC<Props> = ({
         onLastSyncTimeChange?.(time);
         setSyncNotice(`Таблицю «План відвантажень» (вкладка «${res.tabNameUsed}») оновлено о ${time}. Записів від рядка 2094 наразі немає. Нові проекти будуть записуватись від рядка 2094.`);
       } else {
-        setProjects(res.rows);
-        onProjectsChange?.(res.rows);
+        const cleanRows = res.rows.filter((p) => !isMkProject(p));
+        setProjects(cleanRows);
+        onProjectsChange?.(cleanRows);
         setHeaders(res.headers);
         onHeadersChange?.(res.headers);
         setActiveDataSource('plan');
@@ -270,7 +274,7 @@ export const ProjectsTab: React.FC<Props> = ({
         const time = new Date().toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         setLastSyncTime(time);
         onLastSyncTimeChange?.(time);
-        setSyncNotice(`Дані з таблиці «План відвантажень» (вкладка «${res.tabNameUsed}», від рядка 2094) успішно оновлено о ${time}. Завантажено ${res.rows.length} проєктів.`);
+        setSyncNotice(`Дані з таблиці «План відвантажень» (вкладка «${res.tabNameUsed}», від рядка 2094) успішно оновлено о ${time}. Завантажено ${cleanRows.length} проєктів (проєкти відділу МК виключено).`);
       }
 
       if (res.spreadsheetTitle && (!currentPlanConfig || currentPlanConfig.title !== res.spreadsheetTitle)) {
@@ -443,6 +447,13 @@ export const ProjectsTab: React.FC<Props> = ({
   };
 
   const isProjectValid = (p: ProjectSheetRow): boolean => {
+    // User directive:
+    // 1. "проекти з позначкою МК не відображаємо цілим рядком"
+    if (isMkProject(p)) return false;
+
+    // 2. "проекти з позначкою ЕТС відображаємо цілим рядком"
+    if (isEtsProject(p)) return true;
+
     const hasIdentifier = isMeaningfulCell(p.colA) || isMeaningfulCell(p.colB) || isMeaningfulCell(p.colC);
     const hasSecondary =
       isMeaningfulCell(p.colD) ||
@@ -562,6 +573,14 @@ export const ProjectsTab: React.FC<Props> = ({
       avgMarginPercent,
     };
   }, [validProjects]);
+
+  const memoizedProjectNumbers = useMemo(() => {
+    return projects.map((p) => p.colA).filter(Boolean);
+  }, [projects]);
+
+  const memoizedManagers = useMemo(() => {
+    return projects.map((p) => p.colG).filter(Boolean);
+  }, [projects]);
 
   // Export CSV
   const handleExportCSV = () => {
@@ -1204,7 +1223,14 @@ export const ProjectsTab: React.FC<Props> = ({
 
                       {/* Col A - Sticky Left */}
                       <td className="sticky left-12 z-10 p-2.5 font-bold text-blue-700 border-r-2 border-slate-300 whitespace-nowrap bg-white group-hover:bg-blue-100/60 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.08)]">
-                        <span className="group-hover:underline">{p.colA || '—'}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="group-hover:underline">{p.colA || '—'}</span>
+                          {isEtsProject(p) && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                              ЕТС
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Col B */}
@@ -1214,7 +1240,18 @@ export const ProjectsTab: React.FC<Props> = ({
 
                       {/* Col C */}
                       <td className="p-2.5 border-r border-slate-200 max-w-[200px] truncate font-medium text-slate-900" title={p.colC}>
-                        {p.colC || '—'}
+                        {isEtsProject(p) ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200 shadow-2xs">
+                              ЕТС
+                            </span>
+                            {p.colC && p.colC.trim().toUpperCase() !== 'ЕТС' && p.colC.trim().toUpperCase() !== 'ETC' && p.colC.trim().toUpperCase() !== 'ETS' && (
+                              <span className="text-xs text-slate-700">{p.colC}</span>
+                            )}
+                          </div>
+                        ) : (
+                          p.colC || '—'
+                        )}
                       </td>
 
                       {/* Col D */}
@@ -1599,8 +1636,8 @@ export const ProjectsTab: React.FC<Props> = ({
       <AddProjectModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        existingManagers={projects.map((p) => p.colG)}
-        existingProjectNumbers={projects.map((p) => p.colA).filter(Boolean)}
+        existingManagers={memoizedManagers}
+        existingProjectNumbers={memoizedProjectNumbers}
         existingProjects={projects}
         planSheetConfig={planSheetConfig}
         onPlanSheetConfigChange={setPlanSheetConfig}

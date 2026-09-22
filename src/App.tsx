@@ -31,7 +31,7 @@ import {
 } from './types';
 import { googleAuth, AuthState, isPopupCancelledError } from './services/googleAuth';
 import { GoogleDriveService } from './services/googleDrive';
-import { GoogleSheetsService, DEFAULT_PROJECTS_SPREADSHEET_ID } from './services/googleSheets';
+import { GoogleSheetsService, DEFAULT_PROJECTS_SPREADSHEET_ID, isMkProject } from './services/googleSheets';
 import { OCRService } from './services/ocrService';
 import { normalizeFileName, deduplicateDocuments } from './utils/deduplication';
 import { ensureOcrDates } from './utils/dateUtils';
@@ -249,18 +249,20 @@ export default function App() {
     overheadExpensesRef.current = overheadExpenses;
   }, [overheadExpenses]);
 
-  // Projects state with localStorage caching
+  // Projects state with localStorage caching (projects marked as МК are strictly excluded)
   const [projects, setProjects] = useState<ProjectSheetRow[]>(() => {
     if (typeof window !== 'undefined') {
       try {
         const stored = localStorage.getItem(PROJECTS_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed.filter((p: ProjectSheetRow) => !isMkProject(p));
+          }
         }
       } catch {}
     }
-    return SAMPLE_PROJECT_ROWS;
+    return SAMPLE_PROJECT_ROWS.filter((p) => !isMkProject(p));
   });
   const projectsRef = useRef(projects);
   useEffect(() => {
@@ -293,10 +295,11 @@ export default function App() {
   const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(false);
 
   const handleProjectsChange = useCallback((newProjects: ProjectSheetRow[]) => {
-    setProjects(newProjects);
+    const cleanProjects = newProjects.filter((p) => !isMkProject(p));
+    setProjects(cleanProjects);
     if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(newProjects));
+        localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(cleanProjects));
       } catch {}
     }
   }, []);
@@ -350,7 +353,8 @@ export default function App() {
           2094
         );
         if (res.rows && res.rows.length > 0) {
-          setProjects(res.rows);
+          const cleanRows = res.rows.filter((p) => !isMkProject(p));
+          setProjects(cleanRows);
           setProjectHeaders(res.headers);
           setIsLiveProjectsFromSheet(true);
           setActiveProjectsSource('plan');
@@ -358,7 +362,7 @@ export default function App() {
           setProjectsLastSyncTime(time);
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(res.rows));
+              localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(cleanRows));
               localStorage.setItem(PROJECTS_HEADERS_STORAGE_KEY, JSON.stringify(res.headers));
               localStorage.setItem(PROJECTS_ACTIVE_SOURCE_KEY, 'plan');
             } catch {}
@@ -372,7 +376,8 @@ export default function App() {
           'Лист1'
         );
         if (res.rows && res.rows.length > 0) {
-          setProjects(res.rows);
+          const cleanRows = res.rows.filter((p) => !isMkProject(p));
+          setProjects(cleanRows);
           setProjectHeaders(res.headers);
           setIsLiveProjectsFromSheet(true);
           setActiveProjectsSource('payments');
@@ -380,7 +385,7 @@ export default function App() {
           setProjectsLastSyncTime(time);
           if (typeof window !== 'undefined') {
             try {
-              localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(res.rows));
+              localStorage.setItem(PROJECTS_STORAGE_KEY, JSON.stringify(cleanRows));
               localStorage.setItem(PROJECTS_HEADERS_STORAGE_KEY, JSON.stringify(res.headers));
               localStorage.setItem(PROJECTS_ACTIVE_SOURCE_KEY, 'payments');
             } catch {}

@@ -3144,6 +3144,11 @@ export class GoogleSheetsService {
         continue;
       }
 
+      // User directive: "проекти з позначкою МК не відображаємо цілим рядком"
+      if (isMkProject({ colA, colB, colC, colD, colE, colF, colG, colH, colX, colY })) {
+        continue;
+      }
+
       totalSumQRST += sumQRST;
 
       projectRows.push({
@@ -3600,7 +3605,7 @@ export class GoogleSheetsService {
       rowG: number;
       rowH: number;
       rowM: number;
-    };
+    } | null;
   }> {
     const cleanProjectNumber = params.projectNumber.trim().replace(/^[№#]\s*/, '');
     const formatDateForSheet = (dStr: string): string => {
@@ -3690,17 +3695,23 @@ export class GoogleSheetsService {
       }
     }
 
-    // 2. Fetch column A starting strictly from row 2094 downwards
-    const planRange2094 = encodeURIComponent(`'${safePlanTab}'!A${MIN_PLAN_START_ROW}:A10000`);
+    // Helper: is a row occupied across all its columns?
+    const isRowOccupied = (row: any[]): boolean => {
+      if (!row || !Array.isArray(row)) return false;
+      return row.some((cell) => String(cell ?? '').trim() !== '');
+    };
+
+    // 2. Fetch columns A..Z starting strictly from row 2094 downwards
+    const planRange2094 = encodeURIComponent(`'${safePlanTab}'!A${MIN_PLAN_START_ROW}:Z10000`);
     const planData2094 = await this.request<any>(
       `${targetPlanSpreadsheetId}/values/${planRange2094}`,
       accessToken
     );
-    const planColAFrom2094: any[][] = planData2094.values || [];
+    const planRowsFrom2094: any[][] = planData2094.values || [];
 
-    // Check for duplicates in rows 2094..10000
-    for (let i = 0; i < planColAFrom2094.length; i++) {
-      const existing = String(planColAFrom2094[i]?.[0] ?? '').replace(/^[№#]\s*/, '').trim();
+    // Check for duplicates in rows 2094..10000 (Column A)
+    for (let i = 0; i < planRowsFrom2094.length; i++) {
+      const existing = String(planRowsFrom2094[i]?.[0] ?? '').replace(/^[№#]\s*/, '').trim();
       if (existing && existing.toLowerCase() === cleanProjectNumber.toLowerCase()) {
         throw new Error(
           `Номер проекту «${cleanProjectNumber}» вже існує в таблиці «${planTitle}» (рядок ${MIN_PLAN_START_ROW + i}). Дублювання індивідуальних номерів заборонено.`
@@ -3708,19 +3719,23 @@ export class GoogleSheetsService {
       }
     }
 
-    // Find the first empty cell in Column A starting strictly from row 2094 downwards
-    let targetPlanRow = MIN_PLAN_START_ROW;
-    let foundPlanEmpty = false;
-    for (let i = 0; i < planColAFrom2094.length; i++) {
-      const val = String(planColAFrom2094[i]?.[0] ?? '').trim();
-      if (!val) {
-        targetPlanRow = MIN_PLAN_START_ROW + i;
-        foundPlanEmpty = true;
-        break;
+    // Find the highest occupied row index >= 2094 to NEVER overlap rows ("не накладати рядки"):
+    let maxPlanOccupiedRow = MIN_PLAN_START_ROW - 1; // 2093
+    for (let i = 0; i < planRowsFrom2094.length; i++) {
+      if (isRowOccupied(planRowsFrom2094[i])) {
+        maxPlanOccupiedRow = MIN_PLAN_START_ROW + i;
       }
     }
-    if (!foundPlanEmpty) {
-      targetPlanRow = MIN_PLAN_START_ROW + planColAFrom2094.length;
+
+    // Next target row is strictly after the last occupied row (or 2094 if sheet is empty from 2094)
+    let targetPlanRow = Math.max(MIN_PLAN_START_ROW, maxPlanOccupiedRow + 1);
+
+    // Safety verification: ensure targetPlanRow is completely empty across all columns
+    while (
+      targetPlanRow - MIN_PLAN_START_ROW < planRowsFrom2094.length &&
+      isRowOccupied(planRowsFrom2094[targetPlanRow - MIN_PLAN_START_ROW])
+    ) {
+      targetPlanRow++;
     }
 
     // A: Номер проекту, B: Назва проекту, C: Відділ, D: Старт проекту, H: Менеджер проекту
@@ -3746,6 +3761,26 @@ export class GoogleSheetsService {
     // =========================================================================
     // 2. Google Таблиця "Оплати/Борги", вкладка "Лист1"
     // =========================================================================
+    const isMk =
+      params.department.trim().toUpperCase() === 'МК' ||
+      params.department.trim().toUpperCase() === 'MK';
+
+    // User directive:
+    // "Виправ помилку, при додаванні нового проекту з позначкою МК ти не вірно переносиш дані рядка у вкладку проекти. Проекти з позначкою МК не відображаємо в програмі у вкладці проекти зовсім цілим рядком."
+    // If department is МК, the project is only recorded in "План відвантажень" (tab "План")
+    // and is NOT transferred to "Оплати/Борги" (tab "Лист1"), nor displayed in the Projects tab.
+    if (isMk) {
+      return {
+        plan: {
+          spreadsheetId: targetPlanSpreadsheetId,
+          spreadsheetTitle: planTitle,
+          tab: targetPlanTab,
+          row: targetPlanRow,
+        },
+        payments: null,
+      };
+    }
+
     const cleanPaymentsId = this.extractSpreadsheetId(
       params.paymentsSpreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID
     );
@@ -3782,54 +3817,29 @@ export class GoogleSheetsService {
     // "В таблицю Оплати/Борги вкладка Лист1 записи проектів починати тільки з рядка 127 і далі вниз")
     const MIN_PAYMENTS_START_ROW = 127;
 
-    // Columns G..M: G=0, H=1, M=6, queried strictly starting from row 127 downwards
-    const gRange = encodeURIComponent(`'${safePaymentsTab}'!G${MIN_PAYMENTS_START_ROW}:M10000`);
-    const gData = await this.request<any>(`${cleanPaymentsId}/values/${gRange}`, accessToken);
-    const gRows: any[][] = gData.values || [];
+    // Check all columns A..AG across the entire sheet up to row 10000 to find the highest occupied row
+    const allRowsRange = encodeURIComponent(`'${safePaymentsTab}'!A1:AG10000`);
+    const allRowsData = await this.request<any>(`${cleanPaymentsId}/values/${allRowsRange}`, accessToken);
+    const allRows: any[][] = allRowsData.values || [];
 
-    // Find first empty cell in Column G starting strictly from row 127 downwards
-    let rowG = MIN_PAYMENTS_START_ROW;
-    let foundG = false;
-    for (let i = 0; i < gRows.length; i++) {
-      const val = String(gRows[i]?.[0] ?? '').trim();
-      if (!val) {
-        rowG = MIN_PAYMENTS_START_ROW + i;
-        foundG = true;
-        break;
+    // Find highest occupied row index in the sheet (1-based index)
+    let maxPaymentsOccupiedRow = 0;
+    for (let r = 0; r < allRows.length; r++) {
+      if (isRowOccupied(allRows[r])) {
+        maxPaymentsOccupiedRow = r + 1;
       }
     }
-    if (!foundG) {
-      rowG = MIN_PAYMENTS_START_ROW + gRows.length;
-    }
 
-    // Find first empty cell in Column H starting strictly from row 127 downwards
-    let rowH = MIN_PAYMENTS_START_ROW;
-    let foundH = false;
-    for (let i = 0; i < gRows.length; i++) {
-      const val = String(gRows[i]?.[1] ?? '').trim();
-      if (!val) {
-        rowH = MIN_PAYMENTS_START_ROW + i;
-        foundH = true;
-        break;
-      }
-    }
-    if (!foundH) {
-      rowH = MIN_PAYMENTS_START_ROW + gRows.length;
-    }
+    // To prevent overlapping rows ("не накладати рядки"):
+    // Target row must be strictly >= MIN_PAYMENTS_START_ROW (127), AND strictly after the last occupied row
+    let targetPaymentsRow = Math.max(MIN_PAYMENTS_START_ROW, maxPaymentsOccupiedRow + 1);
 
-    // Find first empty cell in Column M starting strictly from row 127 downwards
-    let rowM = MIN_PAYMENTS_START_ROW;
-    let foundM = false;
-    for (let i = 0; i < gRows.length; i++) {
-      const val = String(gRows[i]?.[6] ?? '').trim();
-      if (!val) {
-        rowM = MIN_PAYMENTS_START_ROW + i;
-        foundM = true;
-        break;
-      }
-    }
-    if (!foundM) {
-      rowM = MIN_PAYMENTS_START_ROW + gRows.length;
+    // Extra safety verification: ensure targetPaymentsRow is completely empty across all columns
+    while (
+      targetPaymentsRow - 1 < allRows.length &&
+      isRowOccupied(allRows[targetPaymentsRow - 1])
+    ) {
+      targetPaymentsRow++;
     }
 
     let parsedAmount: string | number = String(params.contractAmount).trim();
@@ -3843,17 +3853,23 @@ export class GoogleSheetsService {
       parsedAmount = numAmount;
     }
 
+    // For ETS projects, write project identifier and invoice data in the same row
+    // Column C is explicitly written as 'ЕТС' (позначка ЕТС)
     const paymentsUpdates: Array<{ range: string; values: any[][] }> = [
       {
-        range: `'${safePaymentsTab}'!G${rowG}`,
+        range: `'${safePaymentsTab}'!A${targetPaymentsRow}:C${targetPaymentsRow}`,
+        values: [[cleanProjectNumber, params.projectName.trim(), 'ЕТС']],
+      },
+      {
+        range: `'${safePaymentsTab}'!G${targetPaymentsRow}`,
         values: [[params.invoiceNumber.trim()]],
       },
       {
-        range: `'${safePaymentsTab}'!H${rowH}`,
+        range: `'${safePaymentsTab}'!H${targetPaymentsRow}`,
         values: [[formattedInvoiceDate]],
       },
       {
-        range: `'${safePaymentsTab}'!M${rowM}`,
+        range: `'${safePaymentsTab}'!M${targetPaymentsRow}`,
         values: [[parsedAmount]],
       },
     ];
@@ -3877,9 +3893,9 @@ export class GoogleSheetsService {
         spreadsheetId: cleanPaymentsId,
         spreadsheetTitle: paymentsTitle,
         tab: targetPaymentsTab,
-        rowG,
-        rowH,
-        rowM,
+        rowG: targetPaymentsRow,
+        rowH: targetPaymentsRow,
+        rowM: targetPaymentsRow,
       },
     };
   }
@@ -4022,6 +4038,11 @@ export class GoogleSheetsService {
         !isMeaningful(colD) &&
         !isMeaningful(colH)
       ) {
+        continue;
+      }
+
+      // User directive: "проекти з позначкою МК не відображаємо цілим рядком"
+      if (isMkProject({ colA, colB, colC, colD, colH })) {
         continue;
       }
 
@@ -4211,6 +4232,111 @@ export class GoogleSheetsService {
       targetYear: options.targetYear || 2026,
     });
   }
+}
+
+/**
+ * Checks whether a project is marked as "МК" (department or title marker).
+ * According to user directives:
+ * "проекти з позначкою МК не відображаємо цілим рядком"
+ * Projects marked with "МК" must NOT be displayed in the application's "Проекти" tab as an entire row.
+ */
+export function isMkProject(p: { colA?: string; colB?: string; colC?: string; colG?: string; department?: string; [key: string]: any }): boolean {
+  if (!p) return false;
+
+  // Regular expression matching MK in Ukrainian (МК) or Latin (MK)
+  const mkRegex = /(?:^|[\s,.;:\-_/(\[])[МM][КK](?:$|[\s,.;:\-_/)\]])/i;
+
+  // 1. Column C in "План" tab is "Відділ" ('ЕТС' or 'МК')
+  const c = String(p.colC ?? '').trim();
+  if (
+    c.toUpperCase() === 'МК' ||
+    c.toUpperCase() === 'MK' ||
+    mkRegex.test(c) ||
+    /відділ\s*[МM][КK]/i.test(c)
+  ) {
+    return true;
+  }
+
+  // 2. Column B (Project Name)
+  const b = String(p.colB ?? '').trim();
+  if (
+    mkRegex.test(b) ||
+    /\[МК\]/i.test(b) ||
+    /\(МК\)/i.test(b) ||
+    /відділ\s*[МM][КK]/i.test(b)
+  ) {
+    return true;
+  }
+
+  // 3. Col A (Number)
+  const a = String(p.colA ?? '').trim();
+  if (mkRegex.test(a)) {
+    return true;
+  }
+
+  // 4. Col G or other fields
+  const g = String(p.colG ?? '').trim();
+  if (mkRegex.test(g)) {
+    return true;
+  }
+
+  if (p.department && (p.department.toUpperCase() === 'МК' || p.department.toUpperCase() === 'MK')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Checks whether a project is marked as "ЕТС" (department or title marker).
+ * According to user directives:
+ * "проекти з позначкою ЕТС відображаємо цілим рядком"
+ * Projects marked with "ЕТС" must be displayed as an entire row.
+ */
+export function isEtsProject(p: { colA?: string; colB?: string; colC?: string; colG?: string; department?: string; [key: string]: any }): boolean {
+  if (!p) return false;
+
+  // Regular expression matching ETS in Cyrillic (ЕТС) or Latin (ETC/ETS)
+  // Cyrillic: Е(0415) Т(0422) С(0421)
+  // Latin: E(0045) T(0054) C(0043) / S(0053)
+  const etsRegex = /(?:^|[\s,.;:\-_/(\[])[ЕE][ТT][СCS](?:$|[\s,.;:\-_/)\]])/i;
+
+  const c = String(p.colC ?? '').trim();
+  if (
+    c.toUpperCase() === 'ЕТС' ||
+    c.toUpperCase() === 'ETC' ||
+    c.toUpperCase() === 'ETS' ||
+    etsRegex.test(c) ||
+    /відділ\s*[ЕE][ТT][СCS]/i.test(c)
+  ) {
+    return true;
+  }
+
+  const b = String(p.colB ?? '').trim();
+  if (
+    etsRegex.test(b) ||
+    /\[ЕТС\]/i.test(b) ||
+    /\(ЕТС\)/i.test(b) ||
+    /відділ\s*[ЕE][ТT][СCS]/i.test(b)
+  ) {
+    return true;
+  }
+
+  const a = String(p.colA ?? '').trim();
+  if (etsRegex.test(a)) {
+    return true;
+  }
+
+  const g = String(p.colG ?? '').trim();
+  if (etsRegex.test(g)) {
+    return true;
+  }
+
+  if (p.department && (p.department.toUpperCase() === 'ЕТС' || p.department.toUpperCase() === 'ETC')) {
+    return true;
+  }
+
+  return false;
 }
 
 export {
