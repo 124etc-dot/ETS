@@ -595,7 +595,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   // Submit with dual bindings:
   // 1. Номер проекту, Назва проекту, Старт проекту, Відділ, Менеджер проекту -> "План відвантажень" вкладка План (колонки А, В, D, C, H).
   // 2. Рахунок, Дата рахунку, Сума Договору -> "Оплати/Борги" вкладка Лист1 (перші пусті ячейки колонок відповідно G, H, M).
-  const handleSaveProject = async () => {
+  const handleSaveProject = async (isUpdateMode = false) => {
     if (!canWriteToSheets) {
       setErrorMessage('У вас обліковий запис з правами тільки перегляду. Додавання проектів заборонено.');
       return;
@@ -611,7 +611,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       errors.projectNumber = 'Поле «Номер проекту» не заповнено';
     } else if (!/^\d{3}-\d{2}$/.test(cleanNumber)) {
       errors.projectNumber = 'Формат має бути ххх-хх, де х — цифри (напр. 235-26)';
-    } else if (isDuplicateNumber) {
+    } else if (isDuplicateNumber && !isUpdateMode) {
       errors.projectNumber = `Номер «${cleanNumber}» вже існує в базі даних (дублікат заборонено)`;
     }
 
@@ -724,6 +724,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         paymentsSpreadsheetId: effectivePaymentsId,
         planTabName: 'План',
         paymentsTabName: 'Лист1',
+        allowExistingInPlan: isUpdateMode,
       });
 
       // Update duplicate cache and last recorded number
@@ -1577,41 +1578,52 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
               Скасувати
             </button>
 
-            {/* Action button: "+Записати проект" */}
-            <button
-              type="button"
-              onClick={handleSaveProject}
-              disabled={isSubmitting || isDuplicateNumber}
-              className={`px-5 py-2 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center gap-1.5 ${
-                isDuplicateNumber
-                  ? 'bg-red-500 hover:bg-red-600 text-white cursor-not-allowed'
-                  : 'bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white'
-              }`}
-              title={
-                isDuplicateNumber
-                  ? 'Запис заблоковано: номер вже існує'
-                  : isMk
-                  ? 'Записати проект у таблицю «План відвантажень» (без запису в Оплати/Борги)'
-                  : "Записати проект згідно з новими прив'язками"
-              }
-            >
-              {isSubmitting ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Запис у Google Таблиці...</span>
-                </>
-              ) : isDuplicateNumber ? (
-                <>
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>Дублікат номера!</span>
-                </>
-              ) : (
-                <>
-                  <Plus className="w-4 h-4" />
-                  <span>{isMk ? 'Записати проект (тільки План)' : 'Записати проект'}</span>
-                </>
-              )}
-            </button>
+            {/* Action button: "+Записати проект" or "Оновити в Лист1" */}
+            {isDuplicateNumber ? (
+              <button
+                type="button"
+                onClick={() => handleSaveProject(true)}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50"
+                title="Оновити проект та перенести/записати дані в Лист1 (перший вільний рядок 131)"
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Оновлення прив'язок...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Оновити / прив'язати в Лист1</span>
+                  </>
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleSaveProject(false)}
+                disabled={isSubmitting}
+                className="px-5 py-2 rounded-xl text-xs font-bold cursor-pointer transition shadow-xs flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white"
+                title={
+                  isMk
+                    ? 'Записати проект у таблицю «План відвантажень» (без запису в Оплати/Борги)'
+                    : "Записати проект згідно з новими прив'язками"
+                }
+              >
+                {isSubmitting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Запис у Google Таблиці...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-4 h-4" />
+                    <span>{isMk ? 'Записати проект (тільки План)' : 'Записати проект'}</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

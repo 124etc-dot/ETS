@@ -3590,6 +3590,7 @@ export class GoogleSheetsService {
       paymentsSpreadsheetId?: string;
       planTabName?: string;
       paymentsTabName?: string;
+      allowExistingInPlan?: boolean;
     }
   ): Promise<{
     plan: {
@@ -3710,32 +3711,41 @@ export class GoogleSheetsService {
     const planRowsFrom2094: any[][] = planData2094.values || [];
 
     // Check for duplicates in rows 2094..10000 (Column A)
+    let existingPlanRow = -1;
     for (let i = 0; i < planRowsFrom2094.length; i++) {
       const existing = String(planRowsFrom2094[i]?.[0] ?? '').replace(/^[№#]\s*/, '').trim();
       if (existing && existing.toLowerCase() === cleanProjectNumber.toLowerCase()) {
-        throw new Error(
-          `Номер проекту «${cleanProjectNumber}» вже існує в таблиці «${planTitle}» (рядок ${MIN_PLAN_START_ROW + i}). Дублювання індивідуальних номерів заборонено.`
-        );
+        existingPlanRow = MIN_PLAN_START_ROW + i;
+        if (!params.allowExistingInPlan) {
+          throw new Error(
+            `Номер проекту «${cleanProjectNumber}» вже існує в таблиці «${planTitle}» (рядок ${existingPlanRow}). Дублювання індивідуальних номерів заборонено.`
+          );
+        }
+        break;
       }
     }
 
-    // Find the highest occupied row index >= 2094 to NEVER overlap rows ("не накладати рядки"):
-    let maxPlanOccupiedRow = MIN_PLAN_START_ROW - 1; // 2093
-    for (let i = 0; i < planRowsFrom2094.length; i++) {
-      if (isRowOccupied(planRowsFrom2094[i])) {
-        maxPlanOccupiedRow = MIN_PLAN_START_ROW + i;
+    // Next target row: reuse existing row if allowExistingInPlan is true, else find next empty row >= 2094
+    let targetPlanRow = existingPlanRow;
+    if (targetPlanRow === -1) {
+      // Find the highest occupied row index >= 2094 to NEVER overlap rows ("не накладати рядки"):
+      let maxPlanOccupiedRow = MIN_PLAN_START_ROW - 1; // 2093
+      for (let i = 0; i < planRowsFrom2094.length; i++) {
+        if (isRowOccupied(planRowsFrom2094[i])) {
+          maxPlanOccupiedRow = MIN_PLAN_START_ROW + i;
+        }
       }
-    }
 
-    // Next target row is strictly after the last occupied row (or 2094 if sheet is empty from 2094)
-    let targetPlanRow = Math.max(MIN_PLAN_START_ROW, maxPlanOccupiedRow + 1);
+      // Next target row is strictly after the last occupied row (or 2094 if sheet is empty from 2094)
+      targetPlanRow = Math.max(MIN_PLAN_START_ROW, maxPlanOccupiedRow + 1);
 
-    // Safety verification: ensure targetPlanRow is completely empty across all columns
-    while (
-      targetPlanRow - MIN_PLAN_START_ROW < planRowsFrom2094.length &&
-      isRowOccupied(planRowsFrom2094[targetPlanRow - MIN_PLAN_START_ROW])
-    ) {
-      targetPlanRow++;
+      // Safety verification: ensure targetPlanRow is completely empty across all columns
+      while (
+        targetPlanRow - MIN_PLAN_START_ROW < planRowsFrom2094.length &&
+        isRowOccupied(planRowsFrom2094[targetPlanRow - MIN_PLAN_START_ROW])
+      ) {
+        targetPlanRow++;
+      }
     }
 
     // A: Номер проекту, B: Назва проекту, C: Відділ, D: Старт проекту, H: Менеджер проекту
@@ -3817,27 +3827,94 @@ export class GoogleSheetsService {
     // "В таблицю Оплати/Борги вкладка Лист1 записи проектів починати тільки з рядка 127 і далі вниз")
     const MIN_PAYMENTS_START_ROW = 127;
 
-    // Check all columns A..AG across the entire sheet up to row 10000 to find the highest occupied row
     const allRowsRange = encodeURIComponent(`'${safePaymentsTab}'!A1:AG10000`);
     const allRowsData = await this.request<any>(`${cleanPaymentsId}/values/${allRowsRange}`, accessToken);
     const allRows: any[][] = allRowsData.values || [];
 
-    // Find highest occupied row index in the sheet (1-based index)
-    let maxPaymentsOccupiedRow = 0;
-    for (let r = 0; r < allRows.length; r++) {
-      if (isRowOccupied(allRows[r])) {
-        maxPaymentsOccupiedRow = r + 1;
+    const isSummaryOrHeaderRow = (row: any[]): boolean => {
+      if (!row || !Array.isArray(row)) return false;
+      const combined = [row[0], row[1], row[2], row[3]]
+        .map((c) => String(c ?? '').toLowerCase().trim())
+        .join(' ');
+      return (
+        combined.includes('разом') ||
+        combined.includes('всього') ||
+        combined.includes('итого') ||
+        combined.includes('total') ||
+        combined.includes('підсумок') ||
+        combined.includes('сума')
+      );
+    };
+
+    const isPaymentsProjectRowFilled = (row: any[]): boolean => {
+      if (!row || !Array.isArray(row)) return false;
+      if (isSummaryOrHeaderRow(row)) return true;
+
+      const colA = String(row[0] ?? '').trim();
+      const colB = String(row[1] ?? '').trim();
+      const colG = String(row[6] ?? '').trim();
+      const colH = String(row[7] ?? '').trim();
+      const colM = String(row[12] ?? '').trim();
+
+      // Row is considered occupied if any project key column has data
+      return colA !== '' || colB !== '' || colG !== '' || colH !== '' || colM !== '';
+    };
+
+    // 1. Check if the project number already exists in Column A starting from row 127
+    let existingProjectRow = -1;
+    let erroneousStrayRow = -1;
+    for (let r = MIN_PAYMENTS_START_ROW - 1; r < allRows.length; r++) {
+      const row = allRows[r];
+      if (!row) continue;
+      const colA = String(row[0] ?? '').replace(/^[№#]\s*/, '').trim();
+      if (colA && colA.toLowerCase() === cleanProjectNumber.toLowerCase()) {
+        const rowNum = r + 1;
+        if (existingProjectRow === -1) {
+          existingProjectRow = rowNum;
+        } else {
+          erroneousStrayRow = rowNum;
+        }
       }
     }
 
-    // To prevent overlapping rows ("не накладати рядки"):
-    // Target row must be strictly >= MIN_PAYMENTS_START_ROW (127), AND strictly after the last occupied row
-    let targetPaymentsRow = Math.max(MIN_PAYMENTS_START_ROW, maxPaymentsOccupiedRow + 1);
+    // 2. Find the first empty project row starting strictly from row 127
+    let firstEmptyPaymentsRow = -1;
+    for (let r = MIN_PAYMENTS_START_ROW - 1; r < allRows.length; r++) {
+      const row = allRows[r];
+      if (!isPaymentsProjectRowFilled(row)) {
+        firstEmptyPaymentsRow = r + 1; // 1-based index (e.g. 131)
+        break;
+      }
+    }
 
-    // Extra safety verification: ensure targetPaymentsRow is completely empty across all columns
+    if (firstEmptyPaymentsRow === -1) {
+      firstEmptyPaymentsRow = Math.max(MIN_PAYMENTS_START_ROW, allRows.length + 1);
+    }
+
+    // Determine target payments row:
+    // If project already existed at or before the first empty row (e.g. at 131), update it.
+    // If project was erroneously placed far down the sheet (e.g. row 171 when row 131 was empty),
+    // target the true first empty row (131) and schedule the stray row (171) for clearing.
+    let targetPaymentsRow = firstEmptyPaymentsRow;
+    let strayRowToClear: number | null = null;
+
+    if (existingProjectRow !== -1) {
+      if (existingProjectRow <= firstEmptyPaymentsRow) {
+        targetPaymentsRow = existingProjectRow;
+      } else {
+        targetPaymentsRow = firstEmptyPaymentsRow;
+        strayRowToClear = existingProjectRow;
+      }
+    }
+    if (erroneousStrayRow !== -1 && erroneousStrayRow !== targetPaymentsRow) {
+      strayRowToClear = erroneousStrayRow;
+    }
+
+    // Extra safety: ensure targetPaymentsRow does not overlap an existing filled row
     while (
       targetPaymentsRow - 1 < allRows.length &&
-      isRowOccupied(allRows[targetPaymentsRow - 1])
+      targetPaymentsRow !== existingProjectRow &&
+      isPaymentsProjectRowFilled(allRows[targetPaymentsRow - 1])
     ) {
       targetPaymentsRow++;
     }
@@ -3858,7 +3935,7 @@ export class GoogleSheetsService {
     const paymentsUpdates: Array<{ range: string; values: any[][] }> = [
       {
         range: `'${safePaymentsTab}'!A${targetPaymentsRow}:C${targetPaymentsRow}`,
-        values: [[cleanProjectNumber, params.projectName.trim(), 'ЕТС']],
+        values: [[cleanProjectNumber, params.projectName.trim(), params.department.trim() || 'ЕТС']],
       },
       {
         range: `'${safePaymentsTab}'!G${targetPaymentsRow}`,
@@ -3873,6 +3950,24 @@ export class GoogleSheetsService {
         values: [[parsedAmount]],
       },
     ];
+
+    // If an erroneous stray row (such as row 171) existed, automatically clear it:
+    if (strayRowToClear && strayRowToClear !== targetPaymentsRow) {
+      paymentsUpdates.push(
+        {
+          range: `'${safePaymentsTab}'!A${strayRowToClear}:C${strayRowToClear}`,
+          values: [['', '', '']],
+        },
+        {
+          range: `'${safePaymentsTab}'!G${strayRowToClear}:H${strayRowToClear}`,
+          values: [['', '']],
+        },
+        {
+          range: `'${safePaymentsTab}'!M${strayRowToClear}`,
+          values: [['']],
+        }
+      );
+    }
 
     await this.request<any>(`${cleanPaymentsId}/values:batchUpdate`, accessToken, {
       method: 'POST',

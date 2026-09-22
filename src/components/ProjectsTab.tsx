@@ -301,6 +301,52 @@ export const ProjectsTab: React.FC<Props> = ({
   // Backwards compatibility alias
   const handleLoadFromSheet = handleLoadPaymentsSheet;
 
+  // Relocate misplaced payments row (e.g. if written to row 171 instead of row 131)
+  const [isRelocatingRow, setIsRelocatingRow] = useState(false);
+  const handleRelocatePaymentsRow = async (project: ProjectSheetRow) => {
+    const effectiveSpreadsheetId = sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID;
+    if (!effectiveSpreadsheetId || !authState?.isAuthenticated || !authState?.accessToken) {
+      setError('Потрібна авторизація для зміни рядка у таблиці.');
+      return;
+    }
+
+    setIsRelocatingRow(true);
+    setError(null);
+
+    try {
+      const cleanNum = (project.colA || '').replace(/^[№#]\s*/, '').trim();
+      const res = await GoogleSheetsService.addProjectDualBindings(authState.accessToken, {
+        projectNumber: cleanNum,
+        projectName: project.colB || '',
+        department: project.colC || 'ЕТС',
+        startDate: '',
+        manager: '',
+        invoiceNumber: project.colG || '',
+        invoiceDate: project.colH || '',
+        contractAmount: project.colM || '0',
+        paymentsSpreadsheetId: effectiveSpreadsheetId,
+        paymentsTabName: 'Лист1',
+        allowExistingInPlan: true,
+      });
+
+      const newRow = res.payments?.rowG || 131;
+      setSyncNotice(
+        `Проєкт №${cleanNum} успішно перенесено у рядок #${newRow} (Лист1), а помилковий рядок #${project.rowNumber} очищено!`
+      );
+      setTimeout(() => setSyncNotice(null), 8000);
+
+      // Refresh payments projects
+      await handleLoadPaymentsSheet();
+
+      setSelectedProject((prev) => (prev ? { ...prev, rowNumber: newRow } : null));
+    } catch (err: any) {
+      console.error('Failed to relocate payments row:', err);
+      setError(`Помилка перенесення рядка: ${err?.message || 'Невідома помилка'}`);
+    } finally {
+      setIsRelocatingRow(false);
+    }
+  };
+
   // Auto-load on mount or when credentials/sheet become available
   React.useEffect(() => {
     if (sheetConfig?.spreadsheetId && authState?.accessToken && !isLiveFromSheet) {
@@ -1434,6 +1480,17 @@ export const ProjectsTab: React.FC<Props> = ({
                       <span className={`px-2 py-0.5 text-xs font-semibold rounded border ${getProjectStatusBadgeClass(selectedProject.colF)}`}>
                         {selectedProject.colF}
                       </span>
+                    )}
+                    {activeDataSource === 'payments' && selectedProject.rowNumber > 130 && (
+                      <button
+                        onClick={() => handleRelocatePaymentsRow(selectedProject)}
+                        disabled={isRelocatingRow || !canWriteToSheets}
+                        className="px-2 py-0.5 text-xs font-semibold bg-amber-50 hover:bg-amber-100 text-amber-800 rounded border border-amber-300 cursor-pointer transition flex items-center gap-1 shadow-2xs"
+                        title="Перенести запис у перший вільний рядок (131) та очистити помилковий рядок"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isRelocatingRow ? 'animate-spin' : ''}`} />
+                        <span>{isRelocatingRow ? 'Перенесення...' : 'Виправити на рядок 131'}</span>
+                      </button>
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5 font-medium">
