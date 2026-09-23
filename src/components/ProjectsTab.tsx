@@ -9,6 +9,8 @@ import {
   Layers,
   ChevronRight,
   ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   ArrowRightLeft,
   TrendingUp,
   DollarSign,
@@ -142,6 +144,36 @@ export const ProjectsTab: React.FC<Props> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'row' | 'order' | 'expenses' | 'margin'>('row');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+
+  // Pagination state (identical to BatchProcessingTable - default 50)
+  const [pageSize, setPageSize] = useState<number | 'all'>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Financials inline editing in project detail modal (searches by Column A)
+  const [isEditingFinancials, setIsEditingFinancials] = useState(false);
+  const [editInvoiceNumber, setEditInvoiceNumber] = useState('');
+  const [editInvoiceDate, setEditInvoiceDate] = useState('');
+  const [editCurrencyRate, setEditCurrencyRate] = useState('1');
+  const [editContractAmount, setEditContractAmount] = useState('');
+  const [isSavingFinancials, setIsSavingFinancials] = useState(false);
+  const [saveFinancialsNotice, setSaveFinancialsNotice] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  // Reset to page 1 on search, filter, sort, or page size change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedStatus, sortBy, sortDir, pageSize]);
+
+  // Sync edit fields when selected project opens
+  useEffect(() => {
+    if (selectedProject) {
+      setEditInvoiceNumber(selectedProject.colG || '');
+      setEditInvoiceDate(selectedProject.colH || '');
+      setEditCurrencyRate(selectedProject.colI || '1');
+      setEditContractAmount(selectedProject.colM || '');
+      setIsEditingFinancials(false);
+      setSaveFinancialsNotice(null);
+    }
+  }, [selectedProject?.rowNumber, selectedProject?.colA]);
 
   // Load from Google Sheets: 1. Оплати/Борги (Лист1)
   const handleLoadPaymentsSheet = async () => {
@@ -398,6 +430,81 @@ export const ProjectsTab: React.FC<Props> = ({
     }
   };
 
+  // Robust financial fields updater using Column A lookup (never simple index)
+  const handleSaveProjectFinancials = async () => {
+    if (!selectedProject) return;
+    if (!canWriteToSheets) {
+      setSaveFinancialsNotice({ text: 'У вас обліковий запис з правами тільки перегляду.', type: 'error' });
+      return;
+    }
+    const token = authState?.accessToken;
+    const effectiveSpreadsheetId = sheetConfig?.spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID;
+
+    if (!token || !effectiveSpreadsheetId) {
+      setSaveFinancialsNotice({ text: 'Необхідна авторизація в Google для запису.', type: 'error' });
+      return;
+    }
+
+    setIsSavingFinancials(true);
+    setSaveFinancialsNotice(null);
+
+    try {
+      const res = await GoogleSheetsService.updateProjectFinancials(
+        effectiveSpreadsheetId,
+        token,
+        selectedProject.tabName || activeTabName || 'Лист1',
+        {
+          projectNumber: selectedProject.colA,
+          fallbackRow: selectedProject.rowNumber,
+          invoiceNumber: editInvoiceNumber,
+          invoiceDate: editInvoiceDate,
+          currencyRate: editCurrencyRate,
+          contractAmount: editContractAmount,
+        }
+      );
+
+      const actualRow = res.actualRow;
+      const updatedProject: ProjectSheetRow = {
+        ...selectedProject,
+        rowNumber: actualRow,
+        colG: editInvoiceNumber,
+        colH: editInvoiceDate,
+        colI: editCurrencyRate,
+        colM: editContractAmount,
+        rawValues: {
+          ...(selectedProject.rawValues || {}),
+          G: editInvoiceNumber,
+          H: editInvoiceDate,
+          I: editCurrencyRate,
+          M: editContractAmount,
+        },
+      };
+
+      setSelectedProject(updatedProject);
+      const nextProjects = projects.map((p) =>
+        (selectedProject.colA && p.colA === selectedProject.colA) || p.rowNumber === selectedProject.rowNumber
+          ? updatedProject
+          : p
+      );
+      setProjects(nextProjects);
+      onProjectsChange?.(nextProjects);
+
+      setSaveFinancialsNotice({
+        text: `Проєкт №${selectedProject.colA || actualRow} успішно збережено в рядок #${actualRow}! Оновлені комірки: ${res.updatedFields.join(', ')}`,
+        type: 'success',
+      });
+      setIsEditingFinancials(false);
+    } catch (err: any) {
+      console.error('Failed to update project financials:', err);
+      setSaveFinancialsNotice({
+        text: err?.message || 'Помилка під час оновлення Google Таблиці.',
+        type: 'error',
+      });
+    } finally {
+      setIsSavingFinancials(false);
+    }
+  };
+
   // Helper to get title for column, strictly respecting user request
   const getHeaderTitle = (key: string, letter: string): string => {
     if (key === 'sumQRST') {
@@ -561,6 +668,46 @@ export const ProjectsTab: React.FC<Props> = ({
       return sortDir === 'asc' ? comp : -comp;
     });
   }, [validProjects, searchQuery, selectedStatus, sortBy, sortDir]);
+
+  // Pagination calculations (identical logic to BatchProcessingTable)
+  const totalItems = filteredProjects.length;
+  const effectivePageSize = pageSize === 'all' ? (totalItems || 1) : pageSize;
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / effectivePageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const startIndex = pageSize === 'all' ? 0 : (safeCurrentPage - 1) * effectivePageSize;
+  const endIndex = pageSize === 'all' ? totalItems : Math.min(startIndex + effectivePageSize, totalItems);
+  const paginatedProjects = useMemo(() => {
+    return filteredProjects.slice(startIndex, endIndex);
+  }, [filteredProjects, startIndex, endIndex]);
+
+  // Smart page numbers array for pagination bar
+  const getPageNumbers = (): (number | string)[] => {
+    const delta = 2;
+    const range: number[] = [];
+    const rangeWithDots: (number | string)[] = [];
+    let l: number | undefined;
+
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= safeCurrentPage - delta && i <= safeCurrentPage + delta)) {
+        range.push(i);
+      }
+    }
+
+    for (const i of range) {
+      if (l !== undefined) {
+        if (i - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if (i - l !== 1) {
+          rangeWithDots.push('...');
+        }
+      }
+      rangeWithDots.push(i);
+      l = i;
+    }
+
+    return rangeWithDots;
+  };
 
   // Helper to extract effective budget (Сума проекту / замовлення в грн)
   // Правило перерахунку курсу валют: множимо колонку І на колонку М
@@ -1082,6 +1229,31 @@ export const ProjectsTab: React.FC<Props> = ({
           >
             Кінець / Маржа (U..Y) ►
           </button>
+
+          {/* Quick Mini Pagination at top if > 1 page */}
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-1 pl-2 border-l border-slate-300">
+              <span className="text-[11px] text-slate-600 font-medium mr-1">
+                Стор. <strong className="text-slate-900">{safeCurrentPage}</strong> з <strong className="text-slate-900">{totalPages}</strong>
+              </span>
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                title="Попередня сторінка"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="p-1 text-slate-600 hover:text-slate-900 hover:bg-white rounded disabled:opacity-30 disabled:hover:bg-transparent cursor-pointer"
+                title="Наступна сторінка"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1246,7 +1418,7 @@ export const ProjectsTab: React.FC<Props> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
-              {filteredProjects.length === 0 ? (
+              {paginatedProjects.length === 0 ? (
                 <tr>
                   <td colSpan={20} className="p-8 text-center text-slate-400">
                     <Info className="w-6 h-6 mx-auto mb-2 text-slate-300" />
@@ -1255,7 +1427,7 @@ export const ProjectsTab: React.FC<Props> = ({
                   </td>
                 </tr>
               ) : (
-                filteredProjects.map((p) => {
+                paginatedProjects.map((p) => {
                   return (
                     <tr
                       key={p.rowNumber}
@@ -1427,34 +1599,121 @@ export const ProjectsTab: React.FC<Props> = ({
           </table>
         </div>
 
-        {/* Footer Summary */}
-        <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-600 gap-2">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span>
-              Показано проєктів: <b className="text-slate-900">{filteredProjects.length}</b> з {validProjects.length}
+        {/* Pagination Bar (Identical to BatchProcessingTable / Черга обробки) */}
+        <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+          {/* Left: Summary & Page Size selector */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-slate-600 font-medium">
+              Показано <strong className="text-slate-900">{totalItems > 0 ? startIndex + 1 : 0}–{endIndex}</strong> з <strong className="text-slate-900">{totalItems}</strong> проєктів
             </span>
-            <span>•</span>
-            <span>
-              Початок зчитування: <b className="text-slate-900">Рядок 111</b>
-            </span>
+
+            {/* Page size buttons */}
+            <div className="flex items-center space-x-1 border-l border-slate-200 pl-3">
+              <span className="text-slate-500 mr-1 text-[11px]">На сторінці:</span>
+              {[25, 50, 100].map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setPageSize(size)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                    pageSize === size
+                      ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+              <button
+                onClick={() => setPageSize('all')}
+                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                  pageSize === 'all'
+                    ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                    : 'bg-white text-slate-700 hover:bg-slate-200 border border-slate-200'
+                }`}
+                title="Показати всі проєкти без розбивки"
+              >
+                Всі
+              </button>
+            </div>
+
             {filteredProjects.length > 0 && (
-              <>
-                <span>•</span>
-                <span className="text-emerald-800 font-medium">
-                  Останній проєкт: <b className="text-emerald-950 font-bold">Рядок #{filteredProjects[filteredProjects.length - 1].rowNumber}</b> {filteredProjects[filteredProjects.length - 1].colA ? `(${filteredProjects[filteredProjects.length - 1].colA})` : ''}
-                </span>
-              </>
+              <span className="text-[11px] text-emerald-800 font-medium hidden md:inline">
+                • Останній: <b>Рядок #{filteredProjects[filteredProjects.length - 1].rowNumber}</b> {filteredProjects[filteredProjects.length - 1].colA ? `(${filteredProjects[filteredProjects.length - 1].colA})` : ''}
+              </span>
             )}
-            <span className="text-[11px] text-slate-400">
-              (порожні рядки приховано, нові додаються автоматично)
-            </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-slate-500">Загальна заробітня плата (Q+R+S+T):</span>
-            <span className="font-bold font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
-              {formatCurrency(filteredProjects.reduce((acc, p) => acc + p.sumQRST, 0))}
-            </span>
-          </div>
+
+          {/* Right: Page Navigation Buttons */}
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-1">
+              {/* First page button */}
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={safeCurrentPage <= 1}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+                title="Перша сторінка"
+              >
+                <ChevronsLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Prev page button */}
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={safeCurrentPage <= 1}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+                title="Попередня сторінка"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Page numbers with dots */}
+              <div className="flex items-center space-x-1">
+                {getPageNumbers().map((pageNum, idx) => {
+                  if (pageNum === '...') {
+                    return (
+                      <span key={`dots-${idx}`} className="px-1.5 text-slate-400 font-bold select-none text-[11px]">
+                        ...
+                      </span>
+                    );
+                  }
+                  const isCurrent = pageNum === safeCurrentPage;
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(Number(pageNum))}
+                      className={`min-w-[28px] h-7 px-1.5 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                        isCurrent
+                          ? 'bg-blue-600 text-white font-bold shadow-2xs'
+                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Next page button */}
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safeCurrentPage >= totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+                title="Наступна сторінка"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Last page button */}
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={safeCurrentPage >= totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+                title="Остання сторінка"
+              >
+                <ChevronsRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1653,6 +1912,164 @@ export const ProjectsTab: React.FC<Props> = ({
                   )}
                 </div>
               )}
+
+              {/* 💳 Фінансові реквізити замовлення (Колонки G, H, I, M) з пошуком за № Проєкту в Кол. A */}
+              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-200/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="w-4 h-4 text-blue-700" />
+                    <span className="font-bold text-slate-900 text-sm">
+                      Фінансові реквізити замовлення (G, H, I, M)
+                    </span>
+                    <span className="text-[10px] font-mono font-semibold bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
+                      Пошук за Кол. A
+                    </span>
+                  </div>
+                  {canWriteToSheets && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingFinancials(!isEditingFinancials);
+                        setSaveFinancialsNotice(null);
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-blue-300 bg-white text-blue-700 hover:bg-blue-50 transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      {isEditingFinancials ? 'Скасувати' : 'Редагувати реквізити'}
+                    </button>
+                  )}
+                </div>
+
+                {saveFinancialsNotice && (
+                  <div
+                    className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 animate-in fade-in ${
+                      saveFinancialsNotice.type === 'success'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
+                    }`}
+                  >
+                    {saveFinancialsNotice.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    )}
+                    <span>{saveFinancialsNotice.text}</span>
+                  </div>
+                )}
+
+                {isEditingFinancials ? (
+                  <div className="space-y-3 pt-1">
+                    <p className="text-[11px] text-slate-600">
+                      Згідно з новою логікою рядок знаходиться в таблиці «Оплати/Борги» (Лист1) строго за <b>унікальним № Проєкту (Колонка A: {selectedProject.colA || selectedProject.rowNumber})</b>, після чого оновлюються вказані комірки.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          № Рахунку (Колонка G)
+                        </label>
+                        <input
+                          type="text"
+                          value={editInvoiceNumber}
+                          onChange={(e) => setEditInvoiceNumber(e.target.value)}
+                          placeholder="№СФ-..."
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-medium focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Дата рахунку (Колонка H)
+                        </label>
+                        <input
+                          type="text"
+                          value={editInvoiceDate}
+                          onChange={(e) => setEditInvoiceDate(e.target.value)}
+                          placeholder="ДД.ММ.РРРР"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Курс валют (Колонка I)
+                        </label>
+                        <input
+                          type="text"
+                          value={editCurrencyRate}
+                          onChange={(e) => setEditCurrencyRate(e.target.value)}
+                          placeholder="1"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Сума Договору (Колонка M)
+                        </label>
+                        <input
+                          type="text"
+                          value={editContractAmount}
+                          onChange={(e) => setEditContractAmount(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingFinancials(false)}
+                        disabled={isSavingFinancials}
+                        className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                      >
+                        Скасувати
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveProjectFinancials}
+                        disabled={isSavingFinancials}
+                        className="px-3.5 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition flex items-center gap-1.5 shadow-2xs cursor-pointer disabled:opacity-50"
+                      >
+                        {isSavingFinancials ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Збереження...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Зберегти реквізити (пошук за Кол. A)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                    <div className="p-2.5 bg-white rounded-lg border border-blue-100 shadow-2xs">
+                      <span className="text-[10px] text-slate-500 block font-medium">Рахунок (Кол. G)</span>
+                      <span className="font-mono font-bold text-slate-900 text-xs">
+                        {selectedProject.colG || '—'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded-lg border border-blue-100 shadow-2xs">
+                      <span className="text-[10px] text-slate-500 block font-medium">Дата рахунку (Кол. H)</span>
+                      <span className="font-mono font-bold text-slate-900 text-xs">
+                        {formatInvoiceDate(selectedProject.colH)}
+                      </span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded-lg border border-blue-100 shadow-2xs">
+                      <span className="text-[10px] text-slate-500 block font-medium">Курс валют (Кол. I)</span>
+                      <span className="font-mono font-bold text-slate-900 text-xs">
+                        {selectedProject.colI || '1'}
+                      </span>
+                    </div>
+                    <div className="p-2.5 bg-white rounded-lg border border-blue-100 shadow-2xs">
+                      <span className="text-[10px] text-slate-500 block font-medium">Сума Договору (Кол. M)</span>
+                      <span className="font-mono font-bold text-emerald-800 text-xs">
+                        {selectedProject.colM ? `${selectedProject.colM} ₴` : '—'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {/* 📅 Графік оплат (План надходжень - 4 транші, колонки Z..AG) */}
               <ProjectPaymentSchedule

@@ -3586,6 +3586,8 @@ export class GoogleSheetsService {
       invoiceNumber: string;
       invoiceDate: string;
       contractAmount: string | number;
+      currencyRate?: string | number;
+      paymentSchedule?: Array<{ amount: string | number; week: string }>;
       planSpreadsheetId?: string;
       paymentsSpreadsheetId?: string;
       planTabName?: string;
@@ -3603,6 +3605,7 @@ export class GoogleSheetsService {
       spreadsheetId: string;
       spreadsheetTitle?: string;
       tab: string;
+      row: number;
       rowG: number;
       rowH: number;
       rowM: number;
@@ -3846,43 +3849,47 @@ export class GoogleSheetsService {
       );
     };
 
-    const isPaymentsProjectRowFilled = (row: any[]): boolean => {
-      if (!row || !Array.isArray(row)) return false;
-      if (isSummaryOrHeaderRow(row)) return true;
+    const isCompletelyEmptyPaymentsRow = (row: any[]): boolean => {
+      if (!row || !Array.isArray(row)) return true;
+      if (isSummaryOrHeaderRow(row)) return false;
 
+      // Check if every element in the array is blank
+      const allBlank = row.every((c) => c === undefined || c === null || String(c).trim() === '');
+      if (allBlank) return true;
+
+      // Also check specific key data entry columns: A, B, C, G, H, I, M, and Z..AG
       const colA = String(row[0] ?? '').trim();
       const colB = String(row[1] ?? '').trim();
+      const colC = String(row[2] ?? '').trim();
       const colG = String(row[6] ?? '').trim();
       const colH = String(row[7] ?? '').trim();
+      const colI = String(row[8] ?? '').trim();
       const colM = String(row[12] ?? '').trim();
+      const tranchesEmpty = [25, 26, 27, 28, 29, 30, 31, 32].every(
+        (idx) => !row[idx] || String(row[idx]).trim() === ''
+      );
 
-      // Row is considered occupied if any project key column has data
-      return colA !== '' || colB !== '' || colG !== '' || colH !== '' || colM !== '';
+      return !colA && !colB && !colC && !colG && !colH && !colM && tranchesEmpty;
     };
 
     // 1. Check if the project number already exists in Column A starting from row 127
     let existingProjectRow = -1;
-    let erroneousStrayRow = -1;
     for (let r = MIN_PAYMENTS_START_ROW - 1; r < allRows.length; r++) {
       const row = allRows[r];
       if (!row) continue;
       const colA = String(row[0] ?? '').replace(/^[№#]\s*/, '').trim();
       if (colA && colA.toLowerCase() === cleanProjectNumber.toLowerCase()) {
-        const rowNum = r + 1;
-        if (existingProjectRow === -1) {
-          existingProjectRow = rowNum;
-        } else {
-          erroneousStrayRow = rowNum;
-        }
+        existingProjectRow = r + 1;
+        break;
       }
     }
 
-    // 2. Find the first empty project row starting strictly from row 127
+    // 2. Find the first completely empty project row starting strictly from row 127
     let firstEmptyPaymentsRow = -1;
     for (let r = MIN_PAYMENTS_START_ROW - 1; r < allRows.length; r++) {
       const row = allRows[r];
-      if (!isPaymentsProjectRowFilled(row)) {
-        firstEmptyPaymentsRow = r + 1; // 1-based index (e.g. 131)
+      if (isCompletelyEmptyPaymentsRow(row)) {
+        firstEmptyPaymentsRow = r + 1; // 1-based index (e.g. 131 or 132)
         break;
       }
     }
@@ -3892,31 +3899,11 @@ export class GoogleSheetsService {
     }
 
     // Determine target payments row:
-    // If project already existed at or before the first empty row (e.g. at 131), update it.
-    // If project was erroneously placed far down the sheet (e.g. row 171 when row 131 was empty),
-    // target the true first empty row (131) and schedule the stray row (171) for clearing.
+    // If project already existed in Column A and allowExistingInPlan is true, update that row.
+    // Otherwise, strictly choose the first completely empty row >= 127.
     let targetPaymentsRow = firstEmptyPaymentsRow;
-    let strayRowToClear: number | null = null;
-
-    if (existingProjectRow !== -1) {
-      if (existingProjectRow <= firstEmptyPaymentsRow) {
-        targetPaymentsRow = existingProjectRow;
-      } else {
-        targetPaymentsRow = firstEmptyPaymentsRow;
-        strayRowToClear = existingProjectRow;
-      }
-    }
-    if (erroneousStrayRow !== -1 && erroneousStrayRow !== targetPaymentsRow) {
-      strayRowToClear = erroneousStrayRow;
-    }
-
-    // Extra safety: ensure targetPaymentsRow does not overlap an existing filled row
-    while (
-      targetPaymentsRow - 1 < allRows.length &&
-      targetPaymentsRow !== existingProjectRow &&
-      isPaymentsProjectRowFilled(allRows[targetPaymentsRow - 1])
-    ) {
-      targetPaymentsRow++;
+    if (existingProjectRow !== -1 && params.allowExistingInPlan) {
+      targetPaymentsRow = existingProjectRow;
     }
 
     let parsedAmount: string | number = String(params.contractAmount).trim();
@@ -3930,44 +3917,48 @@ export class GoogleSheetsService {
       parsedAmount = numAmount;
     }
 
-    // For ETS projects, write project identifier and invoice data in the same row
-    // Column C is explicitly written as 'ЕТС' (позначка ЕТС)
+    let currencyRateVal: string | number = 1;
+    if (params.currencyRate !== undefined && params.currencyRate !== null && String(params.currencyRate).trim() !== '') {
+      const parsedRate = parseFloat(String(params.currencyRate).trim().replace(',', '.'));
+      currencyRateVal = !isNaN(parsedRate) ? parsedRate : String(params.currencyRate).trim();
+    }
+
+    // Schedule: Z (Payment 1), AA (Week), AB (Payment 2), AC (Week), AD (Payment 3), AE (Week), AF (Payment 4), AG (Week)
+    const schedule = params.paymentSchedule || [];
+    const p1Amount = String(schedule[0]?.amount ?? '').trim();
+    const p1Week = String(schedule[0]?.week ?? '').trim();
+    const p2Amount = String(schedule[1]?.amount ?? '').trim();
+    const p2Week = String(schedule[1]?.week ?? '').trim();
+    const p3Amount = String(schedule[2]?.amount ?? '').trim();
+    const p3Week = String(schedule[2]?.week ?? '').trim();
+    const p4Amount = String(schedule[3]?.amount ?? '').trim();
+    const p4Week = String(schedule[3]?.week ?? '').trim();
+
+    // Writes static data in ONE single request into the target row:
+    // - Column A: № Проєкту (наприклад, 251-26)
+    // - Column B: Назва замовлення
+    // - Column C: Дата старту проекту
+    // - Columns G, H, I: Номер рахунку, Дата рахунку, Курс валют
+    // - Column M: Сума Договору
+    // - Columns Z..AG: Оплата 1, Тиждень, Оплата 2, Тиждень, Оплата 3, Тиждень, Оплата 4, Тиждень
     const paymentsUpdates: Array<{ range: string; values: any[][] }> = [
       {
         range: `'${safePaymentsTab}'!A${targetPaymentsRow}:C${targetPaymentsRow}`,
-        values: [[cleanProjectNumber, params.projectName.trim(), params.department.trim() || 'ЕТС']],
+        values: [[cleanProjectNumber, params.projectName.trim(), formattedStartDate]],
       },
       {
-        range: `'${safePaymentsTab}'!G${targetPaymentsRow}`,
-        values: [[params.invoiceNumber.trim()]],
-      },
-      {
-        range: `'${safePaymentsTab}'!H${targetPaymentsRow}`,
-        values: [[formattedInvoiceDate]],
+        range: `'${safePaymentsTab}'!G${targetPaymentsRow}:I${targetPaymentsRow}`,
+        values: [[params.invoiceNumber.trim(), formattedInvoiceDate, currencyRateVal]],
       },
       {
         range: `'${safePaymentsTab}'!M${targetPaymentsRow}`,
         values: [[parsedAmount]],
       },
+      {
+        range: `'${safePaymentsTab}'!Z${targetPaymentsRow}:AG${targetPaymentsRow}`,
+        values: [[p1Amount, p1Week, p2Amount, p2Week, p3Amount, p3Week, p4Amount, p4Week]],
+      },
     ];
-
-    // If an erroneous stray row (such as row 171) existed, automatically clear it:
-    if (strayRowToClear && strayRowToClear !== targetPaymentsRow) {
-      paymentsUpdates.push(
-        {
-          range: `'${safePaymentsTab}'!A${strayRowToClear}:C${strayRowToClear}`,
-          values: [['', '', '']],
-        },
-        {
-          range: `'${safePaymentsTab}'!G${strayRowToClear}:H${strayRowToClear}`,
-          values: [['', '']],
-        },
-        {
-          range: `'${safePaymentsTab}'!M${strayRowToClear}`,
-          values: [['']],
-        }
-      );
-    }
 
     await this.request<any>(`${cleanPaymentsId}/values:batchUpdate`, accessToken, {
       method: 'POST',
@@ -3988,6 +3979,7 @@ export class GoogleSheetsService {
         spreadsheetId: cleanPaymentsId,
         spreadsheetTitle: paymentsTitle,
         tab: targetPaymentsTab,
+        row: targetPaymentsRow,
         rowG: targetPaymentsRow,
         rowH: targetPaymentsRow,
         rowM: targetPaymentsRow,
@@ -4202,7 +4194,37 @@ export class GoogleSheetsService {
   }
 
   /**
+   * Пошук потрібного рядка у Таблиці Оплати/Борги за унікальним № Проєкту (Колонка A).
+   * Забезпечує, що рядки не шукаються за простою нумерацією.
+   */
+  public static async findProjectRowByNumber(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName: string = 'Лист1',
+    projectNumber: string
+  ): Promise<number | null> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID);
+    const safeTab = (tabName || 'Лист1').replace(/'/g, "''");
+    const cleanNum = String(projectNumber ?? '').replace(/^[№#]\s*/, '').trim().toLowerCase();
+    if (!cleanNum) return null;
+
+    const range = encodeURIComponent(`'${safeTab}'!A1:A10000`);
+    const data = await this.request<any>(`${cleanId}/values/${range}`, accessToken);
+    const rows: any[][] = data.values || [];
+
+    for (let r = 0; r < rows.length; r++) {
+      const cellVal = String(rows[r]?.[0] ?? '').replace(/^[№#]\s*/, '').trim().toLowerCase();
+      if (cellVal === cleanNum) {
+        return r + 1; // 1-based row index
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Updates project payment schedule (4 tranches: amount & week) in Google Sheets starting at Column Z.
+   * If projectNumber is provided, it searches for the exact row by Column A instead of relying on simple numbering.
    * Column Z (index 25): Payment 1 Amount
    * Column AA (index 26): Payment 1 Week
    * Column AB (index 27): Payment 2 Amount
@@ -4217,11 +4239,26 @@ export class GoogleSheetsService {
     accessToken: string,
     tabName: string,
     rowNumber: number,
-    schedule: Array<{ amount: string | number; week: string }>
-  ): Promise<{ success: boolean; updatedRange: string }> {
+    schedule: Array<{ amount: string | number; week: string }>,
+    projectNumber?: string
+  ): Promise<{ success: boolean; updatedRange: string; actualRow: number }> {
     const cleanId = this.extractSpreadsheetId(spreadsheetId);
     const safeTab = (tabName || 'Лист1').replace(/'/g, "''");
-    const targetRange = `'${safeTab}'!Z${rowNumber}:AG${rowNumber}`;
+
+    // Strictly search for row by unique project number (Column A) if provided
+    let actualRow = rowNumber;
+    if (projectNumber) {
+      try {
+        const foundRow = await this.findProjectRowByNumber(cleanId, accessToken, safeTab, projectNumber);
+        if (foundRow) {
+          actualRow = foundRow;
+        }
+      } catch (err) {
+        console.warn(`Could not find project row by number ${projectNumber}, using row ${rowNumber}:`, err);
+      }
+    }
+
+    const targetRange = `'${safeTab}'!Z${actualRow}:AG${actualRow}`;
 
     const p1Amount = String(schedule[0]?.amount ?? '').trim();
     const p1Week = String(schedule[0]?.week ?? '').trim();
@@ -4255,6 +4292,142 @@ export class GoogleSheetsService {
     return {
       success: true,
       updatedRange: targetRange,
+      actualRow,
+    };
+  }
+
+  /**
+   * Логіка пошуку та оновлення існуючих замовлень ЕТС:
+   * При додаванні нових рахунків, траншів чи зміні суми для існуючого проєкту ЕТС:
+   * НЕ шукати рядок за простою нумерацією.
+   * Здійснювати пошук потрібного рядка у Таблиці Оплати/Борги за унікальним № Проєкту (Колонка A).
+   * Оновлювати відповідні комірки строго у знайденому рядку за один запит.
+   */
+  public static async updateProjectFinancials(
+    spreadsheetId: string,
+    accessToken: string,
+    tabName: string = 'Лист1',
+    params: {
+      projectNumber: string;
+      fallbackRow?: number;
+      invoiceNumber?: string;
+      invoiceDate?: string;
+      currencyRate?: string | number;
+      contractAmount?: string | number;
+      schedule?: Array<{ amount: string | number; week: string }>;
+    }
+  ): Promise<{ success: boolean; actualRow: number; updatedFields: string[] }> {
+    const cleanId = this.extractSpreadsheetId(spreadsheetId || DEFAULT_PROJECTS_SPREADSHEET_ID);
+    const safeTab = (tabName || 'Лист1').replace(/'/g, "''");
+    const cleanProjectNum = String(params.projectNumber ?? '').replace(/^[№#]\s*/, '').trim();
+
+    if (!cleanProjectNum) {
+      throw new Error('Унікальний номер проєкту (Колонка A) обов’язковий для оновлення.');
+    }
+
+    // 1. Пошук потрібного рядка у Таблиці Оплати/Борги за унікальним № Проєкту (Колонка A)
+    const foundRow = await this.findProjectRowByNumber(cleanId, accessToken, safeTab, cleanProjectNum);
+    const actualRow = foundRow || params.fallbackRow;
+
+    if (!actualRow) {
+      throw new Error(`Проєкт №${cleanProjectNum} не знайдено в Колонці A таблиці «Оплати/Борги».`);
+    }
+
+    const formatDateForSheet = (dStr: string): string => {
+      if (!dStr) return '';
+      const s = dStr.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y, m, d] = s.split('-');
+        return `${d}.${m}.${y}`;
+      }
+      return s;
+    };
+
+    const updates: Array<{ range: string; values: any[][] }> = [];
+    const updatedFields: string[] = [];
+
+    // Columns G, H, I: Номер рахунку, Дата рахунку, Курс валют
+    const hasG = params.invoiceNumber !== undefined;
+    const hasH = params.invoiceDate !== undefined;
+    const hasI = params.currencyRate !== undefined;
+
+    if (hasG || hasH || hasI) {
+      if (hasG && hasH && hasI) {
+        let rateVal: string | number = 1;
+        if (params.currencyRate !== undefined && params.currencyRate !== null && String(params.currencyRate).trim() !== '') {
+          const parsed = parseFloat(String(params.currencyRate).replace(',', '.'));
+          rateVal = !isNaN(parsed) ? parsed : String(params.currencyRate).trim();
+        }
+        updates.push({
+          range: `'${safeTab}'!G${actualRow}:I${actualRow}`,
+          values: [[params.invoiceNumber!.trim(), formatDateForSheet(params.invoiceDate!), rateVal]],
+        });
+        updatedFields.push('Рахунок (G)', 'Дата рахунку (H)', 'Курс валют (I)');
+      } else {
+        if (hasG) {
+          updates.push({ range: `'${safeTab}'!G${actualRow}`, values: [[params.invoiceNumber!.trim()]] });
+          updatedFields.push('Рахунок (G)');
+        }
+        if (hasH) {
+          updates.push({ range: `'${safeTab}'!H${actualRow}`, values: [[formatDateForSheet(params.invoiceDate!)]] });
+          updatedFields.push('Дата рахунку (H)');
+        }
+        if (hasI) {
+          let rateVal: string | number = 1;
+          if (params.currencyRate !== undefined && params.currencyRate !== null && String(params.currencyRate).trim() !== '') {
+            const parsed = parseFloat(String(params.currencyRate).replace(',', '.'));
+            rateVal = !isNaN(parsed) ? parsed : String(params.currencyRate).trim();
+          }
+          updates.push({ range: `'${safeTab}'!I${actualRow}`, values: [[rateVal]] });
+          updatedFields.push('Курс валют (I)');
+        }
+      }
+    }
+
+    // Column M: Сума Договору
+    if (params.contractAmount !== undefined) {
+      const rawAmount = String(params.contractAmount).trim().replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '');
+      const num = parseFloat(rawAmount);
+      const val = !isNaN(num) ? num : String(params.contractAmount).trim();
+      updates.push({
+        range: `'${safeTab}'!M${actualRow}`,
+        values: [[val]],
+      });
+      updatedFields.push('Сума Договору (M)');
+    }
+
+    // Columns Z..AG: Графік оплат (Транші)
+    if (params.schedule && params.schedule.length > 0) {
+      const p1Amount = String(params.schedule[0]?.amount ?? '').trim();
+      const p1Week = String(params.schedule[0]?.week ?? '').trim();
+      const p2Amount = String(params.schedule[1]?.amount ?? '').trim();
+      const p2Week = String(params.schedule[1]?.week ?? '').trim();
+      const p3Amount = String(params.schedule[2]?.amount ?? '').trim();
+      const p3Week = String(params.schedule[2]?.week ?? '').trim();
+      const p4Amount = String(params.schedule[3]?.amount ?? '').trim();
+      const p4Week = String(params.schedule[3]?.week ?? '').trim();
+
+      updates.push({
+        range: `'${safeTab}'!Z${actualRow}:AG${actualRow}`,
+        values: [[p1Amount, p1Week, p2Amount, p2Week, p3Amount, p3Week, p4Amount, p4Week]],
+      });
+      updatedFields.push('Графік оплат (Z..AG)');
+    }
+
+    if (updates.length > 0) {
+      await this.request<any>(`${cleanId}/values:batchUpdate`, accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          valueInputOption: 'USER_ENTERED',
+          data: updates,
+        }),
+      });
+    }
+
+    return {
+      success: true,
+      actualRow,
+      updatedFields,
     };
   }
 

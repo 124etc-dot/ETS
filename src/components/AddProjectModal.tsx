@@ -26,6 +26,7 @@ import {
   GoogleSheetsService,
   DEFAULT_PROJECTS_SPREADSHEET_ID,
 } from '../services/googleSheets';
+import { generateWeekOptions } from '../utils/weekUtils';
 
 interface AddProjectModalProps {
   isOpen: boolean;
@@ -189,6 +190,15 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [invoiceDate, setInvoiceDate] = useState('');
   const [contractAmount, setContractAmount] = useState('');
+  const [currencyRate, setCurrencyRate] = useState('1');
+  const [tranches, setTranches] = useState<Array<{ amount: string; week: string }>>([
+    { amount: '', week: '' },
+    { amount: '', week: '' },
+    { amount: '', week: '' },
+    { amount: '', week: '' },
+  ]);
+  const [showTranches, setShowTranches] = useState(false);
+  const weekOptions = useMemo(() => generateWeekOptions(2026), []);
 
   // Target Spreadsheets configuration
   const [planSheetConfig, setPlanSheetConfig] = useState<{
@@ -237,6 +247,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       id: string;
     };
     payments: {
+      row?: number;
       rowG: number;
       rowH: number;
       rowM: number;
@@ -592,6 +603,24 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
     setPlanSheetInput('');
   };
 
+  const handleDistributeTranches = () => {
+    const raw = contractAmount.trim().replace(/\s/g, '').replace(',', '.').replace(/[^0-9.-]/g, '');
+    const total = parseFloat(raw);
+    const target = !isNaN(total) && total > 0 ? total : 0;
+    const part = Math.round(target / 4);
+
+    const nowIdx = weekOptions.findIndex((w) => w.isCurrentWeek);
+    const startIdx = nowIdx >= 0 ? nowIdx : 38;
+
+    setTranches([
+      { amount: target > 0 ? String(part) : '', week: weekOptions[startIdx]?.fullLabel || '' },
+      { amount: target > 0 ? String(part) : '', week: weekOptions[startIdx + 1]?.fullLabel || '' },
+      { amount: target > 0 ? String(part) : '', week: weekOptions[startIdx + 2]?.fullLabel || '' },
+      { amount: target > 0 ? String(target - part * 3) : '', week: weekOptions[startIdx + 3]?.fullLabel || '' },
+    ]);
+    setShowTranches(true);
+  };
+
   // Submit with dual bindings:
   // 1. Номер проекту, Назва проекту, Старт проекту, Відділ, Менеджер проекту -> "План відвантажень" вкладка План (колонки А, В, D, C, H).
   // 2. Рахунок, Дата рахунку, Сума Договору -> "Оплати/Борги" вкладка Лист1 (перші пусті ячейки колонок відповідно G, H, M).
@@ -720,6 +749,8 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         invoiceNumber: isMk ? '' : invoiceNumber.trim(),
         invoiceDate: isMk ? '' : invoiceDate.trim(),
         contractAmount: isMk ? '0' : contractAmount.trim(),
+        currencyRate: isMk ? '1' : (currencyRate.trim() || '1'),
+        paymentSchedule: isMk ? [] : tranches,
         planSpreadsheetId: planSheetConfig?.id || undefined,
         paymentsSpreadsheetId: effectivePaymentsId,
         planTabName: 'План',
@@ -747,6 +778,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
         },
         payments: result.payments
           ? {
+              row: result.payments.row,
               rowG: result.payments.rowG,
               rowH: result.payments.rowH,
               rowM: result.payments.rowM,
@@ -785,6 +817,14 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
       setInvoiceNumber('');
       setInvoiceDate('');
       setContractAmount('');
+      setCurrencyRate('1');
+      setTranches([
+        { amount: '', week: '' },
+        { amount: '', week: '' },
+        { amount: '', week: '' },
+        { amount: '', week: '' },
+      ]);
+      setShowTranches(false);
       setValidationErrors({});
     } catch (err: any) {
       console.error('Failed to write project with dual bindings:', err);
@@ -998,13 +1038,13 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
                     </span>
                   </div>
                   <p className="text-slate-600">
-                    Записано в перші пусті ячейки колонок від рядка 127:
+                    Записано єдиним запитом у порожній <b>рядок {successInfo.payments.row || successInfo.payments.rowG}</b>:
                   </p>
                   <div className="bg-emerald-50/60 p-1.5 rounded border border-emerald-100 text-[10px] font-mono text-slate-700 space-y-0.5">
-                    <div>• Кол. A, B, C: Проєкт та замовлення (рядок {successInfo.payments.rowG})</div>
-                    <div>• Кол. G: Рахунок (рядок {successInfo.payments.rowG})</div>
-                    <div>• Кол. H: Дата рахунку (рядок {successInfo.payments.rowH})</div>
-                    <div>• Кол. M: Сума Договору (рядок {successInfo.payments.rowM})</div>
+                    <div>• Кол. A, B, C: № Проєкту, Назва та Дата старту</div>
+                    <div>• Кол. G, H, I: Рахунок, Дата рахунку та Курс валют</div>
+                    <div>• Кол. M: Сума Договору</div>
+                    <div>• Кол. Z..AG: Графік оплат (Оплата 1–4 та Тижні)</div>
                   </div>
                   <a
                     href={`https://docs.google.com/spreadsheets/d/${successInfo.payments.id}/edit`}
@@ -1506,50 +1546,162 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
               </div>
             </div>
 
-            {/* Row: Сума Договору */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className={`block font-semibold flex items-center gap-1.5 ${isMk ? 'text-slate-400' : 'text-slate-800'}`}>
-                  <DollarSign className={`w-3.5 h-3.5 ${isMk ? 'text-slate-400' : 'text-emerald-600'}`} />
-                  Сума Договору {!isMk && <span className="text-red-500 font-bold">*</span>}
-                </label>
-                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${isMk ? 'text-slate-400 bg-slate-200/60' : 'text-emerald-700 bg-emerald-100/80'}`}>
-                  Кол. M (від рядка 127)
-                </span>
+            {/* Row: Сума Договору & Курс валют */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <label className={`block font-semibold flex items-center gap-1.5 ${isMk ? 'text-slate-400' : 'text-slate-800'}`}>
+                    <DollarSign className={`w-3.5 h-3.5 ${isMk ? 'text-slate-400' : 'text-emerald-600'}`} />
+                    Сума Договору {!isMk && <span className="text-red-500 font-bold">*</span>}
+                  </label>
+                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${isMk ? 'text-slate-400 bg-slate-200/60' : 'text-emerald-700 bg-emerald-100/80'}`}>
+                    Кол. M (від рядка 127)
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    ref={contractAmountRef}
+                    type="text"
+                    value={contractAmount}
+                    onChange={(e) => {
+                      setContractAmount(e.target.value);
+                      clearFieldError('contractAmount');
+                    }}
+                    disabled={isSubmitting || isMk}
+                    placeholder={isMk ? 'Не заповнюється для Відділу МК' : '0.00'}
+                    className={`w-full pl-3 pr-8 py-2 border rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 transition-colors ${
+                      isMk
+                        ? 'border-slate-200 bg-slate-200/50 text-slate-400 cursor-not-allowed'
+                        : validationErrors.contractAmount
+                        ? 'border-red-400 bg-red-50/40 focus:ring-red-500 text-slate-900'
+                        : 'border-slate-300 bg-white focus:ring-emerald-500 text-slate-900'
+                    }`}
+                  />
+                  <span className={`absolute right-3 top-1/2 -translate-y-1/2 font-bold ${isMk ? 'text-slate-300' : 'text-slate-400'}`}>
+                    ₴
+                  </span>
+                </div>
+                {!isMk && validationErrors.contractAmount ? (
+                  <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> {validationErrors.contractAmount}
+                  </p>
+                ) : !isMk ? (
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Вноситься у перший порожній рядок колонки M вкладки «Лист1»
+                  </p>
+                ) : null}
               </div>
-              <div className="relative">
+
+              {/* Курс валют (Колонка I) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={`block font-semibold flex items-center gap-1.5 ${isMk ? 'text-slate-400' : 'text-slate-800'}`}>
+                    Курс валют
+                  </label>
+                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.2 rounded ${isMk ? 'text-slate-400 bg-slate-200/60' : 'text-slate-700 bg-slate-200/80'}`}>
+                    Кол. I
+                  </span>
+                </div>
                 <input
-                  ref={contractAmountRef}
                   type="text"
-                  value={contractAmount}
-                  onChange={(e) => {
-                    setContractAmount(e.target.value);
-                    clearFieldError('contractAmount');
-                  }}
+                  value={currencyRate}
+                  onChange={(e) => setCurrencyRate(e.target.value)}
                   disabled={isSubmitting || isMk}
-                  placeholder={isMk ? 'Не заповнюється для Відділу МК' : '0.00'}
-                  className={`w-full pl-3 pr-8 py-2 border rounded-lg text-xs font-mono font-bold focus:outline-none focus:ring-2 transition-colors ${
+                  placeholder="1"
+                  className={`w-full px-3 py-2 border rounded-lg text-xs font-mono focus:outline-none focus:ring-2 transition-colors ${
                     isMk
                       ? 'border-slate-200 bg-slate-200/50 text-slate-400 cursor-not-allowed'
-                      : validationErrors.contractAmount
-                      ? 'border-red-400 bg-red-50/40 focus:ring-red-500 text-slate-900'
                       : 'border-slate-300 bg-white focus:ring-emerald-500 text-slate-900'
                   }`}
                 />
-                <span className={`absolute right-3 top-1/2 -translate-y-1/2 font-bold ${isMk ? 'text-slate-300' : 'text-slate-400'}`}>
-                  ₴
-                </span>
+                <p className="text-[10px] text-slate-400 mt-1">За замовчуванням 1</p>
               </div>
-              {!isMk && validationErrors.contractAmount ? (
-                <p className="mt-1 text-[10px] text-red-600 font-medium flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" /> {validationErrors.contractAmount}
-                </p>
-              ) : !isMk ? (
-                <p className="text-[11px] text-slate-500 mt-1">
-                  Вноситься у першу зверху пусту ячейку колонки M вкладки «Лист1» (від рядка 127)
-                </p>
-              ) : null}
             </div>
+
+            {/* Графік оплат (Транші: Колонки Z..AG) */}
+            {!isMk && (
+              <div className="mt-4 pt-3 border-t border-slate-200/80">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-emerald-700" />
+                    <span className="font-bold text-slate-800 text-xs">
+                      Графік оплат (Колонки Z..AG)
+                    </span>
+                    <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded font-semibold">
+                      Оплата 1-4
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!showTranches) {
+                        handleDistributeTranches();
+                      } else {
+                        setShowTranches(false);
+                      }
+                    }}
+                    className="text-[11px] font-semibold text-emerald-700 hover:text-emerald-800 hover:underline flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    {showTranches ? 'Приховати транші' : '⚡ Заповнити транші (4 по 25%)'}
+                  </button>
+                </div>
+
+                {showTranches && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 bg-emerald-50/40 rounded-xl border border-emerald-200/70 animate-in fade-in">
+                    {[0, 1, 2, 3].map((idx) => {
+                      const amountCol = idx === 0 ? 'Z' : idx === 1 ? 'AB' : idx === 2 ? 'AD' : 'AF';
+                      const weekCol = idx === 0 ? 'AA' : idx === 1 ? 'AC' : idx === 2 ? 'AE' : 'AG';
+                      return (
+                        <div key={idx} className="p-2.5 bg-white rounded-lg border border-emerald-100 shadow-2xs space-y-1.5">
+                          <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                            <span>Платіж #{idx + 1}</span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              Кол. {amountCol} / {weekCol}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] text-slate-500 block mb-0.5 font-medium">Сума (₴)</label>
+                              <input
+                                type="text"
+                                value={tranches[idx]?.amount ?? ''}
+                                onChange={(e) => {
+                                  const next = [...tranches];
+                                  next[idx] = { ...next[idx], amount: e.target.value };
+                                  setTranches(next);
+                                }}
+                                placeholder="0"
+                                className="w-full px-2 py-1 border border-slate-200 rounded text-xs font-mono font-medium focus:ring-1 focus:ring-emerald-500"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-slate-500 block mb-0.5 font-medium">Тиждень</label>
+                              <select
+                                value={tranches[idx]?.week ?? ''}
+                                onChange={(e) => {
+                                  const next = [...tranches];
+                                  next[idx] = { ...next[idx], week: e.target.value };
+                                  setTranches(next);
+                                }}
+                                className="w-full px-1.5 py-1 border border-slate-200 rounded text-[11px] font-mono focus:ring-1 focus:ring-emerald-500 bg-white"
+                              >
+                                <option value="">— Оберіть —</option>
+                                {weekOptions.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>
+                                    {opt.fullLabel} {opt.isCurrentWeek ? '• зараз' : ''}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </form>
 

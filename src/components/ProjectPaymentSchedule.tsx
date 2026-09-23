@@ -198,20 +198,26 @@ export const ProjectPaymentSchedule: React.FC<Props> = ({
     const tab = project.tabName || activeTabName || 'Лист1';
 
     try {
+      let actualRow = project.rowNumber;
       if (token && spreadsheetId) {
-        // Send PUT/POST request to Google Sheets API
-        await GoogleSheetsService.updateProjectPaymentSchedule(
+        // Send PUT request to Google Sheets API (searches Column A by project number)
+        const result = await GoogleSheetsService.updateProjectPaymentSchedule(
           spreadsheetId,
           token,
           tab,
           project.rowNumber,
-          tranches
+          tranches,
+          project.colA
         );
+        if (result?.actualRow) {
+          actualRow = result.actualRow;
+        }
       }
 
       // Update local project object
       const updatedProject: ProjectSheetRow = {
         ...project,
+        rowNumber: actualRow,
         colZ: tranches[0].amount,
         colAA: tranches[0].week,
         colAB: tranches[1].amount,
@@ -237,7 +243,7 @@ export const ProjectPaymentSchedule: React.FC<Props> = ({
         onUpdateProject(updatedProject);
       }
 
-      const successNotice = 'Графік оплат успішно збережено!';
+      const successNotice = `Графік оплат для проєкту №${project.colA || actualRow} успішно збережено у рядку #${actualRow} (Лист1, Колонки Z..AG)!`;
       setToastMessage({
         text: successNotice,
         type: 'success',
