@@ -307,6 +307,8 @@ export type CashFlowCompany =
   | 'Ільїнський Костянтин Владиславович'
   | 'Інші';
 
+export type CashFlowViewMode = 'plan-fact' | 'fact-only' | 'plan-only';
+
 /**
  * Окремий транш надходження за проєктом
  */
@@ -325,10 +327,13 @@ export interface CashFlowInflowItem {
   weekNumber: number;
   year: number;
   weekLabel: string;
+  status?: 'fact' | 'plan'; // Факт (отримано) vs План (очікується)
+  isFact?: boolean;
+  actualDate?: string; // Дата фактичного надходження
 }
 
 /**
- * Окремий неоплачений рахунок постачальника
+ * Окремий рахунок постачальника або банківська виплата (Витрати)
  */
 export interface CashFlowOutflowItem {
   invoiceRowIndex: number;
@@ -337,13 +342,17 @@ export interface CashFlowOutflowItem {
   buyer: string; // Оригінальна назва платника/нашої компанії
   company: string; // Нормалізована назва нашої компанії: 'Шоп Інтеріор', 'Гала Продакшн' тощо
   orderNumber?: string;
-  amount: number; // Неоплачена сума до сплати
+  amount: number; // Сума траншу/позиції
   totalInvoiceAmount: number; // Повна сума рахунку
   paidAmount?: number; // Вже сплачена частина
   approvalStatus?: InvoiceApprovalStatus; // "ПОГОДЖЕНО" | "НЕ ПОГОДЖЕНО" | "ВІДХИЛЕНО"
   uploadedAt: string; // Дата завантаження рахунку
   invoiceDate?: string; // Дата рахунку
-  plannedPaymentDate: string; // Планова дата оплати: YYYY-MM-DD (дата завантаження + 5 днів)
+  plannedPaymentDate: string; // Планова дата оплати: YYYY-MM-DD
+  actualPaymentDate?: string; // Фіксація точного дня, коли гроші реально пішли з банку (Факт)
+  paymentNumber?: string; // Номер платіжки
+  status: 'fact' | 'plan'; // 'fact' (Сплачено) | 'plan' (До сплати / Очікує)
+  isFact: boolean;
   weekKey: string; // Ідентифікатор тижня, наприклад "2026-W40"
   weekNumber: number;
   year: number;
@@ -355,9 +364,15 @@ export interface CashFlowOutflowItem {
  */
 export interface CompanyWeeklyCashFlow {
   company: string;
-  inflow: number; // Вхід (Надходження)
-  outflow: number; // Вихід (Витрати)
-  balance: number; // Тижневий баланс: Вхід - Вихід
+  inflowFact: number; // Факт: реально отримані аванси/транші
+  inflowPlan: number; // План: очікувані надходження
+  inflow: number; // Вхід сумарний за обраним режимом
+  outflowFact: number; // Сплачено (Факт)
+  outflowPlan: number; // До сплати (План)
+  outflow: number; // Вихід сумарний за обраним режимом
+  balance: number; // Тижневий операційний баланс: Вхід - Вихід
+  startBalance?: number; // Початковий залишок
+  endBalance?: number; // Накопичувальний кінцевий залишок
   inflowItems: CashFlowInflowItem[];
   outflowItems: CashFlowOutflowItem[];
 }
@@ -374,9 +389,29 @@ export interface WeeklyCashFlow {
   startDate: string; // "28.09.2026"
   endDate: string; // "04.10.2026"
   isCurrentWeek: boolean;
-  totalInflow: number; // Загальний вхід по всіх компаніях за тиждень
-  totalOutflow: number; // Загальний вихід по всіх компаніях за тиждень
-  netBalance: number; // Підсумковий тижневий баланс: Вхід - Вихід
+  isPastWeek?: boolean;
+
+  // Накопичувальний баланс між тижнями (Starting & Ending Balance)
+  startBalance: number; // Початковий залишок на початок тижня
+  endBalance: number; // Залишок на кінець тижня (Накопичувальний Cash Balance)
+
+  // Надходження (Вхід): План-Факт
+  inflowFact: number; // Факт: реально отримані кошти
+  inflowPlan: number; // План: очікувані транші замовлень
+  totalInflow: number; // Сумарний вхід тижня (залежно від режиму або Факт + План)
+
+  // Витрати (Вихід): План-Факт
+  outflowFact: number; // Сплачено (Факт): виплачені кошти
+  outflowPlan: number; // До сплати (План): неоплачені рахунки
+  totalOutflow: number; // Загальні витрати тижня = Сплачено (Факт) + До сплати (План)
+
+  // Операційний баланс тижня
+  netBalance: number; // Чистий потік тижня = totalInflow - totalOutflow
+
+  // Касовий розрив (ТІЛЬКИ якщо endBalance < 0)
+  isCashGap: boolean;
+  deficitAmount: number; // Сума дефіциту, якщо endBalance < 0
+
   byCompany: Record<string, CompanyWeeklyCashFlow>; // Розбивка за ТОВ/ФОП
 }
 
@@ -385,14 +420,30 @@ export interface WeeklyCashFlow {
  */
 export interface CashFlowSummary {
   weeks: WeeklyCashFlow[];
+  startingBalance: number; // Початковий залишок періоду
+  liveMoney: number; // Живі гроші на розрахункових рахунках / у банку
+  projectedBalance: number; // Прогнозний залишок на кінець періоду
+
+  grandTotalInflowFact: number;
+  grandTotalInflowPlan: number;
   grandTotalInflow: number; // Загальний Вхід
-  grandTotalOutflow: number; // Загальний Вихід
-  grandTotalBalance: number; // Підсумковий Баланс (Вхід - Вихід)
+
+  grandTotalOutflowFact: number; // Всього фактично сплачено
+  grandTotalOutflowPlan: number; // Всього очікує до сплати
+  grandTotalOutflow: number; // Загальний Вихід (Заплановано / Факт + План)
+
+  grandTotalBalance: number; // Підсумковий операційний баланс
+  cashGapWeeksCount: number; // Кількість тижнів із накопичувальним касовим розривом (endBalance < 0)
+
   companyTotals: Record<
     string,
     {
       company: string;
+      inflowFact: number;
+      inflowPlan: number;
       inflow: number;
+      outflowFact: number;
+      outflowPlan: number;
       outflow: number;
       balance: number;
       inflowCount: number;
@@ -401,5 +452,7 @@ export interface CashFlowSummary {
   >;
   unmatchedInflowsCount: number;
   unmatchedOutflowsCount: number;
+  mode: CashFlowViewMode;
 }
+
 

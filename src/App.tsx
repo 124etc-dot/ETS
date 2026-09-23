@@ -4240,6 +4240,7 @@ export default function App() {
           <CashFlowTab
             projects={projects}
             invoices={existingInvoices}
+            payments={existingPayments}
             companyLists={companyLists}
             sheetConfig={sheetConfig}
             onRefresh={async () => {
