@@ -439,8 +439,11 @@ ${docTypeHintInstruction}
    - amountPaid: точна сума оплати (наприклад 96932.88)
    - totalAmount: така сама точна сума оплати (наприклад 96932.88)
    - paymentPurpose: повне "Призначення платежу" дослівно
-   - referencedInvoiceNumber: номер рахунку (або перелік через кому/дефіс, наприклад "142, 143", "СФ-000142, СФ-000143")
-   - referencedInvoiceNumbers: МАСИВ УСІХ виявлених номерів рахунків (наприклад ["142", "143"] або ["СФ-000142", "СФ-000143", "125"]).
+   - referencedInvoiceNumber: номер(и) рахунку, які оплачуються цією платіжкою.
+     ЛОГІКА ПОШУКУ: Шукай у полі "Призначення платежу" за шаблоном: 'Оплачено за ... згідно рах. № ххххх від дати' (або 'згідно рахунку №...', 'по рах. №...', 'СФ-№...', '№...').
+     КРИТИЧНО: Номером рахунку є ЛИШЕ цифровий або літерно-цифровий код (наприклад "4104", "124, 125", "СФ-000124").
+     СЛОВА "матер", "матеріали", "послуги", "товари" — ЦЕ ОПИС ПРИЗНАЧЕННЯ ПЛАТЕЖУ, А НЕ НОМЕР РАХУНКУ! КАТЕГОРИЧНО ЗАБОРОНЕНО записувати слово "матер" у номер рахунку!
+   - referencedInvoiceNumbers: МАСИВ УСІХ виявлених номерів рахунків (наприклад ["142", "143"] або ["4104", "4105"]). Якщо платіжка оплачує декілька рахунків — обов'язково витягни ВСІ окремі номери в цей масив!
    - referencedOrderNumber: внутрішній номер замовлення (ххх-хх), якщо згаданий у призначенні платежу
 
 Виконай ретельний аналіз кожного пікселя документа та поверни валідний JSON згідно зі схемою.`;
@@ -695,15 +698,20 @@ ${docTypeHintInstruction}
     parsedResult.paymentStatus = 'Оплачено';
 
     // 1. Extract referenced invoice number from payment purpose if present (e.g. "згідно рах. № 4104")
-    if (parsedResult.paymentPurpose) {
-      const extractedInvs = OCRService.extractAllInvoiceNumbers(
-        parsedResult.referencedInvoiceNumber,
-        parsedResult.referencedInvoiceNumbers,
-        parsedResult.paymentPurpose
-      );
-      if (extractedInvs.length > 0) {
-        parsedResult.referencedInvoiceNumbers = extractedInvs;
-        parsedResult.referencedInvoiceNumber = extractedInvs.join(', ');
+    const extractedInvs = OCRService.extractAllInvoiceNumbers(
+      parsedResult.referencedInvoiceNumber,
+      parsedResult.referencedInvoiceNumbers,
+      parsedResult.paymentPurpose
+    );
+    if (extractedInvs.length > 0) {
+      parsedResult.referencedInvoiceNumbers = extractedInvs;
+      parsedResult.referencedInvoiceNumber = extractedInvs.join(', ');
+      parsedResult.invoiceNumber = extractedInvs[0];
+    } else {
+      parsedResult.referencedInvoiceNumbers = [];
+      parsedResult.referencedInvoiceNumber = '';
+      if (parsedResult.invoiceNumber && OCRService.isPlaceholderNumber(parsedResult.invoiceNumber)) {
+        parsedResult.invoiceNumber = '';
       }
     }
 
@@ -866,8 +874,13 @@ ${docTypeHintInstruction}
     );
     if (uniqueInvoices.length > 0) {
       parsedResult.referencedInvoiceNumbers = uniqueInvoices;
-      if (!parsedResult.referencedInvoiceNumber) {
-        parsedResult.referencedInvoiceNumber = uniqueInvoices.join(', ');
+      parsedResult.referencedInvoiceNumber = uniqueInvoices.join(', ');
+      parsedResult.invoiceNumber = uniqueInvoices[0];
+    } else {
+      parsedResult.referencedInvoiceNumbers = [];
+      parsedResult.referencedInvoiceNumber = '';
+      if (parsedResult.invoiceNumber && OCRService.isPlaceholderNumber(parsedResult.invoiceNumber)) {
+        parsedResult.invoiceNumber = '';
       }
     }
 
@@ -1636,10 +1649,15 @@ export class OCRService {
   public static readonly INVALID_INVOICE_WORDS = new Set([
     'рахунок', 'рахунка', 'рахунку', 'рахунком', 'рахунки', 'рахунків', 'рахунками',
     'рах', 'рах.', 'счет', 'счета', 'счету', 'счетом', 'інвойс', 'інвойса', 'інвойсу',
-    'invoice', 'inv', 'inv.', 'номер', 'номеру', 'номером',
+    'invoice', 'inv', 'inv.', 'номер', 'номеру', 'номером', '№', 'no', 'n', '#',
     'платіжка', 'платіж', 'платіжне', 'доручення', 'інструкція', 'квитанція', 'чек',
-    'згідно', 'згідноз', 'по', 'за', 'від', 'до', 'та', 'і', 'з', 'у', 'в',
-    'оплата', 'товар', 'товари', 'послуги', 'на', 'пдв', 'грн', 'коп',
+    'згідно', 'згідноз', 'зг', 'по', 'за', 'від', 'до', 'та', 'і', 'з', 'у', 'в',
+    'оплата', 'оплачено', 'сплата', 'розрахунок', 'перерахунок', 'аванс', 'доплата', 'остаточний', 'транш',
+    'товар', 'товари', 'матер', 'матеріал', 'матеріали', 'будматеріали', 'буд',
+    'комплектуючі', 'фурнітура', 'метал', 'сталь', 'послуги', 'послуга',
+    'роботи', 'робота', 'деталі', 'деталь', 'вироби', 'продукція',
+    'виготовлення', 'монтаж', 'доставка', 'порізка', 'кромкування', 'фарбування',
+    'на', 'пдв', 'грн', 'гривень', 'коп', 'копійок',
     'б/н', 'бн', 'б.н.', 'б/н.', 'без', 'безномера', 'без_номера', 'без-номера',
     'n/a', 'na', 'none', 'null', 'undefined', '-', '--', '—', '0', '00', '000'
   ]);
@@ -1647,7 +1665,7 @@ export class OCRService {
   /**
    * Sanitizes an invoice number string.
    * Strips prefix labels ("рахунок на оплату", "згідно рахунка №", "№", etc.).
-   * If the string is solely a stop-word like "рахунка" or "рахунок", returns "".
+   * If the string is solely a stop-word like "рахунка", "матер" or has no digits, returns "".
    */
   public static sanitizeInvoiceNumber(input?: string): string {
     if (!input) return '';
@@ -1655,7 +1673,7 @@ export class OCRService {
     if (!val) return '';
 
     // Remove common prefixes
-    val = val.replace(/^(?:оплата\s+(?:за\s+товари?\s+)?згідно(?:\s+з)?|згідно(?:\s+з)?|по|за)\s+/i, '');
+    val = val.replace(/^(?:оплата\s+(?:за\s+[^;,\n]+?)?\s*згідно(?:\s+з)?|згідно(?:\s+з)?|по|за)\s+/i, '');
     val = val.replace(/^(?:рахунок\s+на\s+оплату|рахунок[-_\s]*фактура|рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[-_\s]*фактура|счет[а-я]*|invoice|інвойс[а-я]*)\s*/i, '');
     val = val.replace(/^(?:номер|№|no|n|#)\s*[:.]?\s*/i, '');
     val = val.replace(/^[№#:]\s*/, '');
@@ -1672,19 +1690,34 @@ export class OCRService {
       return '';
     }
 
+    // A valid invoice number MUST contain at least one digit (reject purely alphabetical words like "матер")
+    if (!/\d/.test(val)) {
+      return '';
+    }
+
     return val;
   }
 
   /**
    * Reliably extracts the actual invoice number from payment purpose or notes text,
-   * completely avoiding false captures of Ukrainian words like "рахунка", "згідно", etc.
-   * E.g. "Оплата згідно рахунка № 227763 від 09.09.2026" -> "227763"
+   * completely avoiding false captures of Ukrainian words like "матер", "рахунка", "згідно", etc.
+   * Handles patterns like: "Оплачено за металопрокат згідно рах. № 4104 від 09.09.2026" -> "4104"
    */
   public static extractInvoiceNumberFromText(text?: string): string {
     if (!text) return '';
     const cleanText = String(text);
 
-    // 1. Look for explicit prefix followed by number:
+    // 1. High-priority targeted pattern: "Оплачено за ... згідно рах. № ххххх від дати"
+    const targetedPattern = /(?:опла(?:та|чено)|сплата|розрахунок)?\s*(?:за\s+[^;,\n]+?)?\s*(?:згідно(?:\s+з)?|зг\.?|по)?\s*(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:унок|\.?)|р[-/]к[уа]?|счет[а-я]*|сч\.?|інвойс(?:и|ів)?|invoice|сф[-_]?)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№+|no\.?|n\.?|#|:)?\s*([0-9A-Za-zА-Яа-я\-_/]+)/i;
+    const targetedMatch = cleanText.match(targetedPattern);
+    if (targetedMatch && targetedMatch[1]) {
+      const cand = OCRService.sanitizeInvoiceNumber(targetedMatch[1]);
+      if (cand && !OCRService.isPlaceholderNumber(cand)) {
+        return cand;
+      }
+    }
+
+    // 2. Look for explicit prefix followed by number:
     // e.g. "рахунка № 227763", "рах. №4104", "рахунку 4373", "СФ-0042", "інвойс № 125"
     const patterns = [
       /(?:рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|інвойс[а-я]*|invoice)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№|No|N|#|:)\s*([A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]{1,30})/gi,
@@ -1724,7 +1757,7 @@ export class OCRService {
     val = val.replace(/\s+/g, '');
     // Strip leading zeroes before digits (e.g. 000452 -> 452)
     val = val.replace(/^0+([1-9]\d*)/, '$1');
-    if (OCRService.INVALID_INVOICE_WORDS.has(val)) {
+    if (OCRService.INVALID_INVOICE_WORDS.has(val) || !/\d/.test(val)) {
       return '';
     }
     return val;
@@ -1752,13 +1785,14 @@ export class OCRService {
   }
 
   /**
-   * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none", "рахунка")
+   * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none", "матер", "рахунка")
    */
   public static isPlaceholderNumber(num?: string): boolean {
     if (!num) return true;
     const s = num.trim().toLowerCase();
     if (s.length < 1) return true;
-    if (s.length < 2 && !/\d/.test(s)) return true;
+    // An invoice number must contain at least one digit
+    if (!/\d/.test(s)) return true;
     // Date strings like 2026-08-25 or 25.08.2026
     if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
     return OCRService.INVALID_INVOICE_WORDS.has(s);
@@ -1780,9 +1814,10 @@ export class OCRService {
       if (
         clean.length >= 1 &&
         !OCRService.isPlaceholderNumber(clean) &&
+        /\d/.test(clean) &&
         !/^\d{2}[./-]\d{2}[./-]\d{2,4}$/.test(clean) &&
         !/^\d{4}[./-]\d{2}[./-]\d{2}$/.test(clean) &&
-        !/^(?:пдв|гривень|грн|без|універсал|рахунок|рах|сф|інвойс|від|до|договір|контракт)$/i.test(clean)
+        !/^(?:пдв|гривень|грн|без|універсал|рахунок|рах|сф|інвойс|від|до|договір|контракт|матер|матеріали|товари)$/i.test(clean)
       ) {
         found.add(clean);
       }
@@ -1797,36 +1832,50 @@ export class OCRService {
     }
 
     if (referencedInvoiceNumber) {
-      // Split by commas, semicolons, whitespace, pluses, ampersands, or Ukrainian conjunctions
-      const tokens = String(referencedInvoiceNumber).split(/[,;+&|/\s]+|(?:та|і|також)/i);
+      // Split by commas, semicolons, whitespace, pluses, ampersands, or Ukrainian conjunctions.
+      // Do NOT split standalone slashes like "142/26", only split if slash has surrounding spaces " / "
+      const tokens = String(referencedInvoiceNumber).split(/[,;+&|]+|\s+\/\s+|\s+(?:та|і|також|а\s+також)\s+|\s{2,}/i);
       tokens.forEach((t) => {
-        addCandidate(t);
+        addCandidate(t.trim());
       });
     }
 
     if (paymentPurpose) {
-      // 1. Capture invoice blocks with keywords: рахунок, рахунки, рах, рах., СФ, СФ-, счет, інвойс
-      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок|а)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?)\s*[:№#]?\s*([^;,\n]+(?:\s*(?:,|і|та|також|;)\s*(?:рахунк(?:и|ів|у)?|рах\.?|СФ|№|No|#)?\s*[^;,\n]+)*)/gi;
-      let match: RegExpExecArray | null;
-      while ((match = generalInvRegex.exec(paymentPurpose)) !== null) {
-        if (match[1]) {
-          // Tokenize the captured block by delimiters, conjunctions, and date boundaries
-          const rawBlock = match[1];
-          // Remove dates like "від 01.05.2026" or "від 12.04.26"
+      // 1. High-priority targeted pattern: "Оплачено за [матер./товари] згідно рах. № 1234, 1235 від 10.05.2026"
+      const targetedRegex = /(?:опла(?:та|чено)|сплата|розрахунок)?\s*(?:за\s+[^;,\n]+?)?\s*(?:згідно(?:\s+з)?|зг\.?|по)?\s*(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:унок|\.?)|р[-/]к[уа]?|счет[а-я]*|сч\.?|інвойс(?:и|ів)?|invoice|сф[-_]?)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№+|no\.?|n\.?|#|:)?\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ\-_/,\s+&;іта]+?)(?=(?:\s+від|\s+от|\s+без\s+пдв|\s+у\s+т\.ч|\s+в\s+т\.ч|\s+пдв|\s+сума|\s*;|\s*$))/gi;
+      let targetedMatch: RegExpExecArray | null;
+      while ((targetedMatch = targetedRegex.exec(paymentPurpose)) !== null) {
+        if (targetedMatch[1]) {
+          const rawBlock = targetedMatch[1];
           const blockWithoutDates = rawBlock.replace(/(?:від|от)?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/gi, ' ');
-          const tokens = blockWithoutDates.split(/[\s,;+&|]+|(?:та|і|також|згідно|за|для)/i);
+          const tokens = blockWithoutDates.split(/[,;+&|]+|\s+\/\s+|\s+(?:та|і|також|а\s+також)\s+|\s+/i);
           tokens.forEach((t) => {
-            addCandidate(t);
+            addCandidate(t.trim());
           });
         }
       }
 
-      // 2. Check for standalone "№ 123" only if NOT preceded by contract/order/bank keywords
-      const nakedNumRegex = /(?<!(?:договір|договору|договором|контракт|контракту|наказ|наказу|п\/п|п\/р|р\/р|iban|код|єдрпоу|акта|акт)\s*)(?:№|No|#)\s*([A-Za-zА-Яа-яІіЇїЄє0-9\-\/_]+)/gi;
+      // 2. Capture invoice blocks with general keywords: рахунок, рахунки, рах, рах., СФ, СФ-, счет, інвойс
+      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок|а)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?)\s*[:№#]?\s*([^;,\n]+(?:\s*(?:,|і|та|також|;)\s*(?:рахунк(?:и|ів|у)?|рах\.?|СФ|№|No|#)?\s*[^;,\n]+)*)/gi;
+      let match: RegExpExecArray | null;
+      while ((match = generalInvRegex.exec(paymentPurpose)) !== null) {
+        if (match[1]) {
+          const rawBlock = match[1];
+          // Remove dates like "від 01.05.2026" or "від 12.04.26"
+          const blockWithoutDates = rawBlock.replace(/(?:від|от)?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/gi, ' ');
+          const tokens = blockWithoutDates.split(/[,;+&|]+|\s+\/\s+|\s+(?:та|і|також|а\s+також|згідно|за|для)\s+|\s+/i);
+          tokens.forEach((t) => {
+            addCandidate(t.trim());
+          });
+        }
+      }
+
+      // 3. Check for standalone "№ 123" only if NOT preceded by contract/order/bank keywords
+      const nakedNumRegex = /(?<!(?:договір|договору|договором|контракт|контракту|наказ|наказу|п\/п|п\/р|р\/р|iban|код|єдрпоу|акта|акт)\s*)(?:№|No|#)\s*([0-9][A-Za-z0-9\-_/]{0,25})/gi;
       let nakedMatch: RegExpExecArray | null;
       while ((nakedMatch = nakedNumRegex.exec(paymentPurpose)) !== null) {
         if (nakedMatch[1]) {
-          addCandidate(nakedMatch[1]);
+          addCandidate(nakedMatch[1].trim());
         }
       }
     }
@@ -1912,14 +1961,27 @@ export class OCRService {
       const invSupplier = this.normalizeCompanyName(inv.supplier || '');
       const invAmount = inv.amount || 0;
 
+      // RULE 1: If invoice is ALREADY FULLY CLOSED ("Оплачено" and 100% paid),
+      // we CANNOT link a new payment to an already closed invoice!
+      // Linking is ONLY allowed if the invoice is currently partially paid ("Оплачено частково"),
+      // in which case it is waiting for an additional payment (доплата).
+      const isAlreadyClosed =
+        inv.paymentStatus === 'Оплачено' ||
+        (invAmount > 0 && (inv.paidAmount || 0) >= invAmount - 0.50);
+
+      if (isAlreadyClosed) {
+        continue;
+      }
+
       const isDateString = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
       const isInvNumActuallyDate = isDateString(rawInvNum);
 
       // Criterion A: Match against any extracted invoice number from the payment (ignore if invoiceNumber is just a date)
+      const isDirectRefMatch = cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn));
       const hasInvNumMatch =
         !isInvNumActuallyDate &&
         cleanInvNum.length >= 1 &&
-        (cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn)) ||
+        (isDirectRefMatch ||
           this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
           (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
 
@@ -1956,10 +2018,12 @@ export class OCRService {
         Boolean(cleanOrderNum && refOrder && cleanOrderNum !== refOrder && !purpose.includes(cleanOrderNum));
 
       // Valid conditions:
-      const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch || isAmountMatch);
-      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
-      const matchByOrderAndAmount = isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payeeName || !invSupplier || isSupplierMatch);
+      // When payment references invoice numbers, direct match does NOT require isAmountMatch (for multi-invoice payments)
+      const matchByInvoiceNum = hasInvNumMatch && (isDirectRefMatch || cleanInvNum.length >= 3 || !payeeName || !invSupplier || isSupplierMatch);
+      const canFallbackMatch = cleanRefNumbers.length === 0;
+      const matchBySupplierAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
+      const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
+      const matchByOrderAndAmount = canFallbackMatch && isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payeeName || !invSupplier || isSupplierMatch);
 
       if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount || matchByOrderAndAmount) {
         let reason = '';
@@ -1983,10 +2047,6 @@ export class OCRService {
           if (inv.rowIndex) matchedInvoiceRowIndices.add(inv.rowIndex);
         }
 
-        const isAlreadyClosed =
-          inv.paymentStatus === 'Оплачено' ||
-          (invAmount > 0 && (inv.paidAmount || 0) >= invAmount - 0.50);
-
         matches.push({
           invoiceNumber: inv.invoiceNumber,
           orderNumber: isInvOverhead ? 'ЦЕХ' : inv.orderNumber,
@@ -1998,8 +2058,8 @@ export class OCRService {
           matchReason: isInvOverhead ? `${reason} (вкладка «ЦЕХ»)` : reason,
           supplier: inv.supplier,
           buyer: inv.buyer,
-          isAlreadyClosed,
-          isClosedPair: isAlreadyClosed,
+          isAlreadyClosed: false,
+          isClosedPair: true,
           targetTab: isInvOverhead ? 'Цех' : 'Рахунки',
           isOverhead: isInvOverhead,
           matchMethod,
@@ -2017,14 +2077,24 @@ export class OCRService {
         const invSupplier = this.normalizeCompanyName(exp.supplier || '');
         const invAmount = exp.amount || 0;
 
+        // RULE 1: If overhead expense is ALREADY FULLY CLOSED ("Оплачено" and 100% paid), skip!
+        const isExpAlreadyClosed =
+          exp.paymentStatus === 'Оплачено' ||
+          (invAmount > 0 && (exp.paidAmount || 0) >= invAmount - 0.50);
+
+        if (isExpAlreadyClosed) {
+          continue;
+        }
+
         const isDateString = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
         const isInvNumActuallyDate = isDateString(rawInvNum);
 
         // Criterion A: Match against any extracted invoice number from the payment
+        const isDirectRefMatch = cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn));
         const hasInvNumMatch =
           !isInvNumActuallyDate &&
           cleanInvNum.length >= 1 &&
-          (cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn)) ||
+          (isDirectRefMatch ||
             this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
             (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
 
@@ -2060,9 +2130,10 @@ export class OCRService {
         const hasContradictingProjectOrder =
           Boolean(refOrder && refOrder !== 'цех' && !this.isPlaceholderNumber(refOrder) && !hasInvNumMatch && !isOverheadContext);
 
-        const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch || isAmountMatch);
-        const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingProjectOrder;
-        const matchByOverheadSupplierAndAmount = isOverheadContext && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
+        const matchByInvoiceNum = hasInvNumMatch && (isDirectRefMatch || cleanInvNum.length >= 3 || !payeeName || !invSupplier || isSupplierMatch);
+        const canFallbackMatch = cleanRefNumbers.length === 0;
+        const matchBySupplierAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingProjectOrder;
+        const matchByOverheadSupplierAndAmount = canFallbackMatch && isOverheadContext && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
 
         if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOverheadSupplierAndAmount) {
           let reason = '';
@@ -2079,10 +2150,6 @@ export class OCRService {
 
           if (exp.rowIndex) matchedOverheadRowIndices.add(exp.rowIndex);
 
-          const isAlreadyClosed =
-            exp.paymentStatus === 'Оплачено' ||
-            (invAmount > 0 && (exp.paidAmount || 0) >= invAmount - 0.50);
-
           matches.push({
             invoiceNumber: exp.invoiceNumber || `Рахунок (${exp.supplier})`,
             orderNumber: 'ЦЕХ',
@@ -2094,8 +2161,8 @@ export class OCRService {
             matchReason: reason,
             supplier: exp.supplier,
             buyer: exp.buyer,
-            isAlreadyClosed,
-            isClosedPair: isAlreadyClosed,
+            isAlreadyClosed: false,
+            isClosedPair: true,
             targetTab: 'Цех',
             isOverhead: true,
             matchMethod,
@@ -2122,6 +2189,15 @@ export class OCRService {
         ocr.isOverhead ||
         ocr.expenseCategory === 'OVERHEAD' ||
         cleanOrderNum === 'цех';
+
+      // RULE 1: If local invoice is ALREADY FULLY CLOSED ("Оплачено" and 100% paid), skip!
+      const isDocAlreadyClosed =
+        ocr.paymentStatus === 'Оплачено' ||
+        (invAmount > 0 && ((doc.editedData?.amountPaid || ocr.amountPaid || 0) >= invAmount - 0.50));
+
+      if (isDocAlreadyClosed) {
+        continue;
+      }
 
       // Check if this local document corresponds to an already matched sheet row (prevent duplicate counting)
       const existingSheetMatch = matches.find((m) => {
@@ -2166,10 +2242,11 @@ export class OCRService {
         continue;
       }
 
+      const isDirectRefMatch = cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn));
       const hasInvNumMatch =
         !isDatePattern(rawInvNum) &&
         cleanInvNum.length >= 1 &&
-        (cleanRefNumbers.some((crn) => this.isInvoiceNumberMatch(cleanInvNum, crn)) ||
+        (isDirectRefMatch ||
           this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
           (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
 
@@ -2201,10 +2278,11 @@ export class OCRService {
       const hasContradictingOrder =
         Boolean(cleanOrderNum && refOrder && cleanOrderNum !== refOrder && !purpose.includes(cleanOrderNum));
 
-      const matchByInvoiceNum = hasInvNumMatch && (!payeeName || !invSupplier || isSupplierMatch || isAmountMatch);
-      const matchBySupplierAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
-      const matchByOrderAndAmount = isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payeeName || !invSupplier || isSupplierMatch);
+      const matchByInvoiceNum = hasInvNumMatch && (isDirectRefMatch || cleanInvNum.length >= 3 || !payeeName || !invSupplier || isSupplierMatch);
+      const canFallbackMatch = cleanRefNumbers.length === 0;
+      const matchBySupplierAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
+      const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
+      const matchByOrderAndAmount = canFallbackMatch && isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payeeName || !invSupplier || isSupplierMatch);
 
       if (matchByInvoiceNum || matchBySupplierAndAmount || matchByOrderSupplierAndAmount || matchByOrderAndAmount) {
         let reason = '';
@@ -2228,10 +2306,6 @@ export class OCRService {
 
         matchedDocIds.add(doc.id);
 
-        const isAlreadyClosed =
-          ocr.paymentStatus === 'Оплачено' ||
-          (invAmount > 0 && ((doc.editedData?.amountPaid || ocr.amountPaid || 0) >= invAmount - 0.50));
-
         matches.push({
           invoiceNumber: ocr.invoiceNumber,
           orderNumber: isDocOverhead ? 'ЦЕХ' : ocr.handwrittenOrderNumber,
@@ -2243,8 +2317,8 @@ export class OCRService {
           matchReason: reason,
           supplier: ocr.supplierName,
           buyer: ocr.buyerName,
-          isAlreadyClosed,
-          isClosedPair: isAlreadyClosed,
+          isAlreadyClosed: false,
+          isClosedPair: true,
           targetTab: isDocOverhead ? 'Цех' : 'Рахунки',
           isOverhead: isDocOverhead,
           matchMethod,
@@ -2547,7 +2621,8 @@ export class OCRService {
   public static matchInvoiceWithPayments(
     invoiceOcr: OCRResult,
     existingPayments: ExistingPaymentRow[] = [],
-    localDocuments: ProcessedDocument[] = []
+    localDocuments: ProcessedDocument[] = [],
+    existingInvoices: ExistingSheetRow[] = []
   ): {
     matchedPaymentNumbers: string[];
     totalPaidAmount: number;
@@ -2628,17 +2703,42 @@ export class OCRService {
       const hasContradictingOrder =
         Boolean(cleanOrderNum && refOrd && cleanOrderNum !== refOrd && !purpose.includes(cleanOrderNum));
 
-      // Condition 1: Direct match by invoice number (payee/amount check: either payee matches, amount matches, or payee unknown)
+      // RULE 1: If a payment is already paired and fully closed with another invoice,
+      // it CANNOT be linked to this new invoice!
+      // Exceptions:
+      //  - Payment explicitly lists multiple invoice numbers and THIS invoice is one of them (hasDirectInvNumMatch);
+      //  - Or the existing invoice was only partially paid ("Оплачено частково") and is waiting for more payments.
+      if (existingInvoices.length > 0) {
+        if (cleanPRefNumbers.length > 0) {
+          if (!hasDirectInvNumMatch) {
+            continue;
+          }
+        } else {
+          const isClaimedByClosedInvoice = existingInvoices.some((ei) => {
+            const isEiClosed = ei.paymentStatus === 'Оплачено' || (ei.amount > 0 && (ei.paidAmount || 0) >= ei.amount - 0.50);
+            if (!isEiClosed) return false;
+            const eiSup = this.normalizeCompanyName(ei.supplier || '');
+            const eiAmt = ei.amount || 0;
+            const eiOrd = this.normalizeOrderNumber(ei.orderNumber || '').toLowerCase();
+            return (
+              (eiSup && payee && this.isCompanyNameMatch(eiSup, payee) && Math.abs(eiAmt - pAmount) <= 0.50) ||
+              (eiOrd && refOrd && (eiOrd === refOrd || refOrd.includes(eiOrd)) && Math.abs(eiAmt - pAmount) <= 0.50)
+            );
+          });
+          if (isClaimedByClosedInvoice) {
+            continue;
+          }
+        }
+      }
+
+      // Condition 1: Direct match by invoice number
       const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch || isAmountMatch);
 
-      // Condition 2: Exact Payee + Exact Amount match (no conflicting invoice or order)
-      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
-
-      // Condition 3: Exact Order + Exact Payee + Amount match (full or partial)
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
-
-      // Condition 4: Exact Order + Exact Amount match
-      const matchByOrderAndAmount = isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payee || !supplier || isSupplierMatch);
+      // Fallback matching ONLY when payment does NOT have explicit invoice numbers:
+      const canFallbackMatch = cleanPRefNumbers.length === 0 && !refInv;
+      const matchByPayeeAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
+      const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
+      const matchByOrderAndAmount = canFallbackMatch && isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payee || !supplier || isSupplierMatch);
 
       if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount || matchByOrderAndAmount) {
         seenPaymentKeys.add(pKey);
@@ -2703,10 +2803,39 @@ export class OCRService {
       const hasContradictingOrder =
         Boolean(cleanOrderNum && refOrd && cleanOrderNum !== refOrd && !purpose.includes(cleanOrderNum));
 
+      // RULE 1: If a payment is already paired and fully closed with another invoice,
+      // it CANNOT be linked to this new invoice!
+      // Exceptions:
+      //  - Payment explicitly lists multiple invoice numbers and THIS invoice is one of them (hasDirectInvNumMatch);
+      //  - Or the existing invoice was only partially paid ("Оплачено частково") and is waiting for more payments.
+      if (existingInvoices.length > 0) {
+        if (cleanPRefNumbers.length > 0) {
+          if (!hasDirectInvNumMatch) {
+            continue;
+          }
+        } else {
+          const isClaimedByClosedInvoice = existingInvoices.some((ei) => {
+            const isEiClosed = ei.paymentStatus === 'Оплачено' || (ei.amount > 0 && (ei.paidAmount || 0) >= ei.amount - 0.50);
+            if (!isEiClosed) return false;
+            const eiSup = this.normalizeCompanyName(ei.supplier || '');
+            const eiAmt = ei.amount || 0;
+            const eiOrd = this.normalizeOrderNumber(ei.orderNumber || '').toLowerCase();
+            return (
+              (eiSup && payee && this.isCompanyNameMatch(eiSup, payee) && Math.abs(eiAmt - pAmount) <= 0.50) ||
+              (eiOrd && refOrd && (eiOrd === refOrd || refOrd.includes(eiOrd)) && Math.abs(eiAmt - pAmount) <= 0.50)
+            );
+          });
+          if (isClaimedByClosedInvoice) {
+            continue;
+          }
+        }
+      }
+
       const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch || isAmountMatch);
-      const matchByPayeeAndAmount = isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
-      const matchByOrderSupplierAndAmount = isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
-      const matchByOrderAndAmount = isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payee || !supplier || isSupplierMatch);
+      const canFallbackMatch = cleanPRefNumbers.length === 0 && !refInv;
+      const matchByPayeeAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
+      const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
+      const matchByOrderAndAmount = canFallbackMatch && isOrderMatch && isAmountMatch && !hasContradictingInvoice && (!payee || !supplier || isSupplierMatch);
 
       if (matchByInvoiceNum || matchByPayeeAndAmount || matchByOrderSupplierAndAmount || matchByOrderAndAmount) {
         seenPaymentKeys.add(pKey);
@@ -2741,9 +2870,16 @@ export class OCRService {
     const payNumbers = Array.from(new Set(matchedPayments.map((p) => p.paymentNumber).filter(Boolean)));
     const effectivePaidAmount = invAmount > 0 ? Math.min(totalPaid, invAmount) : totalPaid;
 
+    // RULE: If payment explicitly specifies this invoice number in purpose or referenced numbers,
+    // (e.g. multi-invoice payment "Оплачено згідно рах. № 1, 2, 3..."), this invoice is 100% paid ("Оплачено")!
+    const isExplicitlyReferencedInMatchedPayment = matchedPayments.some((p) => {
+      const pRef = this.extractAllInvoiceNumbers(p.referencedInvoiceNumber, undefined, p.paymentPurpose);
+      return pRef.some((prn) => this.isInvoiceNumberMatch(cleanInvNum, this.normalizeInvoiceNumber(prn)));
+    });
+
     let computedStatus: InvoicePaymentStatus = 'Не оплачено';
     if (invAmount > 0) {
-      if (totalPaid >= invAmount - 0.50) {
+      if (totalPaid >= invAmount - 0.50 || isExplicitlyReferencedInMatchedPayment) {
         computedStatus = 'Оплачено';
       } else if (totalPaid > 0) {
         computedStatus = 'Оплачено частково';

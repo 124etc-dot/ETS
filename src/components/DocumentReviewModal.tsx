@@ -217,7 +217,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
       // If updating invoice details, re-evaluate matching payments
       if (updated.documentType !== 'payment' && (field === 'totalAmount' || field === 'invoiceNumber' || field === 'handwrittenOrderNumber' || field === 'supplierName')) {
-        const invoiceMatch = OCRService.matchInvoiceWithPayments(updated, existingPayments, allDocuments);
+        const invoiceMatch = OCRService.matchInvoiceWithPayments(updated, existingPayments, allDocuments, existingInvoices);
         if (invoiceMatch.computedStatus && invoiceMatch.computedStatus !== 'Не оплачено') {
           updated.paymentStatus = invoiceMatch.computedStatus;
           updated.paidAmount = invoiceMatch.totalPaidAmount;
@@ -391,7 +391,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
         clean.handwrittenConfidence = 'high';
       }
     } else {
-      const match = OCRService.matchInvoiceWithPayments(clean, existingPayments, allDocuments);
+      const match = OCRService.matchInvoiceWithPayments(clean, existingPayments, allDocuments, existingInvoices);
       if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
         clean.paymentStatus = match.computedStatus;
         clean.paidAmount = match.totalPaidAmount;
@@ -470,7 +470,7 @@ export const DocumentReviewModal: React.FC<Props> = ({
 
   // Find matched payments for invoice (when payment was uploaded first or is already in "Платіжки")
   const invoicePaymentMatch = !isPaymentDoc
-    ? OCRService.matchInvoiceWithPayments(formData, existingPayments, allDocuments)
+    ? OCRService.matchInvoiceWithPayments(formData, existingPayments, allDocuments, existingInvoices)
     : null;
 
   const allExtractedInvoiceNumbers = isPaymentDoc

@@ -1096,7 +1096,8 @@ export default function App() {
         const match = OCRService.matchInvoiceWithPayments(
           ocrResult,
           currentPayments,
-          documentsRef.current
+          documentsRef.current,
+          existingInvoicesRef.current
         );
         if (match.computedStatus && match.computedStatus !== 'Не оплачено') {
           ocrResult.paymentStatus = match.computedStatus;
@@ -1183,7 +1184,7 @@ export default function App() {
             if (d.id === docId) return d;
             const data = d.editedData || d.ocrResult;
             if (data?.documentType === 'invoice') {
-              const invMatch = OCRService.matchInvoiceWithPayments(data, existingPaymentsRef.current, next);
+              const invMatch = OCRService.matchInvoiceWithPayments(data, existingPaymentsRef.current, next, existingInvoicesRef.current);
               if (invMatch.computedStatus && invMatch.computedStatus !== 'Не оплачено') {
                 const updatedData: OCRResult = {
                   ...data,
@@ -1241,7 +1242,7 @@ export default function App() {
         const data = d.editedData || d.ocrResult;
         if (!data) return d;
         if (data.documentType === 'invoice') {
-          const invMatch = OCRService.matchInvoiceWithPayments(data, existingPaymentsRef.current, prev);
+          const invMatch = OCRService.matchInvoiceWithPayments(data, existingPaymentsRef.current, prev, existingInvoicesRef.current);
           if (invMatch.computedStatus && invMatch.computedStatus !== 'Не оплачено') {
             const nextData: OCRResult = {
               ...data,
@@ -2025,7 +2026,8 @@ export default function App() {
           const invoiceMatch = OCRService.matchInvoiceWithPayments(
             dataToSync,
             freshPayments,
-            documentsRef.current
+            documentsRef.current,
+            existingInvoicesRef.current
           );
 
           if (invoiceMatch.computedStatus && invoiceMatch.computedStatus !== 'Не оплачено') {
