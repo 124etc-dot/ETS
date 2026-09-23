@@ -825,22 +825,102 @@ export const ProjectsTab: React.FC<Props> = ({
    * - Якщо Статус "Здано" (або варіанти "зданий", "завершено", "виконано") -> заливка плашки Зелена
    * - Якщо "В роботі" (або інші робочі статуси) -> залишається синьою без змін
    */
-  const getProjectStatusBadgeClass = (status?: string | null): string => {
-    if (!status) return 'bg-slate-100 text-slate-600 border-slate-200';
+  const isProjectDone = (status?: string | null): boolean => {
+    if (!status) return false;
     const s = status.toLowerCase().trim();
-
-    // Якщо Статус Здано - то заливка плашки Зелена
-    if (
+    return (
       s.includes('здан') ||       // "Здано", "здано", "Зданий"
       s.includes('заверш') ||     // "Завершено", "Завершення"
       s.includes('виконан') ||    // "Виконано"
       s.includes('закрито')       // "Закрито"
-    ) {
+    );
+  };
+
+  const getProjectStatusBadgeClass = (status?: string | null): string => {
+    if (!status) return 'bg-slate-100 text-slate-600 border-slate-200';
+    if (isProjectDone(status)) {
       return 'bg-emerald-50 text-emerald-700 border-emerald-200';
     }
-
-    // Якщо В роботі - залишається синьою без змін
     return 'bg-blue-50 text-blue-700 border-blue-200';
+  };
+
+  /**
+   * Розрахунок відсотка маржинальності для замовлення
+   */
+  const getMarginPercent = (p: ProjectSheetRow): number | null => {
+    if (p.colY !== undefined && p.colY !== null) {
+      const str = String(p.colY).trim();
+      if (str && str !== '-' && str !== '—') {
+        if (str.includes('%')) {
+          const cleaned = str.replace('%', '').replace(/\s+/g, '').replace(',', '.');
+          const parsed = parseFloat(cleaned);
+          if (!isNaN(parsed)) return parsed;
+        }
+        const clean = str.replace(/\s+/g, '').replace(/,/g, '.').replace(/[^\d.-]/g, '');
+        const num = parseFloat(clean);
+        if (!isNaN(num)) {
+          if (Math.abs(num) > 0 && Math.abs(num) <= 1 && !str.includes(' ') && (!str.includes(',') || num < 1)) {
+            return num * 100;
+          }
+          const budget = getProjectBudget(p);
+          if (num > 100 && budget > 0 && !str.includes('%')) {
+            return (num / budget) * 100;
+          }
+          return num;
+        }
+      }
+    }
+    const budget = getProjectBudget(p);
+    const exp = p.sumQRST || 0;
+    if (budget > 0) {
+      return ((budget - exp) / budget) * 100;
+    }
+    return null;
+  };
+
+  /**
+   * Відображення маржинальності за правилом:
+   * - До тих пір поки статус НЕ "Здано": сірий фон, неактивна
+   * - Як тільки статус стає "Здано": у двох кольорах: червоний (< 20%) та зелений (>= 20%)
+   */
+  const renderMarginBadge = (p: ProjectSheetRow) => {
+    const isDone = isProjectDone(p.colF);
+    const margin = getMarginPercent(p);
+    const hasVal = p.colY && p.colY.trim() !== '' && p.colY !== '-' && p.colY !== '—';
+    const valText = hasVal ? p.colY : (margin !== null ? `${margin.toFixed(1).replace('.', ',')}%` : '—');
+
+    if (!isDone) {
+      // Показувати на сірому фоні, типу неактивну, до тих пір поки статус проекта не стане Здано
+      return (
+        <span
+          className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-slate-100 text-slate-400 border border-slate-200 select-none"
+          title={`Статус: ${p.colF || 'В роботі'} (маржинальність неактивна до здачі проєкту)`}
+        >
+          {valText}
+        </span>
+      );
+    }
+
+    // Як тільки він стане Здано: Маржинальність відображається у двох кольорах червоний та зелений
+    if (margin !== null && margin < 20) {
+      return (
+        <span
+          className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-rose-50 text-rose-700 border border-rose-300 shadow-2xs"
+          title={`Здано. Низька маржинальність: ${margin.toFixed(1)}% (< 20%)`}
+        >
+          {valText}
+        </span>
+      );
+    }
+
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-300 shadow-2xs"
+        title={`Здано. Маржинальність: ${margin !== null ? `${margin.toFixed(1)}%` : valText} (>= 20%)`}
+      >
+        {valText}
+      </span>
+    );
   };
 
   const activeSpreadsheetUrl =
@@ -1588,8 +1668,8 @@ export const ProjectsTab: React.FC<Props> = ({
                       </td>
 
                       {/* Col Y */}
-                      <td className="p-2.5 max-w-[150px] truncate text-slate-500" title={p.colY}>
-                        {p.colY || '—'}
+                      <td className="p-2.5 max-w-[150px] whitespace-nowrap">
+                        {renderMarginBadge(p)}
                       </td>
                     </tr>
                   );
@@ -1905,9 +1985,14 @@ export const ProjectsTab: React.FC<Props> = ({
                     </div>
                   )}
                   {selectedProject.colY && (
-                    <div>
-                      <span className="font-semibold text-amber-900 block text-[11px]">{getHeaderTitle('colY', 'Y')} (Колонка Y):</span>
-                      <p className="text-amber-950 mt-0.5">{selectedProject.colY}</p>
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-white/80 border border-amber-200/60">
+                      <div>
+                        <span className="font-semibold text-amber-900 block text-[11px]">{getHeaderTitle('colY', 'Y')} (Колонка Y):</span>
+                        <p className="text-amber-950 font-mono text-xs mt-0.5">{selectedProject.colY}</p>
+                      </div>
+                      <div>
+                        {renderMarginBadge(selectedProject)}
+                      </div>
                     </div>
                   )}
                 </div>

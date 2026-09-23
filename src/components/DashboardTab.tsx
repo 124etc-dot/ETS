@@ -286,48 +286,53 @@ export const DashboardTab: React.FC<Props> = ({
   };
 
   // Helper for dynamic styles of "МАРЖИНАЛЬНІСТЬ (Y)"
-  // < 20% 🔴: Background #FEE2E2, Border #DC2626, Text #991B1B
-  // 20% - 25% 🟡: Background #FEF3C7, Border #D97706, Text #92400E
-  // > 25% 🟢: Background #E6F9F0, Border #00A86B, Text #059669
-  const getMarginBoxStyle = (margin: number | null) => {
+  // До тих пір поки статус НЕ "Здано" -> показувати на сірому фоні, типу неактивну
+  // Як тільки статус стає "Здано" -> у двох кольорах: червоний (< 20%) та зелений (>= 20%)
+  const getMarginBoxStyle = (margin: number | null, isDone: boolean) => {
+    if (!isDone) {
+      return {
+        containerStyle: {
+          backgroundColor: '#F1F5F9', // bg-slate-100
+          borderColor: '#CBD5E1',     // border-slate-300
+        },
+        labelStyle: {
+          color: '#64748B',           // text-slate-500
+        },
+        valueStyle: {
+          color: '#64748B',           // text-slate-500
+        },
+        isInactive: true,
+      };
+    }
+
+    // Якщо статус Здано: у двох кольорах червоний та зелений
     if (margin !== null && margin < 20) {
       return {
         containerStyle: {
-          backgroundColor: '#FEE2E2',
-          borderColor: '#DC2626',
+          backgroundColor: '#FEE2E2', // bg-rose-100
+          borderColor: '#DC2626',     // border-rose-600
         },
         labelStyle: {
-          color: '#991B1B',
+          color: '#991B1B',           // text-rose-800
         },
         valueStyle: {
-          color: '#991B1B',
+          color: '#991B1B',           // text-rose-800
         },
-      };
-    } else if (margin !== null && margin >= 20 && margin <= 25) {
-      return {
-        containerStyle: {
-          backgroundColor: '#FEF3C7',
-          borderColor: '#D97706',
-        },
-        labelStyle: {
-          color: '#92400E',
-        },
-        valueStyle: {
-          color: '#92400E',
-        },
+        isInactive: false,
       };
     } else {
       return {
         containerStyle: {
-          backgroundColor: '#E6F9F0',
-          borderColor: '#00A86B',
+          backgroundColor: '#E6F9F0', // bg-emerald-50
+          borderColor: '#00A86B',     // border-emerald-500
         },
         labelStyle: {
-          color: '#059669',
+          color: '#059669',           // text-emerald-600
         },
         valueStyle: {
-          color: '#059669',
+          color: '#059669',           // text-emerald-600
         },
+        isInactive: false,
       };
     }
   };
@@ -1050,21 +1055,36 @@ export const DashboardTab: React.FC<Props> = ({
                           </span>
                         </div>
 
-                        {/* 6. Маржинальність - колонка Y (динамічні кольори: <20% червоний, 20-25% жовтий, >25% зелений) */}
+                        {/* 6. Маржинальність - колонка Y (сірий фон неактивна до "Здано", червоний/зелений після здачі) */}
                         {(() => {
+                          const isDone = isStatusDone(p.colF);
                           const marginVal = getMarginPercentValue(p);
-                          const mStyle = getMarginBoxStyle(marginVal);
+                          const mStyle = getMarginBoxStyle(marginVal, isDone);
                           return (
                             <div 
                               className="p-2 rounded-lg border transition-all duration-200"
                               style={mStyle.containerStyle}
+                              title={
+                                !isDone
+                                  ? `Статус: ${p.colF || 'В роботі'} (маржинальність неактивна до здачі проєкту)`
+                                  : marginVal !== null && marginVal < 20
+                                  ? `Здано. Низька маржинальність: ${marginVal.toFixed(1)}% (< 20%)`
+                                  : `Здано. Маржинальність: ${marginVal !== null ? `${marginVal.toFixed(1)}%` : 'розрахована'} (>= 20%)`
+                              }
                             >
-                              <span 
-                                className="text-[10px] uppercase font-semibold tracking-wider block"
-                                style={mStyle.labelStyle}
-                              >
-                                Маржинальність (Y)
-                              </span>
+                              <div className="flex items-center justify-between">
+                                <span 
+                                  className="text-[10px] uppercase font-semibold tracking-wider block"
+                                  style={mStyle.labelStyle}
+                                >
+                                  Маржинальність (Y)
+                                </span>
+                                {!isDone && (
+                                  <span className="text-[8px] font-semibold px-1 py-0.2 rounded bg-slate-200/90 text-slate-500 uppercase tracking-tighter">
+                                    В роботі
+                                  </span>
+                                )}
+                              </div>
                               <span 
                                 className="font-bold font-mono text-xs sm:text-[13px] block mt-0.5 truncate"
                                 style={mStyle.valueStyle}
@@ -1290,22 +1310,37 @@ export const DashboardTab: React.FC<Props> = ({
                 </div>
               </div>
 
-              {/* 6. Маржинальність - колонка Y (динамічні кольори: <20% червоний, 20-25% жовтий, >25% зелений) */}
+              {/* 6. Маржинальність - колонка Y (сірий фон неактивна до "Здано", червоний/зелений після здачі) */}
               {(() => {
+                const isDone = isStatusDone(selectedProject.colF);
                 const marginVal = getMarginPercentValue(selectedProject);
-                const mStyle = getMarginBoxStyle(marginVal);
+                const mStyle = getMarginBoxStyle(marginVal, isDone);
                 return (
                   <div 
                     className="p-2.5 rounded-xl border transition-all duration-200"
                     style={mStyle.containerStyle}
+                    title={
+                      !isDone
+                        ? `Статус: ${selectedProject.colF || 'В роботі'} (маржинальність неактивна до здачі проєкту)`
+                        : marginVal !== null && marginVal < 20
+                        ? `Здано. Низька маржинальність: ${marginVal.toFixed(1)}% (< 20%)`
+                        : `Здано. Маржинальність: ${marginVal !== null ? `${marginVal.toFixed(1)}%` : 'розрахована'} (>= 20%)`
+                    }
                   >
-                    <span 
-                      className="text-[10px] font-semibold uppercase tracking-wider block truncate"
-                      style={mStyle.labelStyle}
-                      title={getHeaderTitle('colY', 'Y')}
-                    >
-                      6. {getHeaderTitle('colY', 'Y')} (кол. Y)
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span 
+                        className="text-[10px] font-semibold uppercase tracking-wider block truncate"
+                        style={mStyle.labelStyle}
+                        title={getHeaderTitle('colY', 'Y')}
+                      >
+                        6. {getHeaderTitle('colY', 'Y')} (кол. Y)
+                      </span>
+                      {!isDone && (
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-slate-200/90 text-slate-500 uppercase tracking-tighter">
+                          Неактивна
+                        </span>
+                      )}
+                    </div>
                     <div 
                       className="font-bold font-mono text-sm mt-0.5"
                       style={mStyle.valueStyle}
