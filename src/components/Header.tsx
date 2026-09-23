@@ -175,9 +175,12 @@ export const Header: React.FC<Props> = ({
                 <Factory className={`w-3.5 h-3.5 ${activeTab === 'overhead' ? 'text-white' : 'text-amber-600'}`} />
                 <span>Витрати Цеху</span>
                 {overheadCount !== undefined && overheadCount > 0 && (
-                  <span className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full ${
-                    activeTab === 'overhead' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-900'
-                  }`}>
+                  <span
+                    className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full ${
+                      activeTab === 'overhead' ? 'bg-amber-800 text-white' : 'bg-rose-100 text-rose-800 border border-rose-300'
+                    }`}
+                    title={`Неоплачених рахунків цеху: ${overheadCount}`}
+                  >
                     {overheadCount}
                   </span>
                 )}
@@ -348,9 +351,12 @@ export const Header: React.FC<Props> = ({
               <Factory className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'overhead' ? 'text-white' : 'text-amber-600'}`} />
               <span>Цех</span>
               {overheadCount !== undefined && overheadCount > 0 && (
-                <span className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full shrink-0 ${
-                  activeTab === 'overhead' ? 'bg-amber-800 text-white' : 'bg-amber-100 text-amber-900'
-                }`}>
+                <span
+                  className={`ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full shrink-0 ${
+                    activeTab === 'overhead' ? 'bg-amber-800 text-white' : 'bg-rose-100 text-rose-800 border border-rose-300'
+                  }`}
+                  title={`Неоплачених рахунків цеху: ${overheadCount}`}
+                >
                   {overheadCount}
                 </span>
               )}

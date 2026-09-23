@@ -442,16 +442,20 @@ export const DashboardTab: React.FC<Props> = ({
     const totalRecords = overheadExpenses.length;
     let totalAmount = 0;
     let totalPaid = 0;
+    let unpaidCount = 0;
 
     overheadExpenses.forEach((exp) => {
       totalAmount += Number(exp.amount) || 0;
       totalPaid += Number(exp.paidAmount) || 0;
+      const isPaid = exp.paymentStatus === 'Оплачено' || (exp.paidAmount !== undefined && exp.paidAmount >= exp.amount && exp.amount > 0);
+      if (!isPaid) unpaidCount++;
     });
 
     return {
       totalRecords,
       totalAmount,
       totalPaid,
+      unpaidCount,
     };
   }, [overheadExpenses]);
 
@@ -634,10 +638,10 @@ export const DashboardTab: React.FC<Props> = ({
             </div>
           </div>
           <div className="mt-3 flex items-baseline justify-between">
-            <div className="text-2xl font-bold text-slate-900 font-mono">
-              {overheadStats.totalRecords}
+            <div className="text-2xl font-bold text-rose-600 font-mono">
+              {overheadStats.unpaidCount}
             </div>
-            <span className="text-xs text-slate-500">записів витрат</span>
+            <span className="text-xs text-rose-600 font-semibold">неоплачених ({overheadStats.totalRecords} всього)</span>
           </div>
           <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
             <span className="text-slate-500">Всього витрат:</span>

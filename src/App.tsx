@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   FileText, 
   Sparkles, 
@@ -247,6 +247,14 @@ export default function App() {
   const overheadExpensesRef = useRef(overheadExpenses);
   useEffect(() => {
     overheadExpensesRef.current = overheadExpenses;
+  }, [overheadExpenses]);
+
+  // Count of unpaid overhead expenses for tab badge
+  const unpaidOverheadCount = useMemo(() => {
+    return overheadExpenses.filter((exp) => {
+      const isPaid = exp.paymentStatus === 'Оплачено' || (exp.paidAmount !== undefined && exp.paidAmount >= exp.amount && exp.amount > 0);
+      return !isPaid;
+    }).length;
   }, [overheadExpenses]);
 
   // Projects state with localStorage caching (projects marked as МК are strictly excluded)
@@ -3980,7 +3988,7 @@ export default function App() {
         }}
         totalPendingCount={documents.filter((d) => d.status === 'pending').length}
         totalReadyCount={documents.filter((d) => d.status === 'ready_for_review').length}
-        overheadCount={overheadExpenses.length}
+        overheadCount={unpaidOverheadCount}
       />
 
       {/* Floating Notification */}

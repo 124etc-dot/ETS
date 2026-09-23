@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Factory, 
   Calendar, 
@@ -18,7 +18,11 @@ import {
   CreditCard,
   AlertCircle,
   Eye,
-  Loader2
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight
 } from 'lucide-react';
 import { OverheadExpenseRow, SheetConfig, SheetCompanyLists, InvoicePaymentStatus, ProcessedDocument } from '../types';
 import { GoogleSheetsService } from '../services/googleSheets';
@@ -259,6 +263,197 @@ export const OverheadTab: React.FC<Props> = ({
     return { name: top, amount: max };
   }, [filteredExpenses]);
 
+  // Count of total unpaid overhead invoices
+  const totalUnpaidCount = useMemo(() => {
+    return overheadExpenses.filter((exp) => {
+      const isPaid = exp.paymentStatus === 'Оплачено' || (exp.paidAmount !== undefined && exp.paidAmount >= exp.amount && exp.amount > 0);
+      return !isPaid;
+    }).length;
+  }, [overheadExpenses]);
+
+  // Pagination state (matching SheetLivePreview)
+  const [pageSize, setPageSize] = useState<number | 'all'>(25);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  // Reset to page 1 on filter/search/sort change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeMonth, statusFilter, searchQuery, sortField, sortOrder, pageSize]);
+
+  // Pagination calculations for Flat Table
+  const totalExpenseItems = sortedExpenses.length;
+  const effectiveExpensePageSize = pageSize === 'all' ? (totalExpenseItems || 1) : pageSize;
+  const totalExpensePages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalExpenseItems / effectiveExpensePageSize));
+  const safeExpensePage = Math.min(Math.max(1, currentPage), totalExpensePages);
+  const expenseStartIndex = pageSize === 'all' ? 0 : (safeExpensePage - 1) * effectiveExpensePageSize;
+  const expenseEndIndex = pageSize === 'all' ? totalExpenseItems : Math.min(expenseStartIndex + effectiveExpensePageSize, totalExpenseItems);
+  const paginatedExpenses = sortedExpenses.slice(expenseStartIndex, expenseEndIndex);
+
+  // Smart page numbers array for pagination bar (identical algorithm to SheetLivePreview / BatchProcessingTable)
+  const getPageNumbers = (tPages: number, sPage: number): (number | string)[] => {
+    const delta = 2;
+    const range: number[] = [];
+    const rangeWithDots: (number | string)[] = [];
+    let l: number | undefined;
+
+    for (let i = 1; i <= tPages; i++) {
+      if (i === 1 || i === tPages || (i >= sPage - delta && i <= sPage + delta)) {
+        range.push(i);
+      }
+    }
+
+    for (const i of range) {
+      if (l !== undefined) {
+        if (i - l === 2) {
+          rangeWithDots.push(l + 1);
+        } else if (i - l !== 1) {
+          rangeWithDots.push('...');
+        }
+      }
+      rangeWithDots.push(i);
+      l = i;
+    }
+
+    return rangeWithDots;
+  };
+
+  // Reusable pagination footer matching SheetLivePreview style
+  const renderPaginationFooter = (
+    totalItems: number,
+    startIdx: number,
+    endIdx: number,
+    safePage: number,
+    tPages: number,
+    itemLabel: string
+  ) => {
+    if (totalItems === 0) return null;
+
+    const activeBg = 'bg-amber-600';
+    const activeBorder = 'border-amber-600';
+    const pageNumbers = getPageNumbers(tPages, safePage);
+
+    return (
+      <div className="p-3.5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shrink-0 select-none">
+        {/* Left: Summary and Page Size selector */}
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-slate-600 font-medium">
+            Показано <strong className="text-slate-900 font-mono">{startIdx + 1}–{endIdx}</strong> з <strong className="text-slate-900 font-mono">{totalItems}</strong> {itemLabel}
+          </span>
+
+          <div className="flex items-center space-x-1.5 pl-3 border-l border-slate-200">
+            <span className="text-slate-500 text-[11px]">Показувати по:</span>
+            <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-2xs">
+              {[25, 50, 100].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setPageSize(size)}
+                  className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                    pageSize === size
+                      ? `${activeBg} text-white shadow-2xs`
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  {size}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setPageSize('all')}
+                className={`px-2 py-0.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  pageSize === 'all'
+                    ? `${activeBg} text-white shadow-2xs`
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+                title="Показати всі записи без розбивки"
+              >
+                Всі
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Page Buttons */}
+        {tPages > 1 && (
+          <div className="flex items-center space-x-1">
+            {/* First page button */}
+            <button
+              type="button"
+              onClick={() => setCurrentPage(1)}
+              disabled={safePage <= 1}
+              className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+              title="Перша сторінка"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Prev page button */}
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+              title="Попередня сторінка"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Page numbers with active styling */}
+            <div className="flex items-center space-x-1 px-1">
+              {pageNumbers.map((item, idx) => {
+                if (item === '...') {
+                  return (
+                    <span key={`dots-${idx}`} className="px-1.5 py-1 text-slate-400 font-bold select-none">
+                      …
+                    </span>
+                  );
+                }
+                const pageNum = item as number;
+                const isActive = pageNum === safePage;
+                return (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`min-w-7 h-7 px-2 text-xs font-bold rounded-lg transition-colors shadow-2xs cursor-pointer ${
+                      isActive
+                        ? `${activeBg} text-white border ${activeBorder}`
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Next page button */}
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(tPages, p + 1))}
+              disabled={safePage >= tPages}
+              className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+              title="Наступна сторінка"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Last page button */}
+            <button
+              type="button"
+              onClick={() => setCurrentPage(tPages)}
+              disabled={safePage >= tPages}
+              className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 disabled:opacity-30 disabled:hover:bg-white shadow-2xs transition-colors cursor-pointer"
+              title="Остання сторінка"
+            >
+              <ChevronsRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -410,6 +605,20 @@ export const OverheadTab: React.FC<Props> = ({
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
                   Вкладка «Цех»
                 </span>
+                {totalUnpaidCount > 0 ? (
+                  <span
+                    className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 flex items-center space-x-1 shadow-2xs"
+                    title={`Неоплачених рахунків цеху: ${totalUnpaidCount}`}
+                  >
+                    <Clock className="w-3 h-3 text-rose-600" />
+                    <span>{totalUnpaidCount} неоплачено</span>
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center space-x-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    <span>Всі оплачено</span>
+                  </span>
+                )}
               </div>
               <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
                 Колонки: <b>А</b> — Постачальник, <b>В</b> — Платник, <b>C</b> — Номер рахунку, <b>D</b> — Дата рахунку, <b>E</b> — Сума, <b>F</b> — Валюта, <b>G</b> — Статус, <b>H</b> — Час завантаження, <b>I</b> — Сума оплати.
@@ -669,6 +878,11 @@ export const OverheadTab: React.FC<Props> = ({
               <h2 className="text-sm font-bold text-slate-900">
                 Рахунки цеху ({sortedExpenses.length})
               </h2>
+              {filteredExpenses.filter(e => e.paymentStatus !== 'Оплачено').length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                  {filteredExpenses.filter(e => e.paymentStatus !== 'Оплачено').length} неоплачено
+                </span>
+              )}
               {activeMonth !== 'all' && (
                 <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-100 text-amber-800">
                   {activeMonth}
@@ -717,7 +931,7 @@ export const OverheadTab: React.FC<Props> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {sortedExpenses.map((exp, idx) => (
+                  {paginatedExpenses.map((exp, idx) => (
                     <tr key={exp.id || idx} className="hover:bg-amber-50/40 transition-colors">
                       {/* A: Постачальник */}
                       <td className="py-3 px-3 font-bold text-slate-900">
@@ -900,6 +1114,16 @@ export const OverheadTab: React.FC<Props> = ({
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* Pagination Footer */}
+          {renderPaginationFooter(
+            totalExpenseItems,
+            expenseStartIndex,
+            expenseEndIndex,
+            safeExpensePage,
+            totalExpensePages,
+            'рахунків цеху'
           )}
         </div>
       ) : (
