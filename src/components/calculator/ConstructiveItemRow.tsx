@@ -18,6 +18,13 @@ interface Props {
   onDuplicate: (item: ConstructiveItem) => void;
 }
 
+// Helper to format clean numeric string without floating-point tails like 1.0000000000001
+const cleanNumber = (val: number | string, decimals: number = 4): string => {
+  const n = typeof val === 'string' ? parseFloat(val) : val;
+  if (isNaN(n) || n === null || n === undefined) return '0';
+  return parseFloat(Number(n).toFixed(decimals)).toString();
+};
+
 export const ConstructiveItemRow: React.FC<Props> = ({
   item,
   index,
@@ -27,28 +34,45 @@ export const ConstructiveItemRow: React.FC<Props> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [constructive, setConstructive] = useState(item.constructive);
-  const [quantity, setQuantity] = useState(item.quantity.toString());
-  const [basePrice, setBasePrice] = useState(item.basePrice.toString());
-  const [wasteFactor, setWasteFactor] = useState(item.wasteFactor.toString());
-  const [complexityFactor, setComplexityFactor] = useState(item.complexityFactor.toString());
+  const [quantity, setQuantity] = useState(() => cleanNumber(item.quantity, 4));
+  const [basePrice, setBasePrice] = useState(() => cleanNumber(item.basePrice, 2));
+  const [wasteFactor, setWasteFactor] = useState(() => cleanNumber(item.wasteFactor, 3));
+  const [complexityFactor, setComplexityFactor] = useState(() => cleanNumber(item.complexityFactor, 2));
   const [notes, setNotes] = useState(item.notes || '');
 
   const catInfo = MATERIAL_CATEGORIES[item.category];
   const isService = item.category === 'services';
 
-  const handleSaveEdit = () => {
-    const q = Math.max(0, parseFloat(quantity) || 0);
-    const p = Math.max(0, parseFloat(basePrice) || 0);
-    const w = isService ? 1 : Math.max(1, parseFloat(wasteFactor) || 1);
-    const c = Math.max(1, parseFloat(complexityFactor) || 1);
+  React.useEffect(() => {
+    if (!isEditing) {
+      setConstructive(item.constructive);
+      setQuantity(cleanNumber(item.quantity, 4));
+      setBasePrice(cleanNumber(item.basePrice, 2));
+      setWasteFactor(cleanNumber(item.wasteFactor, 3));
+      setComplexityFactor(cleanNumber(item.complexityFactor, 2));
+      setNotes(item.notes || '');
+    }
+  }, [item, isEditing]);
 
-    const effQty = isService ? q : Math.round(q * w * 1000) / 1000;
-    const matCost = Math.round(effQty * p * 100) / 100;
-    const totCost = Math.round(matCost * c * 100) / 100;
+  const handleSaveEdit = () => {
+    const rawQ = parseFloat(quantity) || 0;
+    const rawP = parseFloat(basePrice) || 0;
+    const rawW = isService ? 1 : parseFloat(wasteFactor) || 1;
+    const rawC = parseFloat(complexityFactor) || 1;
+
+    // Use Math.round & toFixed to eliminate float tails from state
+    const q = parseFloat((Math.round(Math.max(0, rawQ) * 10000) / 10000).toFixed(4));
+    const p = parseFloat((Math.round(Math.max(0, rawP) * 100) / 100).toFixed(2));
+    const w = isService ? 1 : parseFloat((Math.round(Math.max(1, rawW) * 1000) / 1000).toFixed(3));
+    const c = parseFloat((Math.round(Math.max(1, rawC) * 100) / 100).toFixed(2));
+
+    const effQty = isService ? q : parseFloat((Math.round(q * w * 10000) / 10000).toFixed(4));
+    const matCost = parseFloat((Math.round(effQty * p * 100) / 100).toFixed(2));
+    const totCost = parseFloat((Math.round(matCost * c * 100) / 100).toFixed(2));
     // Keep client price proportional
     const prevCost = item.totalCost || 1;
     const ratio = item.clientPrice > 0 ? item.clientPrice / prevCost : 1.35;
-    const clientPr = Math.round(totCost * ratio * 100) / 100;
+    const clientPr = parseFloat((Math.round(totCost * ratio * 100) / 100).toFixed(2));
 
     onUpdate({
       ...item,
@@ -68,10 +92,10 @@ export const ConstructiveItemRow: React.FC<Props> = ({
 
   const handleCancelEdit = () => {
     setConstructive(item.constructive);
-    setQuantity(item.quantity.toString());
-    setBasePrice(item.basePrice.toString());
-    setWasteFactor(item.wasteFactor.toString());
-    setComplexityFactor(item.complexityFactor.toString());
+    setQuantity(cleanNumber(item.quantity, 4));
+    setBasePrice(cleanNumber(item.basePrice, 2));
+    setWasteFactor(cleanNumber(item.wasteFactor, 3));
+    setComplexityFactor(cleanNumber(item.complexityFactor, 2));
     setNotes(item.notes || '');
     setIsEditing(false);
   };
@@ -112,7 +136,7 @@ export const ConstructiveItemRow: React.FC<Props> = ({
         <div className="flex flex-col">
           <span className="font-medium text-slate-800 text-xs leading-snug">{item.materialName}</span>
           <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium mt-0.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+            <span className={`w-1.5 h-1.5 rounded-full ${isService ? 'bg-amber-500' : 'bg-indigo-500'}`}></span>
             {catInfo?.name || item.category}
           </span>
         </div>
@@ -123,13 +147,16 @@ export const ConstructiveItemRow: React.FC<Props> = ({
         {isEditing ? (
           <input
             type="number"
-            step="0.01"
+            step="any"
+            min="0"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             className="w-16 px-1.5 py-1 text-right border border-slate-300 rounded font-mono text-xs focus:ring-1 focus:ring-indigo-500"
           />
         ) : (
-          <span className="font-mono font-bold text-slate-800">{item.quantity}</span>
+          <span className="font-mono font-bold text-slate-800">
+            {parseFloat(Number(item.quantity).toFixed(4))}
+          </span>
         )}
         <span className="text-[11px] text-slate-400 ml-1 font-sans">{item.unit}</span>
       </td>
@@ -139,7 +166,8 @@ export const ConstructiveItemRow: React.FC<Props> = ({
         {isEditing ? (
           <input
             type="number"
-            step="1"
+            step="any"
+            min="0"
             value={basePrice}
             onChange={(e) => setBasePrice(e.target.value)}
             className="w-20 px-1.5 py-1 text-right border border-slate-300 rounded font-mono text-xs focus:ring-1 focus:ring-indigo-500"
@@ -156,7 +184,7 @@ export const ConstructiveItemRow: React.FC<Props> = ({
         {isEditing && !isService ? (
           <input
             type="number"
-            step="0.01"
+            step="any"
             min="1"
             max="3"
             value={wasteFactor}
@@ -182,7 +210,7 @@ export const ConstructiveItemRow: React.FC<Props> = ({
 
       {/* Effective Quantity with Waste */}
       <td className="py-2.5 px-2 text-right font-mono text-slate-700 whitespace-nowrap">
-        <span className="font-semibold">{item.effectiveQuantity}</span>
+        <span className="font-semibold">{parseFloat(Number(item.effectiveQuantity).toFixed(4))}</span>
         <span className="text-[10px] text-slate-400 ml-1">{item.unit}</span>
       </td>
 
@@ -191,7 +219,7 @@ export const ConstructiveItemRow: React.FC<Props> = ({
         {isEditing ? (
           <input
             type="number"
-            step="0.05"
+            step="any"
             min="1"
             max="3"
             value={complexityFactor}

@@ -88,6 +88,7 @@ export interface MaterialItem {
   id: string;
   name: string;
   category: MaterialCategory;
+  subcategory?: string; // e.g. "Чорний метал", "Нержавіючий", "Алюміній", "ДСП", "МДФ", "Фанера", "Скло", "Дзеркало", "Фурнітура", "Електрика", "Порізка", "Фарбування", "Гнуття"
   unit: string;
   basePrice: number; // UAH
   defaultWasteFactor: number; // e.g. 1.10 = +10%
@@ -122,11 +123,40 @@ export interface ConstructiveItem {
   notes?: string;
 }
 
+export interface ProjectAssemblyUnit {
+  id: string;
+  name: string; // e.g. "Острівний стелаж 2000х1200", "Пристінна вітрина"
+  quantity: number; // e.g. 1
+  items: ConstructiveItem[];
+  subtotalCost?: number;
+  clientPrice?: number;
+}
+
+export interface ProjectServicesConfig {
+  delivery: {
+    enabled: boolean;
+    name: string;
+    trips: number;
+    ratePerTrip: number;
+    notes?: string;
+  };
+  installation: {
+    enabled: boolean;
+    name: string;
+    hours: number;
+    workers: number;
+    ratePerHour: number;
+    notes?: string;
+  };
+}
+
 export interface CalculationSummary {
   rawMaterialCost: number; // Чиста вартість матеріалів (без відходу)
   wasteAddedCost: number; // Вартість технологічного відходу
   materialsSubtotal: number; // Матеріали + відхід
   servicesSubtotal: number; // Роботи / монтаж / послуги
+  deliveryCost?: number; // Доставка по місту / області
+  installationCost?: number; // Монтажні роботи на обʼєкті
   complexityAddedCost: number; // Надбавка за складність виробництва
   baseProductionCost: number; // Базова виробнича собівартість
   overheadCost: number; // Загальновиробничі накладні витрати
@@ -149,6 +179,8 @@ export interface CalculationProject {
   driveFolderId?: string; // Папка проєкту на Google Drive
   driveFolderName?: string;
   items: ConstructiveItem[];
+  units?: ProjectAssemblyUnit[];
+  servicesConfig?: ProjectServicesConfig;
   coefficients: CalculatorCoefficients;
   summary: CalculationSummary;
   googleSheetId?: string; // Створена Google Таблиця

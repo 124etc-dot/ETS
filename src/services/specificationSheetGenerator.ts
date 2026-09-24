@@ -172,7 +172,7 @@ export class SpecificationSheetGenerator {
         {
           properties: {
             sheetId: 0,
-            title: 'Внутрішня специфікація',
+            title: 'Специфікація цеху',
             gridProperties: {
               rowCount: Math.max(80, project.items.length + 40),
               columnCount: 14,
@@ -183,7 +183,7 @@ export class SpecificationSheetGenerator {
         {
           properties: {
             sheetId: 1,
-            title: 'Кошторис для клієнта',
+            title: 'Кошторис клієнта',
             gridProperties: {
               rowCount: Math.max(60, project.items.length + 30),
               columnCount: 8,
@@ -233,7 +233,7 @@ export class SpecificationSheetGenerator {
     // Header block
     internalValues.push(['ETS PROJECTS', '', '', '', '', '', '', '', '', '', '', '', '', '']);
     internalValues.push([
-      'ВНУТРІШНЯ СПЕЦИФІКАЦІЯ ВИРОБНИЦТВА ТА РОЗРАХУНОК СОБІВАРТОСТІ',
+      'СПЕЦИФІКАЦІЯ ЦЕХУ ТА РОЗРАХУНОК СОБІВАРТОСТІ',
       '', '', '', '', '', '', '', '', '', '', '', '', ''
     ]);
     internalValues.push([
@@ -460,11 +460,11 @@ export class SpecificationSheetGenerator {
           valueInputOption: 'USER_ENTERED',
           data: [
             {
-              range: `'Внутрішня специфікація'!A1`,
+              range: `'Специфікація цеху'!A1`,
               values: internalValues,
             },
             {
-              range: `'Кошторис для клієнта'!A1`,
+              range: `'Кошторис клієнта'!A1`,
               values: clientValues,
             },
           ],

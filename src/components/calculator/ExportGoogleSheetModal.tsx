@@ -151,13 +151,13 @@ export const ExportGoogleSheetModal: React.FC<Props> = ({
                 <div className="flex items-center gap-2 text-slate-700">
                   <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
-                    <b>«Внутрішня специфікація»</b> — повна собівартість ({project.summary.totalPrimeCost.toLocaleString('uk-UA')} ₴), коефіцієнти відходу та складності
+                    <b>«Специфікація цеху»</b> — повна собівартість ({project.summary.totalPrimeCost.toLocaleString('uk-UA')} ₴), коефіцієнти відходу та складності
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-slate-700">
                   <Check className="w-4 h-4 text-emerald-600 shrink-0" />
                   <span>
-                    <b>«Кошторис для клієнта»</b> — комерційна пропозиція ({finalClientSum.toLocaleString('uk-UA')} ₴)
+                    <b>«Кошторис клієнта»</b> — комерційна пропозиція ({finalClientSum.toLocaleString('uk-UA')} ₴)
                   </span>
                 </div>
                 {generationResult.cashFlowUpdated && (

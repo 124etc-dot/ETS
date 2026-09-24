@@ -31,19 +31,22 @@ import {
   CalculationProject,
   CalculationSummary,
   ProjectTemplatePreset,
+  ProjectAssemblyUnit,
+  ProjectServicesConfig,
 } from '../../types/calculator';
 import { ProjectSheetRow, SheetConfig } from '../../types';
 import { AuthState } from '../../services/googleAuth';
 import { CalculatorStorageService } from '../../services/calculatorStorage';
 import { CALCULATOR_PRESETS } from '../../data/calculatorDefaults';
-import { ConstructiveItemRow } from './ConstructiveItemRow';
-import { ConstructiveItemForm } from './ConstructiveItemForm';
-import { CalculatorSummaryCard } from './CalculatorSummaryCard';
 import { MasterDataModal } from './MasterDataModal';
 import { ExportGoogleSheetModal } from './ExportGoogleSheetModal';
 import { GenerationResult, SpecificationSheetGenerator } from '../../services/specificationSheetGenerator';
 import { AddProjectModal, AddProjectInitialData } from '../AddProjectModal';
 import { DEFAULT_PROJECTS_SPREADSHEET_ID } from '../../services/googleSheets';
+import { BomEditorWindow } from './windows/BomEditorWindow';
+import { CatalogWindow } from './windows/CatalogWindow';
+import { ProjectTreeWindow } from './windows/ProjectTreeWindow';
+import { FinancialSummaryWindow } from './windows/FinancialSummaryWindow';
 
 interface Props {
   projects: ProjectSheetRow[];
@@ -120,14 +123,13 @@ export const CalculatorTab: React.FC<Props> = ({
   const [manager, setManager] = useState('Олексій С.');
   const [projectDate, setProjectDate] = useState(() => new Date().toISOString().slice(0, 10));
 
-  // Items in current calculation
-  const [items, setItems] = useState<ConstructiveItem[]>(() => {
-    // Pre-populate with first preset on initial launch if empty
+  // Project Furniture Assemblies (Units) - Window 1 & Window 3
+  const [units, setUnits] = useState<ProjectAssemblyUnit[]>(() => {
     const preset = CALCULATOR_PRESETS[0];
     const initialCoeffs = CalculatorStorageService.loadCoefficients();
     const loadedMats = CalculatorStorageService.loadMaterials();
 
-    return preset.items.map((pi, idx) => {
+    const initialItems = preset.items.map((pi, idx) => {
       const mat = loadedMats.find((m) => m.name === pi.materialName) || loadedMats[0];
       const raw: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
         id: `item_init_${idx}`,
@@ -136,10 +138,10 @@ export const CalculatorTab: React.FC<Props> = ({
         materialName: mat.name,
         category: pi.category,
         unit: pi.unit,
-        quantity: pi.quantity,
-        basePrice: mat.basePrice,
-        wasteFactor: initialCoeffs.wasteFactorsByCategory[pi.category] || mat.defaultWasteFactor,
-        complexityFactor: preset.defaultComplexity,
+        quantity: parseFloat(Number(pi.quantity).toFixed(4)),
+        basePrice: parseFloat(Number(mat.basePrice).toFixed(2)),
+        wasteFactor: parseFloat(Number(initialCoeffs.wasteFactorsByCategory[pi.category] || mat.defaultWasteFactor).toFixed(3)),
+        complexityFactor: parseFloat(Number(preset.defaultComplexity).toFixed(2)),
         notes: pi.notes || '',
       };
       return CalculatorStorageService.recalculateItem(
@@ -148,6 +150,36 @@ export const CalculatorTab: React.FC<Props> = ({
         preset.defaultMargin
       );
     });
+
+    return [
+      {
+        id: 'unit_default_1',
+        name: 'Острівний стелаж 2000х1200х450',
+        quantity: 1,
+        items: initialItems,
+      },
+    ];
+  });
+
+  const [activeUnitId, setActiveUnitId] = useState<string>('unit_default_1');
+
+  // Additional Services (Delivery & Installation) - Window 3
+  const [servicesConfig, setServicesConfig] = useState<ProjectServicesConfig>({
+    delivery: {
+      enabled: true,
+      name: 'Вантажне авто (Київ та область)',
+      trips: 1,
+      ratePerTrip: 1800,
+      notes: '',
+    },
+    installation: {
+      enabled: true,
+      name: 'Монтажні роботи на обʼєкті',
+      hours: 8,
+      workers: 2,
+      ratePerHour: 350,
+      notes: '',
+    },
   });
 
   // Export / Sync metadata
@@ -162,10 +194,49 @@ export const CalculatorTab: React.FC<Props> = ({
     setTimeout(() => setNotification(null), 4000);
   };
 
-  // Real-time calculation summary
+  // Active assembly unit for Window 1
+  const activeUnit = useMemo(() => {
+    return (
+      units.find((u) => u.id === activeUnitId) ||
+      units[0] || {
+        id: 'unit_default',
+        name: 'Основний виріб',
+        quantity: 1,
+        items: [],
+      }
+    );
+  }, [units, activeUnitId]);
+
+  // All constructive items across all units in the project
+  const allProjectItems = useMemo(() => {
+    return units.flatMap((u) => u.items || []);
+  }, [units]);
+
+  // Delivery total cost
+  const deliveryCost = useMemo(() => {
+    return servicesConfig.delivery.enabled
+      ? (servicesConfig.delivery.trips || 1) * (servicesConfig.delivery.ratePerTrip || 0)
+      : 0;
+  }, [servicesConfig.delivery]);
+
+  // Installation total cost
+  const installationCost = useMemo(() => {
+    return servicesConfig.installation.enabled
+      ? (servicesConfig.installation.workers || 1) *
+          (servicesConfig.installation.hours || 0) *
+          (servicesConfig.installation.ratePerHour || 0)
+      : 0;
+  }, [servicesConfig.installation]);
+
+  // Real-time calculation summary (Window 4)
   const summary: CalculationSummary = useMemo(() => {
-    return CalculatorStorageService.calculateSummary(items, coefficients);
-  }, [items, coefficients]);
+    return CalculatorStorageService.calculateSummary(
+      allProjectItems,
+      coefficients,
+      deliveryCost,
+      installationCost
+    );
+  }, [allProjectItems, coefficients, deliveryCost, installationCost]);
 
   // Current full project object
   const currentProject: CalculationProject = useMemo(() => {
@@ -176,7 +247,9 @@ export const CalculatorTab: React.FC<Props> = ({
       client: client.trim() || 'Замовник',
       manager: manager.trim() || 'Менеджер',
       date: projectDate,
-      items,
+      items: allProjectItems,
+      units,
+      servicesConfig,
       coefficients,
       summary,
       googleSheetId: createdSheetId || undefined,
@@ -202,7 +275,9 @@ export const CalculatorTab: React.FC<Props> = ({
     client,
     manager,
     projectDate,
-    items,
+    allProjectItems,
+    units,
+    servicesConfig,
     coefficients,
     summary,
     createdSheetId,
@@ -216,47 +291,156 @@ export const CalculatorTab: React.FC<Props> = ({
     setCoefficients(newCoeffs);
     CalculatorStorageService.saveCoefficients(newCoeffs);
 
-    // Recalculate all items with new global complexity / margin
-    setItems((prevItems) =>
-      prevItems.map((item) => {
-        const raw: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
-          ...item,
-          complexityFactor: newCoeffs.complexityMultiplier,
-        };
-        return CalculatorStorageService.recalculateItem(
-          raw,
-          newCoeffs.complexityMultiplier,
-          newCoeffs.marginPercent
-        );
-      })
+    // Recalculate all items in all units with new global complexity / margin
+    setUnits((prevUnits) =>
+      prevUnits.map((u) => ({
+        ...u,
+        items: (u.items || []).map((item) => {
+          const raw: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
+            ...item,
+            complexityFactor: newCoeffs.complexityMultiplier,
+          };
+          return CalculatorStorageService.recalculateItem(
+            raw,
+            newCoeffs.complexityMultiplier,
+            newCoeffs.marginPercent
+          );
+        }),
+      }))
     );
   };
 
-  // Handle adding constructive item
-  const handleAddItem = (newItem: ConstructiveItem) => {
-    setItems((prev) => [...prev, newItem]);
-    showToast(`Позицію «${newItem.constructive}» додано`);
+  // Window 1: Add item to active unit
+  const handleAddItemToActiveUnit = (newItem: ConstructiveItem) => {
+    setUnits((prevUnits) =>
+      prevUnits.map((u) =>
+        u.id === activeUnit.id ? { ...u, items: [...(u.items || []), newItem] } : u
+      )
+    );
+    showToast(`Позицію «${newItem.constructive}» додано до «${activeUnit.name}»`);
   };
 
-  // Handle updating single item
-  const handleUpdateItem = (updatedItem: ConstructiveItem) => {
-    setItems((prev) => prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)));
+  // Window 1: Update item in active unit
+  const handleUpdateItemInActiveUnit = (updatedItem: ConstructiveItem) => {
+    setUnits((prevUnits) =>
+      prevUnits.map((u) =>
+        u.id === activeUnit.id
+          ? {
+              ...u,
+              items: (u.items || []).map((item) =>
+                item.id === updatedItem.id ? updatedItem : item
+              ),
+            }
+          : u
+      )
+    );
   };
 
-  // Handle deleting item
-  const handleDeleteItem = (id: string) => {
-    setItems((prev) => prev.filter((item) => item.id !== id));
+  // Window 1: Delete item from active unit
+  const handleDeleteItemInActiveUnit = (id: string) => {
+    setUnits((prevUnits) =>
+      prevUnits.map((u) =>
+        u.id === activeUnit.id
+          ? { ...u, items: (u.items || []).filter((item) => item.id !== id) }
+          : u
+      )
+    );
   };
 
-  // Handle duplicating item
-  const handleDuplicateItem = (itemToDup: ConstructiveItem) => {
+  // Window 1: Duplicate item in active unit
+  const handleDuplicateItemInActiveUnit = (itemToDup: ConstructiveItem) => {
     const duplicated: ConstructiveItem = {
       ...itemToDup,
       id: `item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       constructive: `${itemToDup.constructive} (копія)`,
     };
-    setItems((prev) => [...prev, duplicated]);
-    showToast(`Позицію продубльовано`);
+    handleAddItemToActiveUnit(duplicated);
+  };
+
+  // Window 1 & 2: Drop material from Window 2 into active unit in Window 1
+  const handleDropMaterialToActiveUnit = (mat: MaterialItem) => {
+    const isService = mat.category === 'services';
+    const defaultWaste = isService
+      ? 1.0
+      : coefficients.wasteFactorsByCategory[mat.category] || mat.defaultWasteFactor || 1.10;
+
+    const rawItem: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
+      id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      constructive: mat.name,
+      materialId: mat.id,
+      materialName: mat.name,
+      category: mat.category,
+      unit: mat.unit,
+      quantity: 1,
+      basePrice: mat.basePrice,
+      wasteFactor: defaultWaste,
+      complexityFactor: coefficients.complexityMultiplier,
+      notes: '',
+    };
+
+    const recalculated = CalculatorStorageService.recalculateItem(
+      rawItem,
+      coefficients.complexityMultiplier,
+      coefficients.marginPercent
+    );
+
+    handleAddItemToActiveUnit(recalculated);
+  };
+
+  // Window 3: Unit management
+  const handleAddUnit = (name: string) => {
+    const newUnit: ProjectAssemblyUnit = {
+      id: `unit_${Date.now()}`,
+      name,
+      quantity: 1,
+      items: [],
+    };
+    setUnits((prev) => [...prev, newUnit]);
+    setActiveUnitId(newUnit.id);
+    showToast(`Створено новий виріб «${name}»`);
+  };
+
+  const handleRenameUnit = (unitId: string, newName: string) => {
+    setUnits((prev) =>
+      prev.map((u) => (u.id === unitId ? { ...u, name: newName } : u))
+    );
+    showToast('Назву виробу оновлено');
+  };
+
+  const handleDuplicateUnit = (unitId: string) => {
+    const original = units.find((u) => u.id === unitId);
+    if (!original) return;
+    const newUnitId = `unit_${Date.now()}`;
+    const duplicatedItems = (original.items || []).map((it) => ({
+      ...it,
+      id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    }));
+    const duplicatedUnit: ProjectAssemblyUnit = {
+      ...original,
+      id: newUnitId,
+      name: `${original.name} (копія)`,
+      items: duplicatedItems,
+    };
+    setUnits((prev) => [...prev, duplicatedUnit]);
+    setActiveUnitId(newUnitId);
+    showToast(`Створено копію виробу «${original.name}»`);
+  };
+
+  const handleDeleteUnit = (unitId: string) => {
+    if (units.length <= 1) {
+      showToast('Не можна видалити єдиний виріб у замовленні', 'info');
+      return;
+    }
+    const nextUnits = units.filter((u) => u.id !== unitId);
+    setUnits(nextUnits);
+    if (activeUnitId === unitId) {
+      setActiveUnitId(nextUnits[0].id);
+    }
+    showToast('Виріб видалено із замовлення');
+  };
+
+  const handleUpdateServicesConfig = (cfg: ProjectServicesConfig) => {
+    setServicesConfig(cfg);
   };
 
   // Load a preset template
@@ -278,10 +462,10 @@ export const CalculatorTab: React.FC<Props> = ({
         materialName: mat.name,
         category: pi.category,
         unit: pi.unit,
-        quantity: pi.quantity,
-        basePrice: mat.basePrice,
-        wasteFactor: newCoeffs.wasteFactorsByCategory[pi.category] || mat.defaultWasteFactor,
-        complexityFactor: preset.defaultComplexity,
+        quantity: parseFloat(Number(pi.quantity).toFixed(4)),
+        basePrice: parseFloat(Number(mat.basePrice).toFixed(2)),
+        wasteFactor: parseFloat(Number(newCoeffs.wasteFactorsByCategory[pi.category] || mat.defaultWasteFactor).toFixed(3)),
+        complexityFactor: parseFloat(Number(preset.defaultComplexity).toFixed(2)),
         notes: pi.notes || '',
       };
       return CalculatorStorageService.recalculateItem(
@@ -292,14 +476,27 @@ export const CalculatorTab: React.FC<Props> = ({
     });
 
     setProjectName(preset.title);
-    setItems(presetItems);
+    setUnits((prev) =>
+      prev.map((u) =>
+        u.id === activeUnit.id
+          ? {
+              ...u,
+              name: preset.title.split(' (')[0],
+              items: presetItems,
+            }
+          : u
+      )
+    );
     showToast(`Завантажено шаблон «${preset.title}»`);
   };
 
-  // Clear current items
+  // Clear current active unit items
   const handleClearItems = () => {
-    if (items.length === 0 || window.confirm('Очистити поточний розрахунок замовлення?')) {
-      setItems([]);
+    if (activeUnit.items.length === 0 || window.confirm(`Очистити специфікацію виробу «${activeUnit.name}»?`)) {
+      setUnits((prev) =>
+        prev.map((u) => (u.id === activeUnit.id ? { ...u, items: [] } : u))
+      );
+      showToast(`Очищено специфікацію «${activeUnit.name}»`);
     }
   };
 
@@ -317,8 +514,60 @@ export const CalculatorTab: React.FC<Props> = ({
     setClient(proj.client);
     setManager(proj.manager);
     setProjectDate(proj.date);
-    setItems(proj.items);
-    setCoefficients(proj.coefficients);
+
+    if (proj.coefficients) {
+      setCoefficients(proj.coefficients);
+    }
+
+    if (proj.servicesConfig) {
+      setServicesConfig(proj.servicesConfig);
+    }
+
+    if (proj.units && proj.units.length > 0) {
+      const loadedUnits = proj.units.map((u) => ({
+        ...u,
+        items: (u.items || []).map((it) => {
+          const q = parseFloat(Number(it.quantity).toFixed(4));
+          const p = parseFloat(Number(it.basePrice).toFixed(2));
+          const w = it.category === 'services' ? 1.0 : parseFloat(Number(it.wasteFactor).toFixed(3));
+          const c = parseFloat(Number(it.complexityFactor).toFixed(2));
+          return CalculatorStorageService.recalculateItem(
+            { ...it, quantity: q, basePrice: p, wasteFactor: w, complexityFactor: c },
+            c,
+            proj.coefficients?.marginPercent || 35
+          );
+        }),
+      }));
+      setUnits(loadedUnits);
+      setActiveUnitId(loadedUnits[0].id);
+    } else {
+      const cleanedItems = (proj.items || []).map((item) => {
+        const q = parseFloat(Number(item.quantity).toFixed(4));
+        const p = parseFloat(Number(item.basePrice).toFixed(2));
+        const w = item.category === 'services' ? 1.0 : parseFloat(Number(item.wasteFactor).toFixed(3));
+        const c = parseFloat(Number(item.complexityFactor).toFixed(2));
+        return CalculatorStorageService.recalculateItem(
+          {
+            ...item,
+            quantity: q,
+            basePrice: p,
+            wasteFactor: w,
+            complexityFactor: c,
+          },
+          c,
+          proj.coefficients?.marginPercent || 35
+        );
+      });
+      const singleUnit: ProjectAssemblyUnit = {
+        id: `unit_${Date.now()}`,
+        name: proj.projectName || 'Основний виріб',
+        quantity: 1,
+        items: cleanedItems,
+      };
+      setUnits([singleUnit]);
+      setActiveUnitId(singleUnit.id);
+    }
+
     setCreatedSheetId(proj.googleSheetId || null);
     setCreatedSheetUrl(proj.googleSheetUrl || null);
     setIsApproved(Boolean(proj.isApproved || proj.status === 'approved' || proj.status === 'in_projects'));
@@ -393,19 +642,34 @@ export const CalculatorTab: React.FC<Props> = ({
 
   // Copy commercial offer to clipboard
   const handleCopyCommercialOffer = () => {
-    const finalSum = currentProject.summary.clientTotalWithVat;
+    const finalSum = currentProject.summary.clientTotalWithVat || currentProject.summary.clientTotalWithoutVat;
     let text = `КОМЕРЦІЙНА ПРОПОЗИЦІЯ / КОШТОРИС\n`;
     text += `Замовлення №: ${projectNumber} — ${projectName}\n`;
     text += `Замовник: ${client} | Менеджер: ${manager} | Дата: ${projectDate}\n\n`;
-    text += `ПОЗИЦІЇ ВИРОБІВ:\n`;
-    items.forEach((it, idx) => {
-      text += `${idx + 1}. ${it.constructive} (${it.quantity} ${it.unit}) — ${it.clientPrice.toLocaleString('uk-UA')} ₴\n`;
+
+    units.forEach((u, uIdx) => {
+      text += `══ ВИРІБ ${uIdx + 1}: ${u.name} ══\n`;
+      (u.items || []).forEach((it, idx) => {
+        text += `  ${idx + 1}. ${it.constructive} (${it.quantity} ${it.unit}) — ${it.clientPrice.toLocaleString('uk-UA')} ₴\n`;
+      });
+      const uTotal = (u.items || []).reduce((acc, i) => acc + (i.clientPrice || 0), 0);
+      text += `  Підсумок виробу: ${uTotal.toLocaleString('uk-UA')} ₴\n\n`;
     });
+
+    if (servicesConfig.delivery.enabled && deliveryCost > 0) {
+      text += `Доставка (${servicesConfig.delivery.name}, ${servicesConfig.delivery.trips} рейс.): ${deliveryCost.toLocaleString('uk-UA')} ₴\n`;
+    }
+    if (servicesConfig.installation.enabled && installationCost > 0) {
+      text += `Монтаж (${servicesConfig.installation.name}, ${servicesConfig.installation.workers} ос. х ${servicesConfig.installation.hours} год.): ${installationCost.toLocaleString('uk-UA')} ₴\n`;
+    }
+
     text += `\nРАЗОМ БЕЗ ПДВ: ${currentProject.summary.clientTotalWithoutVat.toLocaleString('uk-UA')} ₴\n`;
     if (coefficients.vatRatePercent > 0) {
       text += `ПДВ 20%: ${currentProject.summary.vatAmount.toLocaleString('uk-UA')} ₴\n`;
+      text += `ВСЬОГО ДО СПЛАТИ З ПДВ: ${currentProject.summary.clientTotalWithVat.toLocaleString('uk-UA')} ₴\n`;
+    } else {
+      text += `ВСЬОГО ДО СПЛАТИ: ${finalSum.toLocaleString('uk-UA')} ₴\n`;
     }
-    text += `ВСЬОГО ДО СПЛАТИ: ${finalSum.toLocaleString('uk-UA')} ₴\n`;
     text += `Умови оплати: 70% аванс, 30% перед відвантаженням/монтажем.`;
 
     navigator.clipboard.writeText(text);
@@ -751,128 +1015,70 @@ export const CalculatorTab: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* VIEW 1: ACTIVE CALCULATOR WORKSPACE */}
+      {/* VIEW 1: ACTIVE 4-WINDOW 2x2 GRID WORKSPACE */}
       {activeSubView === 'calculator' && (
-        <div className="space-y-6">
-          {/* Summary Financial Card with Visual Breakdown & Sliders */}
-          <CalculatorSummaryCard
-            summary={summary}
-            coefficients={coefficients}
-            onUpdateCoefficients={handleUpdateCoefficients}
-          />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 lg:gap-5 items-stretch">
+          {/* WINDOW 1 (Top-Left): Конструктор елемента (BOM Editor) */}
+          <div className="h-full min-h-[500px]">
+            <BomEditorWindow
+              activeUnitName={activeUnit.name}
+              items={activeUnit.items || []}
+              coefficients={coefficients}
+              onAddItem={handleAddItemToActiveUnit}
+              onUpdateItem={handleUpdateItemInActiveUnit}
+              onDeleteItem={handleDeleteItemInActiveUnit}
+              onDuplicateItem={handleDuplicateItemInActiveUnit}
+              onDropMaterial={handleDropMaterialToActiveUnit}
+            />
+          </div>
 
-          {/* Form to Add Constructive Elements */}
-          <ConstructiveItemForm
-            materials={materials}
-            coefficients={coefficients}
-            onAddItem={handleAddItem}
-            onOpenMasterData={() => setIsMasterDataOpen(true)}
-          />
+          {/* WINDOW 2 (Top-Right): Ієрархічний Каталог (Master Catalog) */}
+          <div className="h-full min-h-[500px]">
+            <CatalogWindow
+              materials={materials}
+              onOpenMasterData={() => setIsMasterDataOpen(true)}
+              onAddMaterial={handleDropMaterialToActiveUnit}
+            />
+          </div>
 
-          {/* Constructive Items Specification Table */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm overflow-hidden">
-            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-indigo-600"></span>
-                <h3 className="text-sm font-bold text-slate-900">
-                  Специфікація конструктивних елементів замовлення ({items.length} поз.)
-                </h3>
-              </div>
+          {/* WINDOW 3 (Bottom-Left): Структура замовлення (Project Tree) */}
+          <div className="h-full min-h-[480px]">
+            <ProjectTreeWindow
+              units={units}
+              activeUnitId={activeUnit.id}
+              servicesConfig={servicesConfig}
+              onSelectUnit={(unitId) => setActiveUnitId(unitId)}
+              onAddUnit={handleAddUnit}
+              onRenameUnit={handleRenameUnit}
+              onDuplicateUnit={handleDuplicateUnit}
+              onDeleteUnit={handleDeleteUnit}
+              onUpdateServicesConfig={handleUpdateServicesConfig}
+            />
+          </div>
 
-              <div className="flex items-center gap-3 text-xs text-slate-500 font-medium">
-                <span>
-                  Собівартість:{' '}
-                  <b className="font-mono text-slate-800">
-                    {summary.totalPrimeCost.toLocaleString('uk-UA')} ₴
-                  </b>
-                </span>
-                <span>•</span>
-                <span>
-                  Для клієнта:{' '}
-                  <b className="font-mono text-emerald-700">
-                    {summary.clientTotalWithVat.toLocaleString('uk-UA')} ₴
-                  </b>
-                </span>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100/90 border-b border-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wider">
-                    <th className="py-2.5 px-3 text-center w-10">№</th>
-                    <th className="py-2.5 px-3 min-w-[180px]">Конструктив</th>
-                    <th className="py-2.5 px-3 min-w-[200px]">Матеріал / Категорія</th>
-                    <th className="py-2.5 px-2 text-right">К-сть</th>
-                    <th className="py-2.5 px-2 text-right">Закуп. ціна</th>
-                    <th className="py-2.5 px-2 text-center">Відхід (%)</th>
-                    <th className="py-2.5 px-2 text-right">К-сть з відх.</th>
-                    <th className="py-2.5 px-2 text-center">Складність</th>
-                    <th className="py-2.5 px-2 text-right">Собівартість</th>
-                    <th className="py-2.5 px-3 text-right bg-emerald-50/50 text-emerald-900">
-                      Для клієнта
-                    </th>
-                    <th className="py-2.5 px-2 text-center w-24">Дії</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {items.length === 0 ? (
-                    <tr>
-                      <td colSpan={11} className="py-12 text-center">
-                        <div className="max-w-md mx-auto space-y-3">
-                          <div className="w-12 h-12 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center mx-auto">
-                            <Calculator className="w-6 h-6" />
-                          </div>
-                          <div className="text-sm font-bold text-slate-800">
-                            Специфікація замовлення поки порожня
-                          </div>
-                          <p className="text-xs text-slate-500">
-                            Додайте перший конструктивний елемент через форму вище або завантажте один із готових заводських шаблонів.
-                          </p>
-                          <div className="flex items-center justify-center gap-2 pt-2">
-                            <button
-                              type="button"
-                              onClick={() => handleApplyPreset(CALCULATOR_PRESETS[0])}
-                              className="px-3.5 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition cursor-pointer"
-                            >
-                              ⚡ Завантажити «Острівний стелаж»
-                            </button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    items.map((item, index) => (
-                      <ConstructiveItemRow
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        onUpdate={handleUpdateItem}
-                        onDelete={handleDeleteItem}
-                        onDuplicate={handleDuplicateItem}
-                      />
-                    ))
-                  )}
-                </tbody>
-
-                {items.length > 0 && (
-                  <tfoot>
-                    <tr className="bg-slate-50 border-t-2 border-slate-300 font-bold text-xs">
-                      <td colSpan={8} className="py-3 px-4 text-right text-slate-700">
-                        Підсумки (з урахуванням накладних витрат {coefficients.overheadPercent}%):
-                      </td>
-                      <td className="py-3 px-2 text-right font-mono text-slate-900 whitespace-nowrap">
-                        {summary.totalPrimeCost.toLocaleString('uk-UA', { minimumFractionDigits: 2 })} ₴
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono text-sm text-emerald-800 bg-emerald-100/60 whitespace-nowrap">
-                        {summary.clientTotalWithVat.toLocaleString('uk-UA', { minimumFractionDigits: 2 })} ₴
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+          {/* WINDOW 4 (Bottom-Right): Фінансовий підсумок & Експорт */}
+          <div className="h-full min-h-[480px]">
+            <FinancialSummaryWindow
+              summary={summary}
+              coefficients={coefficients}
+              isApproved={isApproved}
+              createdSheetUrl={createdSheetUrl}
+              onToggleApproval={() => {
+                const nextApproved = !isApproved;
+                setIsApproved(nextApproved);
+                showToast(
+                  nextApproved
+                    ? 'Проєкт погоджено!'
+                    : 'Статус змінено на «На прорахунку»'
+                );
+              }}
+              onUpdateCoefficients={handleUpdateCoefficients}
+              onExportGoogleSheet={() => setIsExportModalOpen(true)}
+              onPassToCashFlow={handleDirectPassToCashFlow}
+              onTransferToProjects={() => handleTransferToProjects()}
+              onCopyCommercialOffer={handleCopyCommercialOffer}
+              onSaveCalculation={handleSaveCalculation}
+            />
           </div>
         </div>
       )}
@@ -972,9 +1178,11 @@ export const CalculatorTab: React.FC<Props> = ({
                       </div>
 
                       <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between">
-                        <span>{p.items.length} конструктивних поз.</span>
+                        <span>
+                          {p.items?.length || p.units?.reduce((a, u) => a + (u.items?.length || 0), 0) || 0} конструктивних поз.
+                        </span>
                         <span className="font-semibold text-indigo-600">
-                          Маржа: {p.coefficients.marginPercent}%
+                          Маржа: {p.coefficients?.marginPercent ?? 35}%
                         </span>
                       </div>
                     </div>

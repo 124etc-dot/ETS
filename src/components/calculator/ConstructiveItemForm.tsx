@@ -38,6 +38,13 @@ const CONSTRUCTIVE_SUGGESTIONS = [
   'Монтажні роботи на обʼєкті',
 ];
 
+// Helper to format clean numeric string without floating-point tails like 1.0000000000001
+const cleanNumber = (val: number | string, decimals: number = 4): string => {
+  const n = typeof val === 'string' ? parseFloat(val) : val;
+  if (isNaN(n) || n === null || n === undefined) return '0';
+  return parseFloat(Number(n).toFixed(decimals)).toString();
+};
+
 export const ConstructiveItemForm: React.FC<Props> = ({
   materials,
   coefficients,
@@ -53,8 +60,8 @@ export const ConstructiveItemForm: React.FC<Props> = ({
   const [quantity, setQuantity] = useState('1');
   const [customPrice, setCustomPrice] = useState<string>('');
   const [customWasteFactor, setCustomWasteFactor] = useState<string>('');
-  const [complexityFactor, setComplexityFactor] = useState<string>(
-    coefficients.complexityMultiplier.toString()
+  const [complexityFactor, setComplexityFactor] = useState<string>(() =>
+    cleanNumber(coefficients.complexityMultiplier, 2)
   );
   const [notes, setNotes] = useState('');
 
@@ -75,25 +82,30 @@ export const ConstructiveItemForm: React.FC<Props> = ({
     });
   }, [materials, selectedCategory, materialSearch]);
 
-  // Current active values
+  // Current active values with Math.round & toFixed to prevent floating-point tails
   const activeBasePrice = customPrice !== ''
-    ? parseFloat(customPrice) || 0
-    : selectedMaterial?.basePrice || 0;
+    ? parseFloat((Math.round((parseFloat(customPrice) || 0) * 100) / 100).toFixed(2))
+    : parseFloat((Math.round((selectedMaterial?.basePrice || 0) * 100) / 100).toFixed(2));
 
-  const defaultCategoryWaste = selectedMaterial
+  const rawDefaultWaste = selectedMaterial
     ? coefficients.wasteFactorsByCategory[selectedMaterial.category] || selectedMaterial.defaultWasteFactor || 1.10
     : 1.10;
+  const defaultCategoryWaste = parseFloat((Math.round(rawDefaultWaste * 1000) / 1000).toFixed(3));
 
   const isService = selectedMaterial?.category === 'services';
 
   const activeWasteFactor = isService
     ? 1.0
     : customWasteFactor !== ''
-    ? parseFloat(customWasteFactor) || 1.0
+    ? parseFloat((Math.round((parseFloat(customWasteFactor) || 1.0) * 1000) / 1000).toFixed(3))
     : defaultCategoryWaste;
 
-  const activeComplexity = parseFloat(complexityFactor) || coefficients.complexityMultiplier || 1.15;
-  const numQty = Math.max(0, parseFloat(quantity) || 0);
+  const activeComplexity = parseFloat(
+    (Math.round((parseFloat(complexityFactor) || coefficients.complexityMultiplier || 1.15) * 100) / 100).toFixed(2)
+  );
+
+  const rawQty = parseFloat(quantity);
+  const numQty = !isNaN(rawQty) ? parseFloat((Math.round(Math.max(0, rawQty) * 10000) / 10000).toFixed(4)) : 0;
 
   // Live item preview calculations
   const previewItem = useMemo(() => {
@@ -129,10 +141,20 @@ export const ConstructiveItemForm: React.FC<Props> = ({
 
   const handleSelectMaterial = (mat: MaterialItem) => {
     setSelectedMaterialId(mat.id);
-    setCustomPrice(mat.basePrice.toString());
+    setCustomPrice(cleanNumber(mat.basePrice, 2));
     const waste = coefficients.wasteFactorsByCategory[mat.category] || mat.defaultWasteFactor;
-    setCustomWasteFactor(mat.category === 'services' ? '1.0' : waste.toString());
+    setCustomWasteFactor(mat.category === 'services' ? '1.0' : cleanNumber(waste, 3));
     setIsSearchOpen(false);
+  };
+
+  const handleSelectCategory = (cat: MaterialCategory | 'all') => {
+    setSelectedCategory(cat);
+    if (cat !== 'all') {
+      const inCat = materials.filter((m) => m.category === cat);
+      if (inCat.length > 0 && selectedMaterial?.category !== cat) {
+        handleSelectMaterial(inCat[0]);
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -140,6 +162,11 @@ export const ConstructiveItemForm: React.FC<Props> = ({
     if (!selectedMaterial) return;
 
     const itemConstructive = constructive.trim() || selectedMaterial.name;
+    const cleanQty = parseFloat((Math.round(Math.max(0.0001, numQty) * 10000) / 10000).toFixed(4));
+    const cleanPrice = parseFloat(activeBasePrice.toFixed(2));
+    const cleanWaste = isService ? 1.0 : parseFloat(activeWasteFactor.toFixed(3));
+    const cleanComplexity = parseFloat(activeComplexity.toFixed(2));
+
     const itemData: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
       id: `item_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       constructive: itemConstructive,
@@ -147,10 +174,10 @@ export const ConstructiveItemForm: React.FC<Props> = ({
       materialName: selectedMaterial.name,
       category: selectedMaterial.category,
       unit: selectedMaterial.unit,
-      quantity: numQty > 0 ? numQty : 1,
-      basePrice: activeBasePrice,
-      wasteFactor: activeWasteFactor,
-      complexityFactor: activeComplexity,
+      quantity: cleanQty,
+      basePrice: cleanPrice,
+      wasteFactor: cleanWaste,
+      complexityFactor: cleanComplexity,
       notes: notes.trim(),
     };
 
@@ -162,7 +189,7 @@ export const ConstructiveItemForm: React.FC<Props> = ({
 
     onAddItem(calculated);
 
-    // Reset some inputs for faster consecutive entries
+    // Reset some inputs for faster consecutive entries with clean initial values
     setConstructive('');
     setQuantity('1');
     setNotes('');
@@ -244,7 +271,7 @@ export const ConstructiveItemForm: React.FC<Props> = ({
             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
               <button
                 type="button"
-                onClick={() => setSelectedCategory('all')}
+                onClick={() => handleSelectCategory('all')}
                 className={`px-2 py-0.5 rounded text-[11px] font-semibold transition shrink-0 cursor-pointer ${
                   selectedCategory === 'all'
                     ? 'bg-indigo-600 text-white shadow-2xs'
@@ -256,18 +283,19 @@ export const ConstructiveItemForm: React.FC<Props> = ({
               {(Object.keys(MATERIAL_CATEGORIES) as MaterialCategory[]).map((catKey) => {
                 const info = MATERIAL_CATEGORIES[catKey];
                 const count = materials.filter((m) => m.category === catKey).length;
+                const label = catKey === 'services' ? 'Роботи' : info.name.split(' ')[0];
                 return (
                   <button
                     key={catKey}
                     type="button"
-                    onClick={() => setSelectedCategory(catKey)}
+                    onClick={() => handleSelectCategory(catKey)}
                     className={`px-2 py-0.5 rounded text-[11px] font-semibold transition shrink-0 cursor-pointer ${
                       selectedCategory === catKey
                         ? 'bg-indigo-600 text-white shadow-2xs'
                         : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
                     }`}
                   >
-                    {info.name.split(' ')[0]} ({count})
+                    {label} ({count})
                   </button>
                 );
               })}
@@ -281,7 +309,12 @@ export const ConstructiveItemForm: React.FC<Props> = ({
               className="w-full flex items-center justify-between px-3 py-2 bg-white border border-slate-300 rounded-xl cursor-pointer hover:border-indigo-400 transition shadow-2xs"
             >
               <div className="flex items-center gap-2 truncate">
-                <span className="w-2 h-2 rounded-full bg-indigo-600 shrink-0"></span>
+                <span className={`w-2 h-2 rounded-full shrink-0 ${isService ? 'bg-amber-500' : 'bg-indigo-600'}`}></span>
+                {isService && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 shrink-0">
+                    Роботи
+                  </span>
+                )}
                 <span className="font-semibold text-xs text-slate-900 truncate">
                   {selectedMaterial?.name || 'Оберіть матеріал...'}
                 </span>
@@ -294,14 +327,14 @@ export const ConstructiveItemForm: React.FC<Props> = ({
 
             {/* Dropdown Menu */}
             {isSearchOpen && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-white border border-slate-200 rounded-xl shadow-xl max-h-64 overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
+              <div className="absolute left-0 right-0 top-full mt-1.5 z-40 bg-white border border-slate-200 rounded-xl shadow-xl max-h-72 overflow-hidden flex flex-col animate-in fade-in zoom-in-95">
                 <div className="p-2 border-b border-slate-200 bg-slate-50 flex items-center gap-2">
                   <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <input
                     type="text"
                     value={materialSearch}
                     onChange={(e) => setMaterialSearch(e.target.value)}
-                    placeholder="Пошук матеріалу за назвою або постачальником..."
+                    placeholder="Пошук матеріалу чи послуги за назвою або постачальником..."
                     className="w-full bg-transparent text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none"
                     autoFocus
                   />
@@ -316,10 +349,39 @@ export const ConstructiveItemForm: React.FC<Props> = ({
                   )}
                 </div>
 
-                <div className="overflow-y-auto max-h-52 p-1 divide-y divide-slate-100">
+                {/* Category indicator / switcher inside dropdown */}
+                {selectedCategory !== 'all' && (
+                  <div className="px-3 py-1.5 bg-indigo-50/90 border-b border-indigo-100 flex items-center justify-between text-[11px]">
+                    <span className="font-semibold text-indigo-900 flex items-center gap-1.5">
+                      <span>Фільтр: {MATERIAL_CATEGORIES[selectedCategory]?.name || selectedCategory}</span>
+                      <span className="text-indigo-600 font-mono">({filteredMaterials.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedCategory('all');
+                      }}
+                      className="text-indigo-600 hover:text-indigo-800 underline font-medium cursor-pointer"
+                    >
+                      Показати всі категорії
+                    </button>
+                  </div>
+                )}
+
+                <div className="overflow-y-auto max-h-56 p-1 divide-y divide-slate-100">
                   {filteredMaterials.length === 0 ? (
-                    <div className="py-4 text-center text-xs text-slate-400">
-                      Матеріалів не знайдено за вашим запитом
+                    <div className="py-5 text-center text-xs text-slate-500">
+                      <p>Нічого не знайдено за вашим запитом</p>
+                      {selectedCategory !== 'all' && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCategory('all')}
+                          className="mt-1 text-indigo-600 hover:underline font-semibold text-xs cursor-pointer"
+                        >
+                          Скинути фільтр категорії
+                        </button>
+                      )}
                     </div>
                   ) : (
                     filteredMaterials.map((mat) => (
@@ -333,7 +395,14 @@ export const ConstructiveItemForm: React.FC<Props> = ({
                         }`}
                       >
                         <div className="truncate pr-2">
-                          <div className="font-semibold truncate">{mat.name}</div>
+                          <div className="font-semibold truncate flex items-center gap-1.5">
+                            <span>{mat.name}</span>
+                            {mat.category === 'services' && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                                Робота
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-slate-400 flex items-center gap-2">
                             <span>{MATERIAL_CATEGORIES[mat.category]?.name}</span>
                             {mat.supplier && <span>• {mat.supplier}</span>}
@@ -363,8 +432,8 @@ export const ConstructiveItemForm: React.FC<Props> = ({
             </label>
             <input
               type="number"
-              step="0.01"
-              min="0.001"
+              step="any"
+              min="0"
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-bold text-slate-900 focus:ring-2 focus:ring-indigo-500"
@@ -379,7 +448,7 @@ export const ConstructiveItemForm: React.FC<Props> = ({
             </div>
             <input
               type="number"
-              step="1"
+              step="any"
               min="0"
               value={customPrice !== '' ? customPrice : selectedMaterial?.basePrice || ''}
               onChange={(e) => setCustomPrice(e.target.value)}
@@ -400,7 +469,7 @@ export const ConstructiveItemForm: React.FC<Props> = ({
             </div>
             <input
               type="number"
-              step="0.01"
+              step="any"
               min="1.0"
               max="3.0"
               disabled={isService}
@@ -425,7 +494,7 @@ export const ConstructiveItemForm: React.FC<Props> = ({
             </div>
             <input
               type="number"
-              step="0.05"
+              step="any"
               min="1.0"
               max="3.0"
               value={complexityFactor}

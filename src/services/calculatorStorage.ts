@@ -30,6 +30,14 @@ export class CalculatorStorageService {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          // Ensure all default materials (specifically 'services' items) are present
+          const existingIds = new Set(parsed.map((p: MaterialItem) => p.id));
+          const missingDefaults = DEFAULT_MATERIALS.filter((dm) => !existingIds.has(dm.id));
+          if (missingDefaults.length > 0) {
+            const merged = [...parsed, ...missingDefaults];
+            this.saveMaterials(merged);
+            return merged;
+          }
           return parsed;
         }
       }
@@ -190,22 +198,29 @@ export class CalculatorStorageService {
     globalComplexity: number,
     marginPercent: number
   ): ConstructiveItem {
-    const qty = Math.max(0, Number(item.quantity) || 0);
-    const wasteFactor = Math.max(1, Number(item.wasteFactor) || 1);
-    const price = Math.max(0, Number(item.basePrice) || 0);
-    const complexity = Math.max(1, Number(item.complexityFactor) || globalComplexity || 1);
+    const rawQty = Math.max(0, Number(item.quantity) || 0);
+    const qty = parseFloat((Math.round(rawQty * 10000) / 10000).toFixed(4));
+
+    const isService = item.category === 'services';
+    const rawWaste = isService ? 1.0 : Math.max(1, Number(item.wasteFactor) || 1);
+    const wasteFactor = isService ? 1.0 : parseFloat((Math.round(rawWaste * 1000) / 1000).toFixed(3));
+
+    const rawPrice = Math.max(0, Number(item.basePrice) || 0);
+    const price = parseFloat((Math.round(rawPrice * 100) / 100).toFixed(2));
+
+    const rawComplexity = Math.max(1, Number(item.complexityFactor) || globalComplexity || 1);
+    const complexity = parseFloat((Math.round(rawComplexity * 100) / 100).toFixed(2));
 
     // If it's services (labour/machine work), waste is not applied to hours
-    const isService = item.category === 'services';
-    const effectiveQuantity = isService ? qty : Math.round(qty * wasteFactor * 1000) / 1000;
-    const materialCost = Math.round(effectiveQuantity * price * 100) / 100;
-    const totalCost = Math.round(materialCost * complexity * 100) / 100;
+    const effectiveQuantity = isService ? qty : parseFloat((Math.round(qty * wasteFactor * 10000) / 10000).toFixed(4));
+    const materialCost = parseFloat((Math.round(effectiveQuantity * price * 100) / 100).toFixed(2));
+    const totalCost = parseFloat((Math.round(materialCost * complexity * 100) / 100).toFixed(2));
 
     // Margin calculation: Price = Cost / (1 - margin/100)
     // If margin is 35%, price is cost / 0.65
     const clampedMargin = Math.min(95, Math.max(0, marginPercent || 0));
     const marginMultiplier = clampedMargin >= 95 ? 2.5 : 1 / (1 - clampedMargin / 100);
-    const clientPrice = Math.round(totalCost * marginMultiplier * 100) / 100;
+    const clientPrice = parseFloat((Math.round(totalCost * marginMultiplier * 100) / 100).toFixed(2));
 
     return {
       ...item,
@@ -225,7 +240,9 @@ export class CalculatorStorageService {
    */
   public static calculateSummary(
     items: ConstructiveItem[],
-    coefficients: CalculatorCoefficients
+    coefficients: CalculatorCoefficients,
+    deliveryCost: number = 0,
+    installationCost: number = 0
   ): CalculationSummary {
     let rawMaterialCost = 0;
     let wasteAddedCost = 0;
@@ -258,8 +275,9 @@ export class CalculatorStorageService {
 
     const clampedMargin = Math.min(95, Math.max(0, Number(coefficients.marginPercent) || 0));
     const marginDivisor = clampedMargin >= 95 ? 0.05 : 1 - clampedMargin / 100;
-    const clientTotalWithoutVat = Math.round((totalPrimeCost / marginDivisor) * 100) / 100;
-    const marginAmount = Math.round((clientTotalWithoutVat - totalPrimeCost) * 100) / 100;
+    const logisticsAndInstallation = (deliveryCost || 0) + (installationCost || 0);
+    const clientTotalWithoutVat = Math.round(((totalPrimeCost / marginDivisor) + logisticsAndInstallation) * 100) / 100;
+    const marginAmount = Math.round((clientTotalWithoutVat - (totalPrimeCost + logisticsAndInstallation)) * 100) / 100;
 
     const vatRate = Math.max(0, Number(coefficients.vatRatePercent) || 0) / 100;
     const vatAmount = Math.round(clientTotalWithoutVat * vatRate * 100) / 100;
@@ -274,6 +292,8 @@ export class CalculatorStorageService {
       wasteAddedCost: Math.round(wasteAddedCost * 100) / 100,
       materialsSubtotal: Math.round(materialsSubtotal * 100) / 100,
       servicesSubtotal: Math.round(servicesSubtotal * 100) / 100,
+      deliveryCost,
+      installationCost,
       complexityAddedCost: Math.round(complexityAddedCost * 100) / 100,
       baseProductionCost: Math.round(baseProductionCost * 100) / 100,
       overheadCost,

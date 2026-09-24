@@ -79,8 +79,9 @@ export const MasterDataModal: React.FC<Props> = ({
   };
 
   const handleSavePrice = (id: string) => {
-    const p = parseFloat(tempPrice);
-    if (!isNaN(p) && p >= 0) {
+    const rawP = parseFloat(tempPrice);
+    if (!isNaN(rawP) && rawP >= 0) {
+      const p = parseFloat((Math.round(rawP * 100) / 100).toFixed(2));
       const updated = materials.map((m) =>
         m.id === id ? { ...m, basePrice: p, updatedAt: new Date().toISOString() } : m
       );
@@ -398,7 +399,8 @@ export const MasterDataModal: React.FC<Props> = ({
                       </label>
                       <input
                         type="number"
-                        step="0.5"
+                        step="any"
+                        min="0"
                         required
                         value={newPrice}
                         onChange={(e) => setNewPrice(e.target.value)}
@@ -513,7 +515,8 @@ export const MasterDataModal: React.FC<Props> = ({
                                 <div className="flex items-center justify-end gap-1">
                                   <input
                                     type="number"
-                                    step="0.5"
+                                    step="any"
+                                    min="0"
                                     value={tempPrice}
                                     onChange={(e) => setTempPrice(e.target.value)}
                                     className="w-20 px-1.5 py-0.5 text-right font-mono font-bold text-xs border border-indigo-400 rounded focus:outline-none"
