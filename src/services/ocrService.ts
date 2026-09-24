@@ -440,10 +440,15 @@ ${docTypeHintInstruction}
    - totalAmount: така сама точна сума оплати (наприклад 96932.88)
    - paymentPurpose: повне "Призначення платежу" дослівно
    - referencedInvoiceNumber: номер(и) рахунку, які оплачуються цією платіжкою.
-     ЛОГІКА ПОШУКУ: Шукай у полі "Призначення платежу" за шаблоном: 'Оплачено за ... згідно рах. № ххххх від дати' (або 'згідно рахунку №...', 'по рах. №...', 'СФ-№...', '№...').
-     КРИТИЧНО: Номером рахунку є ЛИШЕ цифровий або літерно-цифровий код (наприклад "4104", "124, 125", "СФ-000124").
-     СЛОВА "матер", "матеріали", "послуги", "товари" — ЦЕ ОПИС ПРИЗНАЧЕННЯ ПЛАТЕЖУ, А НЕ НОМЕР РАХУНКУ! КАТЕГОРИЧНО ЗАБОРОНЕНО записувати слово "матер" у номер рахунку!
-   - referencedInvoiceNumbers: МАСИВ УСІХ виявлених номерів рахунків (наприклад ["142", "143"] або ["4104", "4105"]). Якщо платіжка оплачує декілька рахунків — обов'язково витягни ВСІ окремі номери в цей масив!
+     Шукати комбінації виключно після ключових слів-тригерів: рахунок, рах., рах, Счет, сч., №, дог., договір.
+     Патерни номерів: числові або альфа-нумеричні коди (наприклад: 1815, 1301, 169, 730), або з префіксами/дефісами/підкресленнями (наприклад: Р2608535, RF26_1611, Ц-000117212, СФ-0042, 142/26).
+     Якщо вказано декілька номерів (через кому, пробіл або та) — витягни ВСІ окремі номери та розділи строго комою з пробілом (наприклад "RF26_1611, RF26_1642, RF26_1645").
+     СУВОРО ЗАБОРОНЕНО писати сміття:
+     - ПДВ та відсотки: т.ч., в т.ч., ПДВ, 20%, без ПДВ.
+     - Суми та валюту: 1369.18, 24195.30, грн, грн., UAH.
+     - Загальні описові слова: фарбу, фарба, матер, матеріали, товар, послуги, оплата, згідно, аванс.
+     Якщо в призначенні немає жодного конкретного номера рахунку (наприклад "Оплата за товар" або "за матер") — записуй строго порожній рядок "", але НІКОЛИ не записуй слова "товар" чи "матер" у поле номера рахунку!
+   - referencedInvoiceNumbers: МАСИВ УСІХ окремих виявлених номерів рахунків (наприклад ["RF26_1611", "RF26_1642", "RF26_1645"] або ["1815"]). Якщо платіжка оплачує декілька рахунків — обов'язково витягни ВСІ окремі номери в цей масив! Якщо рахунків немає — поверни порожній масив [].
    - referencedOrderNumber: внутрішній номер замовлення (ххх-хх), якщо згаданий у призначенні платежу
 
 Виконай ретельний аналіз кожного пікселя документа та поверни валідний JSON згідно зі схемою.`;
@@ -1053,8 +1058,25 @@ ${docTypeHintInstruction}
   if (parsedResult.invoiceNumber) {
     parsedResult.invoiceNumber = OCRService.sanitizeInvoiceNumber(parsedResult.invoiceNumber);
   }
-  if (parsedResult.referencedInvoiceNumber) {
-    parsedResult.referencedInvoiceNumber = OCRService.sanitizeInvoiceNumber(parsedResult.referencedInvoiceNumber);
+  if (parsedResult.referencedInvoiceNumber || parsedResult.paymentPurpose) {
+    const cleanInvs = OCRService.extractAllInvoiceNumbers(
+      parsedResult.referencedInvoiceNumber,
+      parsedResult.referencedInvoiceNumbers,
+      parsedResult.paymentPurpose
+    );
+    if (cleanInvs.length > 0) {
+      parsedResult.referencedInvoiceNumbers = cleanInvs;
+      parsedResult.referencedInvoiceNumber = cleanInvs.join(', ');
+      if (parsedResult.documentType === 'payment') {
+        parsedResult.invoiceNumber = cleanInvs[0];
+      }
+    } else {
+      parsedResult.referencedInvoiceNumbers = [];
+      parsedResult.referencedInvoiceNumber = '';
+      if (parsedResult.documentType === 'payment' && OCRService.isPlaceholderNumber(parsedResult.invoiceNumber)) {
+        parsedResult.invoiceNumber = '';
+      }
+    }
   }
 
   parsedResult.validationWarnings = warnings;
@@ -1644,54 +1666,140 @@ export class OCRService {
   }
 
   /**
-   * Universal stop-words and invalid labels that should NEVER be treated as an invoice number
+   * Universal stop-words and invalid labels that should NEVER be treated as an invoice number.
+   * Filters out VAT, percentages, amounts, currencies, general descriptive words, and metadata.
    */
   public static readonly INVALID_INVOICE_WORDS = new Set([
-    'рахунок', 'рахунка', 'рахунку', 'рахунком', 'рахунки', 'рахунків', 'рахунками',
-    'рах', 'рах.', 'счет', 'счета', 'счету', 'счетом', 'інвойс', 'інвойса', 'інвойсу',
-    'invoice', 'inv', 'inv.', 'номер', 'номеру', 'номером', '№', 'no', 'n', '#',
+    // Invoices and payment documents
+    'рахунок', 'рахунка', 'рахунку', 'рахунком', 'рахунки', 'рахунків', 'рахунками', 'рахунках',
+    'рах', 'рах.', 'р-к', 'р/к',
+    'счет', 'счета', 'счету', 'счетом', 'счете', 'счетов', 'сч', 'сч.',
+    'договір', 'договору', 'договором', 'договори', 'договорів', 'договор', 'договора', 'дог', 'дог.',
+    'інвойс', 'інвойса', 'інвойсу', 'інвойси', 'інвойсів', 'invoice', 'inv', 'inv.',
+    'номер', 'номеру', 'номером', 'номери', 'номерів', '№', 'no', 'no.', 'n', 'n.', '#',
     'платіжка', 'платіж', 'платіжне', 'доручення', 'інструкція', 'квитанція', 'чек',
-    'згідно', 'згідноз', 'зг', 'по', 'за', 'від', 'до', 'та', 'і', 'з', 'у', 'в',
-    'оплата', 'оплачено', 'сплата', 'розрахунок', 'перерахунок', 'аванс', 'доплата', 'остаточний', 'транш',
-    'товар', 'товари', 'матер', 'матеріал', 'матеріали', 'будматеріали', 'буд',
-    'комплектуючі', 'фурнітура', 'метал', 'сталь', 'послуги', 'послуга',
-    'роботи', 'робота', 'деталі', 'деталь', 'вироби', 'продукція',
+
+    // Descriptive words & actions
+    'фарбу', 'фарба', 'фарби', 'фарбою', 'краску', 'краска',
+    'матер', 'матеріал', 'матеріали', 'матеріалів', 'материали', 'материалы', 'будматеріали', 'буд',
+    'товар', 'товари', 'товару', 'товаром', 'товаров', 'товарах',
+    'послуги', 'послуга', 'послуг', 'послугами', 'услуги', 'услуга', 'услуг',
+    'оплата', 'оплачено', 'оплатити', 'сплата', 'розрахунок', 'перерахунок',
+    'згідно', 'згідноз', 'зг', 'по', 'за', 'для', 'від', 'до', 'без', 'з', 'у', 'в', 'на', 'та', 'і',
+    'аванс', 'доплата', 'остаточний', 'транш', 'попередня',
+    'комплектуючі', 'фурнітура', 'метал', 'сталь', 'деталі', 'вироби', 'продукція',
     'виготовлення', 'монтаж', 'доставка', 'порізка', 'кромкування', 'фарбування',
-    'на', 'пдв', 'грн', 'гривень', 'коп', 'копійок',
+
+    // VAT, percentages & currency
+    'т.ч.', 'т.ч', 'в т.ч.', 'в т.ч', 'у т.ч.', 'у т.ч', 'втч', 'утч',
+    'пдв', 'без пдв', 'з пдв', '20%', '7%', '0%',
+    'грн', 'грн.', 'гривень', 'гривні', 'uah', 'usd', 'eur', 'коп', 'коп.', 'копійок',
+
+    // Placeholders & nulls
     'б/н', 'бн', 'б.н.', 'б/н.', 'без', 'безномера', 'без_номера', 'без-номера',
     'n/a', 'na', 'none', 'null', 'undefined', '-', '--', '—', '0', '00', '000'
   ]);
 
   /**
+   * Checks whether a string represents a calendar date (e.g. 12.08.2026, 12.08.26, 2026-08-12)
+   */
+  public static isDateString(str?: string): boolean {
+    if (!str) return false;
+    const clean = str.trim();
+    const m1 = clean.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (m1) {
+      const d = parseInt(m1[1], 10);
+      const m = parseInt(m1[2], 10);
+      if (d >= 1 && d <= 31 && m >= 1 && m <= 12) {
+        return true;
+      }
+    }
+    const m2 = clean.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+    if (m2) {
+      const m = parseInt(m2[2], 10);
+      const d = parseInt(m2[3], 10);
+      if (d >= 1 && d <= 31 && m >= 1 && m <= 12) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Helper to check if a string is a placeholder or invalid number (e.g. "б/н", "-", "none", "матер", "товар", decimal amounts, percentages, dates)
+   */
+  public static isPlaceholderNumber(num?: string): boolean {
+    if (!num) return true;
+    const s = num.trim().toLowerCase();
+    if (s.length < 1) return true;
+    // An invoice number must contain at least one digit
+    if (!/\d/.test(s)) return true;
+    // Reject decimals/amounts like 1369.18, 24195.30 or 1500,00
+    if (/^\d+[,.]\d+$/.test(s)) return true;
+    // Reject percentages like 20%
+    if (s.includes('%')) return true;
+    // Date strings like 2026-08-25 or 25.08.2026 or 15.09.26
+    if (OCRService.isDateString(s)) return true;
+    return OCRService.INVALID_INVOICE_WORDS.has(s);
+  }
+
+  /**
    * Sanitizes an invoice number string.
    * Strips prefix labels ("рахунок на оплату", "згідно рахунка №", "№", etc.).
-   * If the string is solely a stop-word like "рахунка", "матер" or has no digits, returns "".
+   * If the string contains multiple numbers separated by commas/spaces, sanitizes all and joins strictly with ', '.
+   * If the string is solely a stop-word like "рахунка", "матер", an amount (1369.18), VAT (20%), or has no digits, returns "".
    */
   public static sanitizeInvoiceNumber(input?: string): string {
     if (!input) return '';
     let val = String(input).trim();
     if (!val) return '';
 
+    // If input contains multiple items separated by commas, semicolons or conjunctions, process via extractAllInvoiceNumbers
+    if (/[,\s+&|]+|\s+(?:та|і|також)\s+/i.test(val)) {
+      const found = OCRService.extractAllInvoiceNumbers(val);
+      if (found.length > 0) {
+        return found.join(', ');
+      }
+    }
+
     // Remove common prefixes
     val = val.replace(/^(?:оплата\s+(?:за\s+[^;,\n]+?)?\s*згідно(?:\s+з)?|згідно(?:\s+з)?|по|за)\s+/i, '');
-    val = val.replace(/^(?:рахунок\s+на\s+оплату|рахунок[-_\s]*фактура|рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[-_\s]*фактура|счет[а-я]*|invoice|інвойс[а-я]*)\s*/i, '');
+    val = val.replace(/^(?:рахунок\s+на\s+оплату|рахунок[-_\s]*фактура|рахун(?:ок|ка|ку|ком|ки|ків)|рах(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|догов(?:ір|ору|ором|ори|орів|ор[а-я]*)?|дог(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|счет[-_\s]*фактура|счет[а-я]*|сч(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|invoice|інвойс[а-я]*)\s*/i, '');
     val = val.replace(/^(?:номер|№|no|n|#)\s*[:.]?\s*/i, '');
     val = val.replace(/^[№#:]\s*/, '');
     val = val.trim();
 
     // Secondary pass in case of stacked prefixes like "згідно рахунка № 227763"
-    val = val.replace(/^(?:рахунок\s+на\s+оплату|рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|invoice|інвойс[а-я]*)\s*/i, '');
+    val = val.replace(/^(?:рахунок\s+на\s+оплату|рахун(?:ок|ка|ку|ком|ки|ків)|рах(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|догов(?:ір|ору|ором|ори|орів|ор[а-я]*)?|дог(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|счет[а-я]*|сч(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|invoice|інвойс[а-я]*)\s*/i, '');
     val = val.replace(/^(?:номер|№|no|n|#)\s*[:.]?\s*/i, '');
     val = val.replace(/^[№#:]\s*/, '');
     val = val.trim();
+
+    // Strip trailing punctuation
+    val = val.replace(/[.,;)"'\-\s]+$/, '').trim();
 
     const lower = val.toLowerCase().replace(/\s+/g, '');
     if (OCRService.INVALID_INVOICE_WORDS.has(lower) || OCRService.isPlaceholderNumber(val)) {
       return '';
     }
 
-    // A valid invoice number MUST contain at least one digit (reject purely alphabetical words like "матер")
+    // A valid invoice number MUST contain at least one digit (reject purely alphabetical words like "матер", "товар")
     if (!/\d/.test(val)) {
+      return '';
+    }
+
+    // Reject amounts / decimals
+    if (/^\d+[,.]\d+$/.test(val)) {
+      return '';
+    }
+
+    // Reject percentages
+    if (val.includes('%')) {
+      return '';
+    }
+
+    // Reject dates
+    if (OCRService.isDateString(val)) {
       return '';
     }
 
@@ -1699,46 +1807,14 @@ export class OCRService {
   }
 
   /**
-   * Reliably extracts the actual invoice number from payment purpose or notes text,
-   * completely avoiding false captures of Ukrainian words like "матер", "рахунка", "згідно", etc.
-   * Handles patterns like: "Оплачено за металопрокат згідно рах. № 4104 від 09.09.2026" -> "4104"
+   * Reliably extracts invoice numbers from payment purpose or notes text according to strict parsing rules.
+   * If multiple invoices are present, returns them joined strictly with comma and space (e.g. "RF26_1611, RF26_1642, RF26_1645").
+   * Completely avoids false captures of words like "фарбу", "матер", "товар", VAT percentages, sums, or currencies.
    */
   public static extractInvoiceNumberFromText(text?: string): string {
     if (!text) return '';
-    const cleanText = String(text);
-
-    // 1. High-priority targeted pattern: "Оплачено за ... згідно рах. № ххххх від дати"
-    const targetedPattern = /(?:опла(?:та|чено)|сплата|розрахунок)?\s*(?:за\s+[^;,\n]+?)?\s*(?:згідно(?:\s+з)?|зг\.?|по)?\s*(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:унок|\.?)|р[-/]к[уа]?|счет[а-я]*|сч\.?|інвойс(?:и|ів)?|invoice|сф[-_]?)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№+|no\.?|n\.?|#|:)?\s*([0-9A-Za-zА-Яа-я\-_/]+)/i;
-    const targetedMatch = cleanText.match(targetedPattern);
-    if (targetedMatch && targetedMatch[1]) {
-      const cand = OCRService.sanitizeInvoiceNumber(targetedMatch[1]);
-      if (cand && !OCRService.isPlaceholderNumber(cand)) {
-        return cand;
-      }
-    }
-
-    // 2. Look for explicit prefix followed by number:
-    // e.g. "рахунка № 227763", "рах. №4104", "рахунку 4373", "СФ-0042", "інвойс № 125"
-    const patterns = [
-      /(?:рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|інвойс[а-я]*|invoice)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№|No|N|#|:)\s*([A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]{1,30})/gi,
-      /(?:рахун(?:ок|ка|ку|ком|ки|ків)|рах\.?|счет[а-я]*|інвойс[а-я]*|invoice)\s+(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?([0-9][A-Za-z0-9\-_/]{0,29})/gi,
-      /(?:№|No|#)\s*([0-9][A-Za-z0-9\-_/]{1,29})/gi,
-      /\b(СФ[-_]?[0-9]{1,10})\b/gi,
-    ];
-
-    for (const regex of patterns) {
-      let match: RegExpExecArray | null;
-      while ((match = regex.exec(cleanText)) !== null) {
-        if (match[1]) {
-          const candidate = OCRService.sanitizeInvoiceNumber(match[1]);
-          if (candidate && !OCRService.isPlaceholderNumber(candidate)) {
-            return candidate;
-          }
-        }
-      }
-    }
-
-    return '';
+    const invoices = OCRService.extractAllInvoiceNumbers(undefined, undefined, text);
+    return invoices.join(', ');
   }
 
   /**
@@ -1785,21 +1861,16 @@ export class OCRService {
   }
 
   /**
-   * Helper to check if a string is a placeholder invoice/payment number (e.g. "б/н", "-", "none", "матер", "рахунка")
-   */
-  public static isPlaceholderNumber(num?: string): boolean {
-    if (!num) return true;
-    const s = num.trim().toLowerCase();
-    if (s.length < 1) return true;
-    // An invoice number must contain at least one digit
-    if (!/\d/.test(s)) return true;
-    // Date strings like 2026-08-25 or 25.08.2026
-    if (/^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s)) return true;
-    return OCRService.INVALID_INVOICE_WORDS.has(s);
-  }
-
-  /**
-   * Extract all invoice number tokens from raw text, strings, or arrays
+   * Extract all invoice number identifiers from referencedInvoiceNumber, referencedInvoiceNumbers,
+   * or payment purpose text according to strict parsing logic:
+   * 1. Trigger keywords: рахунок, рах., рах, Счет, сч., №, дог., договір (and variants).
+   * 2. Patterns: Numeric or alphanumeric codes (1815, 1301, 169, 730),
+   *    or with prefixes/hyphens/underscores (Р2608535, RF26_1611, Ц-000117212, СФ-0042, 142/26).
+   * 3. Multiple invoices separated by comma, space, or "та" / "і" -> extracted and joined by ", ".
+   * 4. Exclusions / Stop-words: completely ignores VAT/percentages (20%, т.ч., в т.ч., без ПДВ),
+   *    sums and currencies (1369.18, 24195.30, грн, грн., UAH),
+   *    descriptive words (фарбу, фарба, матер, матеріали, товар, послуги, оплата, згідно, аванс).
+   * 5. If no valid invoice identifier is present, returns [].
    */
   public static extractAllInvoiceNumbers(
     referencedInvoiceNumber?: string,
@@ -1808,74 +1879,78 @@ export class OCRService {
   ): string[] {
     const found = new Set<string>();
 
-    const addCandidate = (val?: string) => {
+    const addCandidateToken = (val?: string) => {
       if (!val) return;
-      const clean = OCRService.sanitizeInvoiceNumber(val);
-      if (
-        clean.length >= 1 &&
-        !OCRService.isPlaceholderNumber(clean) &&
-        /\d/.test(clean) &&
-        !/^\d{2}[./-]\d{2}[./-]\d{2,4}$/.test(clean) &&
-        !/^\d{4}[./-]\d{2}[./-]\d{2}$/.test(clean) &&
-        !/^(?:пдв|гривень|грн|без|універсал|рахунок|рах|сф|інвойс|від|до|договір|контракт|матер|матеріали|товари)$/i.test(clean)
-      ) {
-        found.add(clean);
+      let token = String(val).trim();
+      // Strip leading and trailing punctuation/symbols
+      token = token.replace(/^[№#№:.,;("'\-\s]+/, '').replace(/[.,;)"'\-\s]+$/, '').trim();
+      if (!token) return;
+
+      // 1. Must contain at least one digit (reject purely alphabetic descriptive words like "матер", "фарбу", "товар")
+      if (!/\d/.test(token)) return;
+
+      // 2. Reject decimal amounts like 1369.18 or 24195.30 or 1500,00
+      if (/^\d+[,.]\d+$/.test(token)) return;
+
+      // 3. Reject percentages like 20%
+      if (token.includes('%')) return;
+
+      // 4. Reject dates like 12.08.2026 or 15.09.26 or 2026-08-12
+      if (OCRService.isDateString(token)) return;
+
+      // 5. Reject stop words or currency
+      const lower = token.toLowerCase();
+      if (OCRService.INVALID_INVOICE_WORDS.has(lower)) return;
+      if (OCRService.isPlaceholderNumber(token)) return;
+      if (/^(?:пдв|грн|uah|usd|eur|коп|без|з|від|от|до|за|по|договір|контракт|матер|товар|послуг)/i.test(lower)) return;
+
+      // 6. Valid invoice code check:
+      // Pattern: numeric or alphanumeric code, optionally with prefixes, dashes, slashes, underscores
+      // e.g. 1815, 1301, 169, 730, Р2608535, RF26_1611, Ц-000117212, СФ-0042, 124/26
+      if (/^[A-Za-zА-Яа-яІіЇїЄєҐґ0-9][A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]*\d[A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/]*$/i.test(token)) {
+        found.add(token);
       }
     };
 
+    // Process referencedInvoiceNumbers array if provided
     if (Array.isArray(referencedInvoiceNumbers)) {
-      referencedInvoiceNumbers.forEach((n) => {
+      for (const n of referencedInvoiceNumbers) {
         if (n && typeof n === 'string') {
-          addCandidate(n);
+          const subTokens = n.split(/[,;\s+&|]+|\s+(?:та|і|також|а\s+також)\s+/i);
+          for (const st of subTokens) {
+            addCandidateToken(st);
+          }
         }
-      });
+      }
     }
 
+    // Process referencedInvoiceNumber string if provided
     if (referencedInvoiceNumber) {
-      // Split by commas, semicolons, whitespace, pluses, ampersands, or Ukrainian conjunctions.
-      // Do NOT split standalone slashes like "142/26", only split if slash has surrounding spaces " / "
-      const tokens = String(referencedInvoiceNumber).split(/[,;+&|]+|\s+\/\s+|\s+(?:та|і|також|а\s+також)\s+|\s{2,}/i);
-      tokens.forEach((t) => {
-        addCandidate(t.trim());
-      });
+      const subTokens = String(referencedInvoiceNumber).split(/[,;\s+&|]+|\s+(?:та|і|також|а\s+також)\s+/i);
+      for (const st of subTokens) {
+        addCandidateToken(st);
+      }
     }
 
+    // Process paymentPurpose string if provided
     if (paymentPurpose) {
-      // 1. High-priority targeted pattern: "Оплачено за [матер./товари] згідно рах. № 1234, 1235 від 10.05.2026"
-      const targetedRegex = /(?:опла(?:та|чено)|сплата|розрахунок)?\s*(?:за\s+[^;,\n]+?)?\s*(?:згідно(?:\s+з)?|зг\.?|по)?\s*(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:унок|\.?)|р[-/]к[уа]?|счет[а-я]*|сч\.?|інвойс(?:и|ів)?|invoice|сф[-_]?)\s*(?:на\s+оплату\s*)?(?:[-_–—]\s*фактур[а-я]*\s*)?(?:№+|no\.?|n\.?|#|:)?\s*([0-9A-Za-zА-Яа-яІіЇїЄєҐґ\-_/,\s+&;іта]+?)(?=(?:\s+від|\s+от|\s+без\s+пдв|\s+у\s+т\.ч|\s+в\s+т\.ч|\s+пдв|\s+сума|\s*;|\s*$))/gi;
-      let targetedMatch: RegExpExecArray | null;
-      while ((targetedMatch = targetedRegex.exec(paymentPurpose)) !== null) {
-        if (targetedMatch[1]) {
-          const rawBlock = targetedMatch[1];
-          const blockWithoutDates = rawBlock.replace(/(?:від|от)?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/gi, ' ');
-          const tokens = blockWithoutDates.split(/[,;+&|]+|\s+\/\s+|\s+(?:та|і|також|а\s+також)\s+|\s+/i);
-          tokens.forEach((t) => {
-            addCandidate(t.trim());
-          });
-        }
-      }
+      const cleanPurpose = String(paymentPurpose);
 
-      // 2. Capture invoice blocks with general keywords: рахунок, рахунки, рах, рах., СФ, СФ-, счет, інвойс
-      const generalInvRegex = /(?:рахунк(?:и|ів|ами|ах|у|ом|ок|а)?|рах(?:унок|\.?)|СФ|СФ-|сч(?:ет|\.?)|інвойс(?:и|ів)?)\s*[:№#]?\s*([^;,\n]+(?:\s*(?:,|і|та|також|;)\s*(?:рахунк(?:и|ів|у)?|рах\.?|СФ|№|No|#)?\s*[^;,\n]+)*)/gi;
+      // Trigger regex: matches keywords (рахунок, рах., рах, Счет, сч., №, дог., договір, сф)
+      // Captures the segment following the trigger until a date (від 12.08.2026),
+      // VAT / amount clauses (в т.ч., у т.ч., без пдв, пдв, 20%, грн, сума),
+      // descriptive clauses (за товар, за матер), semicolons, or line ends.
+      const triggerRegex = /(?:(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|счет[а-я]*|сч(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|догов(?:ір|ору|ором|ори|орів|ор[а-я]*)?|дог(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|сф[-_]?(?:\.|\b|(?=[^а-яіїєґa-z0-9]|$))|інвойс[а-я]*|invoice)\s*(?:[-_–—]\s*фактур[а-я]*)?\s*(?:на\s+оплату\s*)?(?:(?:№|no\.?|n\.?|#)\s*[:.]?\s*)?|(?:№|no\.?|n\.?|#)\s*[:.]?\s*)([A-Za-zА-Яа-яІіЇїЄєҐґ0-9\-_/,.\s+&;іта№#:]+?)(?=(?:\s+(?:від|от)\s+\d{1,2}[./-]\d{1,2}|\s+(?:в\s+т\.?ч\.?|у\s+т\.?ч\.?|т\.?ч\.?|без\s+пдв|пдв|\d+%|сума|грн|за\s+[а-яіїєґ]+)|;|\n|$))/gi;
+
       let match: RegExpExecArray | null;
-      while ((match = generalInvRegex.exec(paymentPurpose)) !== null) {
-        if (match[1]) {
-          const rawBlock = match[1];
-          // Remove dates like "від 01.05.2026" or "від 12.04.26"
-          const blockWithoutDates = rawBlock.replace(/(?:від|от)?\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}/gi, ' ');
-          const tokens = blockWithoutDates.split(/[,;+&|]+|\s+\/\s+|\s+(?:та|і|також|а\s+також|згідно|за|для)\s+|\s+/i);
-          tokens.forEach((t) => {
-            addCandidate(t.trim());
-          });
-        }
-      }
+      while ((match = triggerRegex.exec(cleanPurpose)) !== null) {
+        const segment = match[1];
+        if (!segment) continue;
 
-      // 3. Check for standalone "№ 123" only if NOT preceded by contract/order/bank keywords
-      const nakedNumRegex = /(?<!(?:договір|договору|договором|контракт|контракту|наказ|наказу|п\/п|п\/р|р\/р|iban|код|єдрпоу|акта|акт)\s*)(?:№|No|#)\s*([0-9][A-Za-z0-9\-_/]{0,25})/gi;
-      let nakedMatch: RegExpExecArray | null;
-      while ((nakedMatch = nakedNumRegex.exec(paymentPurpose)) !== null) {
-        if (nakedMatch[1]) {
-          addCandidate(nakedMatch[1].trim());
+        // Split segment into candidate tokens by commas, spaces, and conjunctions
+        const rawTokens = segment.split(/[,;\s+&|]+|\s+(?:та|і|також|а\s+також)\s+/i);
+        for (const raw of rawTokens) {
+          addCandidateToken(raw);
         }
       }
     }

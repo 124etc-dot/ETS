@@ -188,11 +188,21 @@ export const DocumentReviewModal: React.FC<Props> = ({
         [field]: value ?? '',
       };
 
-      // If updating paymentPurpose, try re-extracting referenced invoice
+      // If updating paymentPurpose, re-extract referenced invoices using strict OCRService parser
       if (field === 'paymentPurpose' && typeof value === 'string') {
-        const invMatch = value.match(/(?:рахун(?:ок|ку|ком|ка)?|счет[а-я]*|рах\.?|СФ-?|№)\s*[:№#]?\s*([A-Za-zА-Яа-я0-9\-\/]{2,20})/i);
-        if (invMatch && !updated.referencedInvoiceNumber) {
-          updated.referencedInvoiceNumber = invMatch[1].trim();
+        const found = OCRService.extractAllInvoiceNumbers(undefined, undefined, value);
+        if (found.length > 0) {
+          updated.referencedInvoiceNumbers = found;
+          updated.referencedInvoiceNumber = found.join(', ');
+          if (updated.documentType === 'payment') {
+            updated.invoiceNumber = found[0];
+          }
+        } else {
+          updated.referencedInvoiceNumbers = [];
+          updated.referencedInvoiceNumber = '';
+          if (updated.documentType === 'payment' && OCRService.isPlaceholderNumber(updated.invoiceNumber)) {
+            updated.invoiceNumber = '';
+          }
         }
       }
 
@@ -351,8 +361,12 @@ export const DocumentReviewModal: React.FC<Props> = ({
         updated.referencedInvoiceNumber = foundInvs.join(', ');
         updated.referencedInvoiceNumbers = foundInvs;
         updated.invoiceNumber = foundInvs[0];
-      } else if (OCRService.isPlaceholderNumber(updated.invoiceNumber)) {
-        updated.invoiceNumber = '';
+      } else {
+        updated.referencedInvoiceNumber = '';
+        updated.referencedInvoiceNumbers = [];
+        if (OCRService.isPlaceholderNumber(updated.invoiceNumber)) {
+          updated.invoiceNumber = '';
+        }
       }
 
       // Re-evaluate matching invoices

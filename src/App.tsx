@@ -529,14 +529,23 @@ export default function App() {
         }
       }
 
-      // Extract referenced invoice from paymentPurpose or notes (e.g. "згідно рах. № 4104" or "згідно рахунку № 4373")
+      // Extract referenced invoices from paymentPurpose or notes using OCRService.extractAllInvoiceNumbers
       const fullText = `${updated.paymentPurpose || ''} ${updated.notes || ''}`;
-      const invMatch = fullText.match(/(?:згідно|по|за|рахун(?:ок|ку|ка)?|рах\.?)\s*(?:№|N)?\s*([A-Za-zА-Яа-я0-9\-_/]+)/i);
-      if (invMatch && invMatch[1]) {
-        const foundInv = invMatch[1].trim();
-        updated.referencedInvoiceNumber = foundInv;
-        updated.referencedInvoiceNumbers = [foundInv];
-        updated.invoiceNumber = foundInv;
+      const foundInvs = OCRService.extractAllInvoiceNumbers(
+        updated.referencedInvoiceNumber,
+        updated.referencedInvoiceNumbers,
+        fullText
+      );
+      if (foundInvs.length > 0) {
+        updated.referencedInvoiceNumber = foundInvs.join(', ');
+        updated.referencedInvoiceNumbers = foundInvs;
+        updated.invoiceNumber = foundInvs[0];
+      } else {
+        updated.referencedInvoiceNumber = '';
+        updated.referencedInvoiceNumbers = [];
+        if (OCRService.isPlaceholderNumber(updated.invoiceNumber)) {
+          updated.invoiceNumber = '';
+        }
       }
 
       // Amounts

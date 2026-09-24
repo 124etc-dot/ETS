@@ -272,7 +272,7 @@ export const OverheadTab: React.FC<Props> = ({
   }, [overheadExpenses]);
 
   // Pagination state (matching SheetLivePreview)
-  const [pageSize, setPageSize] = useState<number | 'all'>(25);
+  const [pageSize, setPageSize] = useState<number | 'all'>(50);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Reset to page 1 on filter/search/sort change
@@ -602,23 +602,17 @@ export const OverheadTab: React.FC<Props> = ({
                 <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                   Витрати Цеху
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                  Вкладка «Цех»
+                <span
+                  className={`px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border flex items-center space-x-1 shadow-2xs ${
+                    totalUnpaidCount > 0
+                      ? 'bg-rose-100 text-rose-800 border-rose-300'
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                  title={`Неоплачених рахунків цеху: ${totalUnpaidCount}`}
+                >
+                  <Clock className={`w-3 h-3 ${totalUnpaidCount > 0 ? 'text-rose-600' : 'text-slate-400'}`} />
+                  <span>{totalUnpaidCount}</span>
                 </span>
-                {totalUnpaidCount > 0 ? (
-                  <span
-                    className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 flex items-center space-x-1 shadow-2xs"
-                    title={`Неоплачених рахунків цеху: ${totalUnpaidCount}`}
-                  >
-                    <Clock className="w-3 h-3 text-rose-600" />
-                    <span>{totalUnpaidCount} неоплачено</span>
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center space-x-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                    <span>Всі оплачено</span>
-                  </span>
-                )}
               </div>
               <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
                 Колонки: <b>А</b> — Постачальник, <b>В</b> — Платник, <b>C</b> — Номер рахунку, <b>D</b> — Дата рахунку, <b>E</b> — Сума, <b>F</b> — Валюта, <b>G</b> — Статус, <b>H</b> — Час завантаження, <b>I</b> — Сума оплати.

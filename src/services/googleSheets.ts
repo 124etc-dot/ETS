@@ -1380,13 +1380,9 @@ export class GoogleSheetsService {
       const paymentPurpose = String(row[colPurpose] ?? '').trim();
 
       // 6. Referenced Invoice Number
-      let referencedInvoiceNumber = String(row[colInvoice] ?? '').trim();
-      if (!referencedInvoiceNumber && paymentPurpose) {
-        const extracted = OCRService.extractAllInvoiceNumbers(undefined, undefined, paymentPurpose);
-        if (extracted.length > 0) {
-          referencedInvoiceNumber = extracted[0];
-        }
-      }
+      const rawInvoice = String(row[colInvoice] ?? '').trim();
+      const extractedInvs = OCRService.extractAllInvoiceNumbers(rawInvoice, undefined, paymentPurpose);
+      const referencedInvoiceNumber = extractedInvs.length > 0 ? extractedInvs.join(', ') : '';
 
       // 7. Order Number
       const orderNumber = OCRService.normalizeOrderNumber(String(row[colOrder] ?? ''));
@@ -2581,6 +2577,13 @@ export class GoogleSheetsService {
     const payer = OCRService.normalizeCompanyName(data.ocr.payerName || data.ocr.buyerName || '');
     const payee = OCRService.normalizeCompanyName(data.ocr.payeeName || data.ocr.supplierName || '');
 
+    const cleanReferencedInvs = OCRService.extractAllInvoiceNumbers(
+      data.ocr.referencedInvoiceNumber,
+      data.ocr.referencedInvoiceNumbers,
+      data.ocr.paymentPurpose
+    );
+    const referencedInvoiceCol = cleanReferencedInvs.length > 0 ? cleanReferencedInvs.join(', ') : '';
+
     const row = [
       data.ocr.paymentNumber || data.ocr.invoiceNumber || '',
       data.ocr.paymentDate || data.ocr.invoiceDate || '',
@@ -2589,7 +2592,7 @@ export class GoogleSheetsService {
       data.ocr.amountPaid || data.ocr.totalAmount || 0,
       data.ocr.currency || 'UAH',
       data.ocr.paymentPurpose || '',
-      data.ocr.referencedInvoiceNumber || '',
+      referencedInvoiceCol,
       orderNum,
       data.fileName || '',
       data.driveLink || '',
