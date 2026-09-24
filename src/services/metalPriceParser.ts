@@ -9,6 +9,243 @@ import {
 export const UNIT_ONLY_REGEX = /^(т|т\.|од|од\.|м|м\.п\.|м2|м²|шт|шт\.|кг|кг\.)$/i;
 
 /**
+ * Strict check: returns true if text represents a table header column or document header.
+ * Under NO circumstances can these strings become folder/category names!
+ * Examples: 'Ціна роздрібна з ПДВ', 'Найменування', 'Одиниця виміру', 'Вартість різки'
+ */
+export function isTableHeaderRowOrText(text: string): boolean {
+  if (!text) return false;
+  const t = text
+    .toLowerCase()
+    .trim()
+    .replace(/^[📁📂\s\-_:;]+/, '')
+    .replace(/[:;\.]$/, '');
+  if (!t) return false;
+
+  const headerKeywords = [
+    'ціна роздрібна з пдв',
+    'ціна роздрібна',
+    'ціна оптова з пдв',
+    'ціна оптова',
+    'ціна з пдв',
+    'ціна без пдв',
+    'ціна за од',
+    'ціна за тонну',
+    'ціна за 1 м',
+    'ціна за м',
+    'ціна за лист',
+    'роздрібна ціна',
+    'найменування товару',
+    'найменування',
+    'назва товару',
+    'назва матеріалу',
+    'одиниця виміру',
+    'од. вим.',
+    'од.вим.',
+    'од. виміру',
+    'од.',
+    'вартість різки',
+    'вартість порізки',
+    'вартість 1 різу',
+    'вартість різання',
+    'вартість',
+    'порізка',
+    'різка',
+    'довжина в м',
+    'довжина, м',
+    'довжина (м)',
+    'довжина м',
+    'довжина',
+    'марка сталі',
+    'марка',
+    'характеристика',
+    'гост',
+    'дсту',
+    'артикул',
+    'код товару',
+    'код',
+    '№ п/п',
+    '№ з/п',
+    '№ пп',
+    '№',
+    'кількість',
+    'залишок',
+    'склад',
+    'вага 1 м',
+    'вага 1 м.п.',
+    'вага',
+  ];
+
+  for (const phrase of headerKeywords) {
+    if (t === phrase) return true;
+    if (t.startsWith(phrase) && t.length < phrase.length + 15) return true;
+  }
+
+  // Multi-column row header detection, e.g. "Найменування Од. Ціна роздрібна з ПДВ"
+  let matchHits = 0;
+  for (const word of ['ціна', 'найменування', 'од.', 'одиниця', 'артикул', 'довжина', 'різка', 'порізка', 'розмір']) {
+    if (t.includes(word)) matchHits++;
+  }
+  if (matchHits >= 2) return true;
+
+  return false;
+}
+
+/**
+ * Distributes metal items strictly into their material folders:
+ * Квадрат -> «Квадрат»
+ * Дріт -> «Дріт»
+ * Балка / Двотавр -> «Балка»
+ * Арматура -> «Арматура» (або «Арматура мірної довжини»)
+ * Труба профільна -> «Труба профільна» (або «Труба профільна квадратна» / «Труба профільна прямокутна»)
+ * Труба кругла / ВГП -> «Труба кругла» / «Труба ВГП» / «Труба електрозварна»
+ * Кутник -> «Кутник»
+ * Швелер -> «Швелер»
+ * Круг -> «Круг»
+ * Полоса / Смуга -> «Полоса»
+ * Лист -> «Листовий прокат»
+ * Шестигранник -> «Шестигранник»
+ * Сітка -> «Сітка»
+ * Рейка -> «Рейка»
+ */
+export function inferMaterialFolder(itemName: string, currentGroup?: string): string {
+  const cleanGroup = (currentGroup || '')
+    .replace(/^[📁📂\s\-_:;]+/, '')
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/[:;\.]$/, '')
+    .trim();
+
+  // If currentGroup is a table header or generic placeholder, it is FORBIDDEN
+  const isInvalidGroup =
+    !cleanGroup ||
+    isTableHeaderRowOrText(cleanGroup) ||
+    cleanGroup.toLowerCase().includes('ціна') ||
+    cleanGroup === 'Загальний прокат' ||
+    cleanGroup === 'Загальний сортамент';
+
+  const nameLow = (itemName || '').toLowerCase();
+
+  // Strict material folder distribution based on product type
+  if (nameLow.includes('квадрат')) {
+    return 'Квадрат';
+  }
+  if (nameLow.includes('дріт') || nameLow.includes('проволока')) {
+    return 'Дріт';
+  }
+  if (nameLow.includes('балка') || nameLow.includes('двотавр')) {
+    return 'Балка';
+  }
+  if (nameLow.includes('арматура')) {
+    if (nameLow.includes('мірної') || (!isInvalidGroup && cleanGroup.toLowerCase().includes('мірної'))) {
+      return 'Арматура мірної довжини';
+    }
+    return 'Арматура';
+  }
+  if (nameLow.includes('труба')) {
+    if (nameLow.includes('прямокутн')) return 'Труба профільна прямокутна';
+    if (nameLow.includes('квадратн')) return 'Труба профільна квадратна';
+    if (nameLow.includes('профільн')) return 'Труба профільна';
+    if (nameLow.includes('вгп')) return 'Труба ВГП';
+    if (nameLow.includes('електрозварн')) return 'Труба електрозварна';
+    if (nameLow.includes('безшовн')) return 'Труба безшовна';
+    return 'Труба кругла';
+  }
+  if (nameLow.includes('кутник') || nameLow.includes('уголок')) {
+    return 'Кутник';
+  }
+  if (nameLow.includes('швелер')) {
+    return 'Швелер';
+  }
+  if (nameLow.includes('круг') || nameLow.includes('пруток')) {
+    return 'Круг';
+  }
+  if (nameLow.includes('полоса') || nameLow.includes('смуга')) {
+    return 'Полоса';
+  }
+  if (nameLow.includes('лист') || nameLow.includes('бляха') || nameLow.includes('плита') || nameLow.includes('рулон')) {
+    return 'Листовий прокат';
+  }
+  if (nameLow.includes('сітка')) {
+    return 'Сітка';
+  }
+  if (nameLow.includes('шестигранник')) {
+    return 'Шестигранник';
+  }
+  if (nameLow.includes('рейка')) {
+    return 'Рейка';
+  }
+
+  // If no keyword matched, use valid currentGroup if present
+  if (!isInvalidGroup) {
+    return cleanGroup;
+  }
+
+  return 'Чорний металопрокат';
+}
+
+/**
+ * Extracts steel grade from item name if present (e.g., 'ст.3', 'ст.45', 'ст.20', '09Г2С', 'А500С', 'А240', 'AISI 304')
+ */
+export function extractSteelGrade(name: string): string | null {
+  const norm = name.toLowerCase();
+  const match =
+    norm.match(/(?:ст\.?|сталь\s*|марка\s*)([0-9]+[а-яa-z]*|09г2с|25г2с|35гс)/i) ||
+    norm.match(/\b(09г2с|25г2с|35гс|а500с|а400|а240|aisi\s*\d{3})\b/i);
+  if (match) {
+    return match[1].replace(/\s+/g, '').replace('сталь', '').trim();
+  }
+  return null;
+}
+
+/**
+ * Canonical comparison key: strips filler words like 'металевий', 'сталевий', 'мірної довжини', 'мм', spaces
+ */
+export function canonicalMaterialKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/мірної довжини/g, '')
+    .replace(/металевий|сталевий|калібрований|гарячекатаний|холоднокатаний/g, '')
+    .replace(/\bмм\b/g, '')
+    .replace(/[\s\t\n\-_(),.;"'/«»]+/g, '')
+    .replace(/x/g, 'х')
+    .trim();
+}
+
+/**
+ * Checks if two material records represent the exact same product position:
+ * 1. Normalized exact name match
+ * 2. Canonical key match (ignoring filler adjectives like 'металевий' / 'сталевий' / 'мірної довжини')
+ *    while respecting steel grade distinction (e.g. ст.45 vs ст.20)
+ * 3. SKU / sourceArticle match
+ */
+export function areMaterialsMatching(
+  m1: { name: string; sourceArticle?: string },
+  m2: { name: string; sourceArticle?: string }
+): boolean {
+  if (m1.sourceArticle && m2.sourceArticle && m1.sourceArticle.toLowerCase() === m2.sourceArticle.toLowerCase()) {
+    return true;
+  }
+
+  const norm1 = MetalPriceParserService.normalizeName(m1.name);
+  const norm2 = MetalPriceParserService.normalizeName(m2.name);
+  if (norm1 === norm2) return true;
+
+  const key1 = canonicalMaterialKey(m1.name);
+  const key2 = canonicalMaterialKey(m2.name);
+
+  if (key1 === key2) {
+    const grade1 = extractSteelGrade(m1.name);
+    const grade2 = extractSteelGrade(m2.name);
+    if (grade1 && grade2) {
+      return grade1 === grade2;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Forms the complete product name according to the business rule:
  * [Підкатегорія] + [Специфікація/Розмір]
  * - Strictly ignores standalone units ('т', 'м.п.', 'шт', 'кг')
@@ -19,11 +256,14 @@ export function formatFullMaterialName(
   subcategoryOrGroup: string,
   article?: string
 ): string {
-  const cleanGroup = (subcategoryOrGroup || '')
-    .replace(/^[📁📂\s\-_:;]+/, '')
-    .replace(/\s*\([^)]*\)/g, '')
-    .replace(/[:;\.]$/, '')
-    .trim();
+  const isInvalid = isTableHeaderRowOrText(subcategoryOrGroup);
+  const cleanGroup = isInvalid
+    ? ''
+    : (subcategoryOrGroup || '')
+        .replace(/^[📁📂\s\-_:;]+/, '')
+        .replace(/\s*\([^)]*\)/g, '')
+        .replace(/[:;\.]$/, '')
+        .trim();
 
   let name = (rawName || '').trim();
 
@@ -45,7 +285,7 @@ export function formatFullMaterialName(
     if (specFromArticle && cleanGroup) {
       return `${cleanGroup} ${specFromArticle}`;
     }
-    return cleanGroup || 'Металопрокат';
+    return cleanGroup || inferMaterialFolder(rawName, '') || 'Металопрокат';
   }
 
   // 2. Remove accidental unit suffixes or prefixes: "6 міра т" -> "6 міра", "т 6 міра" -> "6 міра"
@@ -74,38 +314,51 @@ export function formatFullMaterialName(
     }
   }
 
+  // Case D: Name is just a number like "20", "25", "30" and cleanGroup is "Квадрат"
+  if (/^[0-9]+$/i.test(name) && cleanGroup) {
+    return `${cleanGroup} ${name}`;
+  }
+
   return name;
 }
 
 /**
- * Normalizes parsed items table to fix column shifts and price inversions:
+ * Normalizes parsed items table to fix column shifts, price inversions and folder assignments:
+ * - Strictly ignores cutting cost (never saves cutting cost)
+ * - Corrects groupHeader to genuine material folder (never table headers!)
  * - If name === 'т' or 'м.п.', recovers name from group / context
  * - If basePrice > 3000 for profiles/rebar, swaps with tonPrice or neighboring price
  */
 export function normalizeParsedItems(items: ParsedPriceItem[]): ParsedPriceItem[] {
   return items.map((row) => {
     let name = row.name;
-    const group = row.groupHeader || 'Загальний прокат';
+    const rawGroup = row.groupHeader || 'Чорний металопрокат';
     let basePrice = Number(row.basePrice) || 0;
     let tonPrice = row.tonPrice !== undefined ? Number(row.tonPrice) : undefined;
-    let cuttingPrice = row.cuttingPrice !== undefined ? Number(row.cuttingPrice) : undefined;
+
+    // Strict Taboo: Complete omission of cutting costs
+    // cuttingPrice is explicitly ignored / removed
 
     // 1. Column Shift Normalization:
     // If unit was saved as name ('т' or 'м.п.' or 'од' or empty)
     if (!name || UNIT_ONLY_REGEX.test(name) || name === 'т' || name === 'м.п.' || name.length <= 2) {
-      name = formatFullMaterialName('', group, row.sourceArticle);
+      name = formatFullMaterialName('', rawGroup, row.sourceArticle);
     } else {
-      name = formatFullMaterialName(name, group, row.sourceArticle);
+      name = formatFullMaterialName(name, rawGroup, row.sourceArticle);
     }
+
+    // 2. Strict Material Folder Distribution:
+    // Table headers (e.g. "Ціна роздрібна з ПДВ") are FORBIDDEN from ever being a folder!
+    const groupHeader = inferMaterialFolder(name, rawGroup);
 
     const isSheet =
       name.toLowerCase().includes('лист') ||
       name.toLowerCase().includes('бляха') ||
       name.toLowerCase().includes('плита') ||
-      group.toLowerCase().includes('лист');
+      groupHeader.toLowerCase().includes('лист');
 
-    // 2. Strict Price Column Validation:
-    // For armature, tubes, profiles: price per meter must NOT be ton price (e.g. 58 785 грн)!
+    // 3. Strict Single Price Column Validation:
+    // For armature, tubes, profiles, bar: retail price per meter must NOT be ton price (e.g. 58 785 грн)!
     // If price > 3000 грн/м.п. for non-sheet:
     if (!isSheet && basePrice > 3000) {
       if (tonPrice && tonPrice > 0 && tonPrice <= 3000) {
@@ -113,11 +366,6 @@ export function normalizeParsedItems(items: ParsedPriceItem[]): ParsedPriceItem[
         const temp = basePrice;
         basePrice = tonPrice;
         tonPrice = temp;
-      } else if (cuttingPrice && cuttingPrice > 0 && cuttingPrice <= 3000) {
-        // Shift from cuttingPrice column
-        tonPrice = basePrice;
-        basePrice = cuttingPrice;
-        cuttingPrice = undefined;
       } else if (!tonPrice || tonPrice <= 0) {
         tonPrice = basePrice;
       }
@@ -137,10 +385,11 @@ export function normalizeParsedItems(items: ParsedPriceItem[]): ParsedPriceItem[
       ...row,
       name,
       category,
+      groupHeader,
       unit,
       basePrice: Math.round(basePrice * 100) / 100,
       tonPrice: tonPrice ? Math.round(tonPrice * 100) / 100 : undefined,
-      cuttingPrice: cuttingPrice ? Math.round(cuttingPrice * 100) / 100 : undefined,
+      cuttingPrice: undefined, // Strictly ignored as per specification
     };
   });
 }
@@ -452,8 +701,8 @@ export class MetalPriceParserService {
     let unitColIdx = -1;
     let priceTonColIdx = -1;
     let priceMeterColIdx = -1;
-    let cuttingColIdx = -1;
     let articleColIdx = -1;
+    const cuttingColIndices = new Set<number>();
 
     for (let r = 0; r < Math.min(rows.length, 12); r++) {
       const row = rows[r] || [];
@@ -473,6 +722,15 @@ export class MetalPriceParserService {
         }
       }
 
+      // Check if this row already has product prices (if so, stop header scanning)
+      const hasPricesInRow = row.some((c) => {
+        const num = this.parseNumeric(c);
+        return num !== null && num > 0;
+      });
+      if (hasPricesInRow) {
+        break;
+      }
+
       let hasNameHeader = false;
       let hasPriceHeader = false;
 
@@ -480,20 +738,29 @@ export class MetalPriceParserService {
         const val = String(row[c] || '').toLowerCase().trim();
         if (!val) continue;
 
-        if (val.includes('назва') || val.includes('найменування') || val.includes('товар') || val.includes('номенклатура')) {
+        if (val.includes('різка') || val.includes('порізка') || val.includes('1 різ')) {
+          // Strictly mark cutting price column to completely ignore it
+          cuttingColIndices.add(c);
+        } else if (val.includes('назва') || val.includes('найменування') || val.includes('товар') || val.includes('номенклатура')) {
           nameColIdx = c;
           hasNameHeader = true;
-        } else if (val === 'од.' || val === 'од' || val.includes('одиниця')) {
+        } else if (val === 'од.' || val === 'од' || val === 'од. вим.' || val.includes('одиниця')) {
           unitColIdx = c;
         } else if (val.includes('за од') || val.includes('за т') || val.includes('ціна за т') || val.includes('ціна за од')) {
           priceTonColIdx = c;
           hasPriceHeader = true;
-        } else if (val.includes('1 м') || val.includes('1м') || val.includes('м.п.') || val.includes('за лист') || val.includes('1 лист')) {
+        } else if (
+          (val.includes('ціна') && (val.includes('1 м') || val.includes('1м') || val.includes('м.п.') || val.includes('лист') || val.includes('роздріб'))) ||
+          val === 'за 1 м' ||
+          val === 'за 1 м.п.' ||
+          val === 'за 1м' ||
+          val === 'за лист' ||
+          val === 'ціна роздрібна' ||
+          val === 'ціна роздрібна з пдв'
+        ) {
           // Strictly the meter / sheet price column
           priceMeterColIdx = c;
           hasPriceHeader = true;
-        } else if (val.includes('різка') || val.includes('порізка')) {
-          cuttingColIdx = c;
         } else if (val.includes('артикул') || val === 'код') {
           articleColIdx = c;
         }
@@ -517,8 +784,10 @@ export class MetalPriceParserService {
       const rowJoined = cleanCells.join(' ');
       const rowLow = rowJoined.toLowerCase();
 
-      // Skip table headers and document banners
+      // Skip table headers, document banners and column header rows
       if (
+        isTableHeaderRowOrText(rowJoined) ||
+        rowLow.includes('ціна роздрібна з пдв') ||
         rowLow.includes('найменування товару') ||
         rowLow.includes('назва товару') ||
         (rowLow.includes('артикул') && rowLow.includes('ціна')) ||
@@ -542,9 +811,12 @@ export class MetalPriceParserService {
         continue;
       }
 
-      // Collect all numeric values in row with their cell index
+      // Collect all numeric values in row with their cell index (EXCLUDING cutting price column)
       const numCells: { idx: number; val: number; raw: string }[] = [];
       for (let c = 0; c < row.length; c++) {
+        // STRICT RULE: Completely exclude cutting price column from reading
+        if (cuttingColIndices.has(c)) continue;
+
         const val = row[c];
         if (val === undefined || val === null || val === '') continue;
         const num = this.parseNumeric(val);
@@ -565,6 +837,11 @@ export class MetalPriceParserService {
           .trim();
 
         if (!groupTitle || groupTitle.length < 3) continue;
+
+        // STRICT FILTER: Table headers (e.g. "Ціна роздрібна з ПДВ") must NEVER become group folders!
+        if (isTableHeaderRowOrText(groupTitle)) {
+          continue;
+        }
 
         // Skip footnotes or disclaimer lines
         const groupTitleLow = groupTitle.toLowerCase();
@@ -662,12 +939,12 @@ export class MetalPriceParserService {
         continue;
       }
 
-      // 3. Extract Price:
-      // ❌ НЕ брати першу колонку ціни (за од., де вказано 58 785 грн / 51 180 грн).
-      // ✅ Брати СТРOГО другу колонку ціни (за 1 м/ лист, де вказано 14.05 грн, 22.98 грн, 33.10 грн, 47.02 грн).
+      // 3. Extract Single Price (строго роздрібна ціна за 1 м/ лист):
+      // ❌ НЕ брати колонку ціни за тонну (58 785 грн / 51 180 грн)
+      // ❌ ПОВНІСТЮ ІГНОРУВАТИ вартість порізки!
+      // ✅ Брати СТРOГО роздрібну ціну за 1 м/ лист (14.05, 175.36, 273.66, 393.21)
       let baseMeterPrice: number | null = null;
       let tonPrice: number | undefined = undefined;
-      let cuttingPrice: number | undefined = undefined;
 
       // Case A: If explicit priceMeterColIdx matched
       if (priceMeterColIdx !== -1 && row[priceMeterColIdx] !== undefined) {
@@ -683,7 +960,7 @@ export class MetalPriceParserService {
       // Separate length (often integer 6 or 12 between ton and meter price)
       const nonLengthPrices: number[] = [];
       for (const pc of priceCandidates) {
-        if ((pc.val === 6 || pc.val === 12) && priceCandidates.length >= 3) {
+        if ((pc.val === 6 || pc.val === 12) && priceCandidates.length >= 2) {
           const pos = priceCandidates.indexOf(pc);
           if (pos > 0 && pos < priceCandidates.length - 1) {
             continue; // Skip length column
@@ -695,12 +972,9 @@ export class MetalPriceParserService {
       if (nonLengthPrices.length >= 2) {
         // First price is Ton Price (e.g. 58 785 грн / 51 180 грн) -> ❌ DO NOT USE AS BASE PRICE
         tonPrice = nonLengthPrices[0];
-        // Second price is Meter / Sheet Price (e.g. 14.05 грн, 22.98 грн) -> ✅ STRICTLY USE AS BASE PRICE
+        // Second price is Meter / Sheet Price (e.g. 14.05 грн, 175.36 грн) -> ✅ STRICTLY USE AS BASE PRICE
         if (baseMeterPrice === null || baseMeterPrice > 3000) {
           baseMeterPrice = nonLengthPrices[1];
-        }
-        if (nonLengthPrices.length >= 3) {
-          cuttingPrice = nonLengthPrices[2];
         }
       } else if (nonLengthPrices.length === 1 && baseMeterPrice === null) {
         const singleVal = nonLengthPrices[0];
@@ -720,13 +994,10 @@ export class MetalPriceParserService {
       // Validation check: if baseMeterPrice > 3000 грн/м.п. for rebar or profiles, this is ton price!
       if (!isSheet && baseMeterPrice !== null && baseMeterPrice > 3000) {
         tonPrice = baseMeterPrice;
-        // Search rightward in nonLengthPrices for the genuine meter price
+        // Search rightward in nonLengthPrices for genuine meter price
         const meterCandidate = nonLengthPrices.find((p) => p > 0 && p <= 3000);
         if (meterCandidate) {
           baseMeterPrice = meterCandidate;
-        } else if (cuttingPrice && cuttingPrice > 0 && cuttingPrice <= 3000) {
-          baseMeterPrice = cuttingPrice;
-          cuttingPrice = undefined;
         }
       }
 
@@ -734,13 +1005,19 @@ export class MetalPriceParserService {
         continue;
       }
 
-      // 4. Determine category and unit
+      // 4. Strict Material Folder Distribution:
+      // All items (e.g. Квадрат металевий 20, Дріт, Балка) strictly into their material folders!
+      const targetFolder = inferMaterialFolder(itemName, currentGroupHeader);
+      if (!groupHeadersFound.includes(targetFolder)) {
+        groupHeadersFound.push(targetFolder);
+      }
+
+      // 5. Determine category and unit
       const { category, unit } = this.determineCategoryAndUnit(itemName);
 
-      // 5. Match with existing
-      const normName = this.normalizeName(itemName);
+      // 6. Match with existing material position (anti-duplicate check)
       const existingMatch = existingMaterials.find(
-        (em) => this.normalizeName(em.name) === normName
+        (em) => areMaterialsMatching(em, { name: itemName, sourceArticle: article })
       );
 
       recognizedItems.push({
@@ -748,10 +1025,10 @@ export class MetalPriceParserService {
         category,
         parentCategory: 'Металопрокат',
         subcategory: currentSubcategory,
-        groupHeader: currentGroupHeader,
+        groupHeader: targetFolder,
         unit,
         basePrice: Math.round(baseMeterPrice * 100) / 100,
-        cuttingPrice: cuttingPrice ? Math.round(cuttingPrice * 100) / 100 : undefined,
+        cuttingPrice: undefined, // COMPLETELY IGNORED as requested
         sourceArticle: article,
         tonPrice: tonPrice ? Math.round(tonPrice * 100) / 100 : undefined,
         isExisting: !!existingMatch,
@@ -780,6 +1057,9 @@ export class MetalPriceParserService {
 
   /**
    * Apply imported price items into existing materials database (with update / add logic)
+   * - Strict single price update: updates ONLY basePrice per meter/sheet
+   * - Strict duplicate protection: matches items by name, specification, and steel grade
+   * - Eliminates cutting cost from database records
    */
   public static applyImportedPrices(
     parsedItems: ParsedPriceItem[],
@@ -793,44 +1073,47 @@ export class MetalPriceParserService {
     let addedCount = 0;
     let updatedCount = 0;
 
-    const materialsMap = new Map<string, MaterialItem>();
-    // Index existing by normalized name
-    existingMaterials.forEach((m) => {
-      materialsMap.set(this.normalizeName(m.name), { ...m });
-    });
+    // Clone existing materials array for in-place updates and index by ID
+    const materialsList: MaterialItem[] = existingMaterials.map((m) => ({
+      ...m,
+      cuttingPrice: undefined, // Clean out any previous cutting prices
+      notes: m.notes && m.notes.includes('Різка:') ? undefined : m.notes,
+    }));
 
     const nowIso = new Date().toISOString();
 
     for (const item of parsedItems) {
-      const normKey = this.normalizeName(item.name);
-      const existing = materialsMap.get(normKey);
+      // Find matching existing material using strict steel grade & dimensional matching
+      const existingIndex = materialsList.findIndex((em) => areMaterialsMatching(em, item));
 
-      let normSubcategory = item.subcategory || existing?.subcategory || 'Чорний метал';
+      let normSubcategory = item.subcategory || 'Чорний метал';
       if (normSubcategory.toLowerCase().includes('чорн') || normSubcategory.toLowerCase().includes('метал')) {
         if (!normSubcategory.toLowerCase().includes('нержав') && !normSubcategory.toLowerCase().includes('алюмін')) {
           normSubcategory = 'Чорний метал';
         }
       }
 
-      if (existing) {
-        // Update existing item without duplicating
+      if (existingIndex !== -1) {
+        const existing = materialsList[existingIndex];
+        // UPDATE EXISTING: only update basePrice for meter/sheet! No duplicate is created!
         const updatedItem: MaterialItem = {
           ...existing,
           basePrice: item.basePrice,
-          cuttingPrice: item.cuttingPrice !== undefined ? item.cuttingPrice : existing.cuttingPrice,
-          unit: item.unit,
-          parentCategory: item.parentCategory || 'Металопрокат',
+          cuttingPrice: undefined, // Completely excluded
+          unit: item.unit || existing.unit,
+          parentCategory: item.parentCategory || existing.parentCategory || 'Металопрокат',
           subcategory: normSubcategory,
-          groupHeader: item.groupHeader || existing.groupHeader,
+          groupHeader: inferMaterialFolder(existing.name, item.groupHeader || existing.groupHeader),
           supplier: supplierName || existing.supplier,
           sourceArticle: item.sourceArticle || existing.sourceArticle,
           tonPrice: item.tonPrice || existing.tonPrice,
+          notes: existing.notes && existing.notes.includes('Різка:') ? undefined : existing.notes,
           updatedAt: nowIso,
         };
-        materialsMap.set(normKey, updatedItem);
+        materialsList[existingIndex] = updatedItem;
         updatedCount++;
       } else {
-        // Add new item into the catalog
+        // ADD NEW ITEM: only if not already matched
         const defaultWaste = item.category === 'sheet_metal' ? 1.15 : 1.10;
         const newItem: MaterialItem = {
           id: `mat_metal_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -838,24 +1121,24 @@ export class MetalPriceParserService {
           category: item.category,
           parentCategory: item.parentCategory || 'Металопрокат',
           subcategory: normSubcategory,
-          groupHeader: item.groupHeader || 'Загальний металопрокат',
+          groupHeader: inferMaterialFolder(item.name, item.groupHeader),
           unit: item.unit,
           basePrice: item.basePrice,
-          cuttingPrice: item.cuttingPrice,
+          cuttingPrice: undefined, // No cutting cost stored
           defaultWasteFactor: defaultWaste,
           supplier: supplierName,
           sourceArticle: item.sourceArticle,
           tonPrice: item.tonPrice,
-          notes: item.cuttingPrice ? `Різка: ${item.cuttingPrice.toFixed(2)} грн` : undefined,
+          notes: undefined,
           updatedAt: nowIso,
         };
-        materialsMap.set(normKey, newItem);
+        materialsList.push(newItem);
         addedCount++;
       }
     }
 
     return {
-      updatedMaterials: Array.from(materialsMap.values()),
+      updatedMaterials: materialsList,
       addedCount,
       updatedCount,
     };
@@ -869,7 +1152,7 @@ export class MetalPriceParserService {
 
     const data: any[][] = [
       ['ЧОРНИЙ МЕТАЛОПРОКАТ'],
-      ['Прайс-лист металопрокату з роздрібними цінами та послугами різки'],
+      ['Прайс-лист металопрокату з роздрібними цінами за 1 м.п. / лист'],
       [],
       [
         'Артикул',
@@ -878,31 +1161,30 @@ export class MetalPriceParserService {
         'Ціна за од. (тонну)',
         'Довжина в м',
         'Ціна роздрібна з ПДВ / за 1 м/ лист',
-        'Різка (вартість різу грн)',
       ],
       // Group 1: Арматура мірної довжини
-      ['', 'Арматура мірної довжини', '', '', '', '', ''],
-      ['ARM-006', 'Арматура мірної довжини 6 міра', 'Т', 58785, 6, 14.05, 10.80],
-      ['ARM-008', 'Арматура мірної довжини 8 міра', 'Т', 51180, 6, 22.98, 12.00],
-      ['ARM-010', 'Арматура мірної довжини 10 міра', 'Т', 49500, 6, 33.10, 13.20],
-      ['ARM-012', 'Арматура мірної довжини 12 міра', 'Т', 48900, 6, 47.02, 14.40],
+      ['', 'Арматура мірної довжини', '', '', '', ''],
+      ['ARM-006', 'Арматура мірної довжини 6 міра', 'Т', 58785, 6, 14.05],
+      ['ARM-008', 'Арматура мірної довжини 8 міра', 'Т', 51180, 6, 22.98],
+      ['ARM-010', 'Арматура мірної довжини 10 міра', 'Т', 49500, 6, 33.10],
+      ['ARM-012', 'Арматура мірної довжини 12 міра', 'Т', 48900, 6, 47.02],
       [],
       // Group 2: Труба профільна квадратна
-      ['', 'Труба профільна квадратна', '', '', '', '', ''],
-      ['TR-20202', 'Труба профільна 20х20х2 мм ст.3', 'Т', 36200, 6, 52.40, 8.50],
-      ['TR-40402', 'Труба профільна 40х40х2 мм ст.3', 'Т', 35800, 6, 95.80, 11.20],
-      ['TR-50503', 'Труба профільна 50х50х3 мм ст.3', 'Т', 35400, 6, 168.00, 16.00],
-      ['TR-60402', 'Труба профільна 60х40х2 мм ст.3', 'Т', 35800, 6, 124.50, 13.50],
+      ['', 'Труба профільна квадратна', '', '', '', ''],
+      ['TR-20202', 'Труба профільна 20х20х2 мм ст.3', 'Т', 36200, 6, 52.40],
+      ['TR-40402', 'Труба профільна 40х40х2 мм ст.3', 'Т', 35800, 6, 95.80],
+      ['TR-50503', 'Труба профільна 50х50х3 мм ст.3', 'Т', 35400, 6, 168.00],
+      ['TR-60402', 'Труба профільна 60х40х2 мм ст.3', 'Т', 35800, 6, 124.50],
       [],
       // Group 3: Кутник рівнополичний
-      ['', 'Кутник рівнополичний', '', '', '', '', ''],
-      ['KUT-32323', 'Кутник сталевий 32х32х3 мм ст.3', 'Т', 34500, 6, 58.20, 9.00],
-      ['KUT-40404', 'Кутник сталевий 40х40х4 мм ст.3', 'Т', 34200, 6, 88.60, 11.50],
+      ['', 'Кутник рівнополичний', '', '', '', ''],
+      ['KUT-32323', 'Кутник сталевий 32х32х3 мм ст.3', 'Т', 34500, 6, 58.20],
+      ['KUT-40404', 'Кутник сталевий 40х40х4 мм ст.3', 'Т', 34200, 6, 88.60],
       [],
       // Group 4: Листовий прокат г/к
-      ['', 'Листовий прокат гарячекатаний', '', '', '', '', ''],
-      ['LST-02', 'Лист г/к 2.0 мм ст.3 (розмір 1250х2500)', 'Т', 38000, 1, 890.00, 25.00],
-      ['LST-03', 'Лист г/к 3.0 мм ст.3 (розмір 1250х2500)', 'Т', 37500, 1, 1340.00, 35.00],
+      ['', 'Листовий прокат гарячекатаний', '', '', '', ''],
+      ['LST-02', 'Лист г/к 2.0 мм ст.3 (розмір 1250х2500)', 'Т', 38000, 1, 890.00],
+      ['LST-03', 'Лист г/к 3.0 мм ст.3 (розмір 1250х2500)', 'Т', 37500, 1, 1340.00],
     ];
 
     const ws = XLSX.utils.aoa_to_sheet(data);
@@ -915,7 +1197,6 @@ export class MetalPriceParserService {
       { wch: 20 }, // Ціна за тонну
       { wch: 12 }, // Довжина в м
       { wch: 34 }, // Ціна роздрібна з ПДВ / за 1 м/ лист
-      { wch: 26 }, // Різка (вартість різу грн)
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Чорний металопрокат');
@@ -943,7 +1224,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 14.05,
-        cuttingPrice: 10.80,
         sourceArticle: 'ARM-006',
         tonPrice: 58785,
       },
@@ -955,7 +1235,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 22.98,
-        cuttingPrice: 12.00,
         sourceArticle: 'ARM-008',
         tonPrice: 51180,
       },
@@ -967,7 +1246,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 33.10,
-        cuttingPrice: 13.20,
         sourceArticle: 'ARM-010',
         tonPrice: 49500,
       },
@@ -979,7 +1257,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 47.02,
-        cuttingPrice: 14.40,
         sourceArticle: 'ARM-012',
         tonPrice: 48900,
       },
@@ -991,7 +1268,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна квадратна',
         unit: 'м.п.',
         basePrice: 95.80,
-        cuttingPrice: 11.20,
         sourceArticle: 'TR-40402',
         tonPrice: 35800,
       },
@@ -1003,7 +1279,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна квадратна',
         unit: 'м.п.',
         basePrice: 168.00,
-        cuttingPrice: 16.00,
         sourceArticle: 'TR-50503',
         tonPrice: 35400,
       },
@@ -1015,7 +1290,6 @@ export class MetalPriceParserService {
         groupHeader: 'Листовий прокат гарячекатаний',
         unit: 'м²',
         basePrice: 890.00,
-        cuttingPrice: 25.00,
         sourceArticle: 'LST-02',
         tonPrice: 38000,
       },
@@ -1036,7 +1310,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 14.05,
-        cuttingPrice: 10.80,
         sourceArticle: 'ARM-006',
         tonPrice: 58785,
       },
@@ -1048,7 +1321,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 22.98,
-        cuttingPrice: 12.00,
         sourceArticle: 'ARM-008',
         tonPrice: 51180,
       },
@@ -1060,7 +1332,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 33.10,
-        cuttingPrice: 13.20,
         sourceArticle: 'ARM-010',
         tonPrice: 49500,
       },
@@ -1072,7 +1343,6 @@ export class MetalPriceParserService {
         groupHeader: 'Арматура мірної довжини',
         unit: 'м.п.',
         basePrice: 47.02,
-        cuttingPrice: 14.40,
         sourceArticle: 'ARM-012',
         tonPrice: 48900,
       },
@@ -1086,7 +1356,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна квадратна',
         unit: 'м.п.',
         basePrice: 52.40,
-        cuttingPrice: 8.50,
         sourceArticle: 'TR-20202',
         tonPrice: 36200,
       },
@@ -1098,7 +1367,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна квадратна',
         unit: 'м.п.',
         basePrice: 66.80,
-        cuttingPrice: 9.50,
         sourceArticle: 'TR-25252',
         tonPrice: 36000,
       },
@@ -1110,7 +1378,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна квадратна',
         unit: 'м.п.',
         basePrice: 95.80,
-        cuttingPrice: 11.20,
         sourceArticle: 'TR-40402',
         tonPrice: 35800,
       },
@@ -1122,7 +1389,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна квадратна',
         unit: 'м.п.',
         basePrice: 168.00,
-        cuttingPrice: 16.00,
         sourceArticle: 'TR-50503',
         tonPrice: 35400,
       },
@@ -1136,7 +1402,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна прямокутна',
         unit: 'м.п.',
         basePrice: 71.50,
-        cuttingPrice: 9.00,
         sourceArticle: 'TR-40202',
         tonPrice: 36000,
       },
@@ -1148,7 +1413,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна прямокутна',
         unit: 'м.п.',
         basePrice: 91.20,
-        cuttingPrice: 10.50,
         sourceArticle: 'TR-50252',
         tonPrice: 35900,
       },
@@ -1160,7 +1424,6 @@ export class MetalPriceParserService {
         groupHeader: 'Труба профільна прямокутна',
         unit: 'м.п.',
         basePrice: 124.50,
-        cuttingPrice: 13.50,
         sourceArticle: 'TR-60402',
         tonPrice: 35800,
       },
@@ -1174,7 +1437,6 @@ export class MetalPriceParserService {
         groupHeader: 'Кутник рівнополичний',
         unit: 'м.п.',
         basePrice: 42.10,
-        cuttingPrice: 8.00,
         sourceArticle: 'KUT-25253',
         tonPrice: 34800,
       },
@@ -1186,7 +1448,6 @@ export class MetalPriceParserService {
         groupHeader: 'Кутник рівнополичний',
         unit: 'м.п.',
         basePrice: 58.20,
-        cuttingPrice: 9.00,
         sourceArticle: 'KUT-32323',
         tonPrice: 34500,
       },
@@ -1198,7 +1459,6 @@ export class MetalPriceParserService {
         groupHeader: 'Кутник рівнополичний',
         unit: 'м.п.',
         basePrice: 88.60,
-        cuttingPrice: 11.50,
         sourceArticle: 'KUT-40404',
         tonPrice: 34200,
       },
@@ -1210,7 +1470,6 @@ export class MetalPriceParserService {
         groupHeader: 'Кутник рівнополичний',
         unit: 'м.п.',
         basePrice: 112.40,
-        cuttingPrice: 13.00,
         sourceArticle: 'KUT-50504',
         tonPrice: 33900,
       },
@@ -1224,7 +1483,6 @@ export class MetalPriceParserService {
         groupHeader: 'Листовий прокат гарячекатаний',
         unit: 'м²',
         basePrice: 890.00,
-        cuttingPrice: 25.00,
         sourceArticle: 'LST-02',
         tonPrice: 38000,
       },
@@ -1236,7 +1494,6 @@ export class MetalPriceParserService {
         groupHeader: 'Листовий прокат гарячекатаний',
         unit: 'м²',
         basePrice: 1340.00,
-        cuttingPrice: 35.00,
         sourceArticle: 'LST-03',
         tonPrice: 37500,
       },
@@ -1248,7 +1505,6 @@ export class MetalPriceParserService {
         groupHeader: 'Листовий прокат гарячекатаний',
         unit: 'м²',
         basePrice: 1780.00,
-        cuttingPrice: 45.00,
         sourceArticle: 'LST-04',
         tonPrice: 37000,
       },
@@ -1262,7 +1518,6 @@ export class MetalPriceParserService {
         groupHeader: 'Швелер сталевий',
         unit: 'м.п.',
         basePrice: 245.00,
-        cuttingPrice: 18.00,
         sourceArticle: 'SHV-08',
         tonPrice: 37500,
       },
@@ -1274,7 +1529,6 @@ export class MetalPriceParserService {
         groupHeader: 'Швелер сталевий',
         unit: 'м.п.',
         basePrice: 318.50,
-        cuttingPrice: 22.00,
         sourceArticle: 'SHV-10',
         tonPrice: 37200,
       },

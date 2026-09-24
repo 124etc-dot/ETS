@@ -4,6 +4,9 @@ import {
   formatFullMaterialName,
   normalizeParsedItems,
   UNIT_ONLY_REGEX,
+  isTableHeaderRowOrText,
+  inferMaterialFolder,
+  areMaterialsMatching,
 } from '../../src/services/metalPriceParser';
 
 // Lazy initializer for Gemini client
@@ -42,7 +45,7 @@ export const metalPriceResponseSchema: Schema = {
         properties: {
           groupHeader: {
             type: Type.STRING,
-            description: 'Name of the folder/subcategory, e.g. "Арматура мірної довжини", "Труба профільна квадратна", "Листовий прокат", "Кутник сталевий", "Швелер сталевий"',
+            description: 'Name of the material folder (e.g. "Квадрат", "Дріт", "Балка", "Арматура мірної довжини", "Труба профільна квадратна", "Листовий прокат", "Кутник сталевий", "Швелер сталевий"). FORBIDDEN: never use table header names like "Ціна роздрібна з ПДВ" or "Найменування" as groupHeader!',
           },
           items: {
             type: Type.ARRAY,
@@ -56,19 +59,15 @@ export const metalPriceResponseSchema: Schema = {
                 },
                 name: {
                   type: Type.STRING,
-                  description: 'Clear item name, e.g. "Арматура 12 міра", "Труба профільна 40х40х2 мм ст.3", "Лист г/к 2.0 мм ст.3"',
+                  description: 'Full product name, e.g. "Квадрат металевий 20", "Квадрат металевий 20 (ст.45)", "Арматура мірної довжини 12 міра", "Труба профільна 40х40х2 мм ст.3"',
                 },
                 unit: {
                   type: Type.STRING,
-                  description: 'Unit of measure for calculating furniture: "м.п." for profiles/pipes/bars/angles/channels, "м²" for sheets/plates',
+                  description: 'Unit of measure: "м.п." for profiles/pipes/bars/wire/beams/angles/channels, "м²" for sheets/plates',
                 },
                 pricePerMeterOrSheet: {
                   type: Type.NUMBER,
-                  description: 'Retail price per 1 meter or per 1 sheet with VAT (Ціна роздрібна з ПДВ / за 1 м/ лист). Crucial: this must be a positive number per meter or per sheet, NOT per ton!',
-                },
-                cuttingPrice: {
-                  type: Type.NUMBER,
-                  description: 'Cutting cost per cut in UAH if specified in the table (Різка / вартість 1 різу), or 0 if not present',
+                  description: 'Single retail price per 1 meter or per 1 sheet with VAT (Ціна роздрібна з ПДВ / за 1 м/ лист). Crucial: this must be a positive number per meter or per sheet, NOT per ton and NOT cutting cost!',
                 },
                 tonPrice: {
                   type: Type.NUMBER,
@@ -105,22 +104,37 @@ export async function processMetalPricePdf(params: {
   const prompt = `Ти спеціалізований парсер прайс-листів металопрокату українських металотрейдерів (зокрема ТОВ «Метал Холдінг», «Метінвест-СМЦ», «АВ метал груп», «Вікант»).
 Перед тобою PDF-файл прайс-листа металопрокату з назвою "${fileName}".
 
-СТРОГІ ПРАВИЛА ЗЧИТУВАННЯ КОЛОНОК (читати ТІЛЬКИ 3 колонки, все інше ігнорувати):
-1. Група (Підкатегорія / groupHeader):
-   Рядок із заголовком групи (наприклад: «Арматура мірної довжини», «Труба профільна квадратна», «Кутник сталевий», «Листовий прокат»). Очистити від приміток (без сталь..., без ГОСТ).
-2. Повна назва матеріалу (name):
-   Повна назва матеріалу формується конкатенацією: [Підкатегорія] + [Специфікація/Розмір].
-   Наприклад: якщо підкатегорія «Арматура мірної довжини», а в таблиці «6 міра», назва повинна бути: «Арматура мірної довжини 6 міра»!
-   Аналогічно: «Арматура мірної довжини 8 міра», «Арматура мірної довжини 10 міра», «Арматура мірної довжини 12 міра», «Труба профільна 40х40х2 мм ст.3» тощо.
-   ❌ КАТЕГОРИЧНО ЗАБОРОНЕНО обрізати назву до просто «6 міра» чи «8 міра»!
-   ❌ СУВОРЕ ТАБУ: Ігнорувати букви «т», «м.п.», «шт», «кг» при формуванні назви! Якщо осередки містять лише 1-2 букви одиниці виміру — це НЕ назва товару!
-3. Ціна за метр / лист (pricePerMeterOrSheet):
-   Колонка "за 1 м/ лист" (підзаголовок колонки «Ціна роздрібна з ПДВ»).
-   ❌ ПОВНІСТЮ ІГНОРУВАТИ першу колонку ціни (Ціна за тонну/од., де вказано 58 785 грн / 51 180 грн / 32 500 грн)!
-   ✅ Брати СТРOГО другу колонку ціни (за 1 м/ лист, де вказано роздрібну ціну: 14.05 грн, 22.98 грн, 33.10 грн, 47.02 грн тощо).
-   ❌ Якщо ціна за метр перевищує 3000 грн/м.п. для арматури — це помилка парсингу (підхопилася ціна тонни)! Запиши її в tonPrice, а в pricePerMeterOrSheet візьми ціну за метр з наступної колонки.
+ГОЛОВНІ ПРАВИЛА ЗЧИТУВАННЯ ТА СТРУКТУРУВАННЯ:
 
-Поверни структурований JSON згідно зі схемою.`;
+1. ПОВНЕ ІГНОРУВАННЯ ВАРТОСТІ ПОРІЗКИ:
+   - Повністю виключити колонку «Вартість різки» / «Порізка» / «1 різ» з розпізнавання!
+   - НЕ зчитувати її, не записувати в ціну товару, не повертати.
+
+2. СТРОГИЙ ФІЛЬТР ШАПКИ ТАБЛИЦІ (ПРИБИТИ ПОМИЛКОВУ КАТЕГОРІЮ «Ціна роздрібна з ПДВ»):
+   - Назви колонок з шапки таблиці («Ціна роздрібна з ПДВ», «Найменування», «Одиниця виміру», «Ціна за тонну», «Вартість різки», «Довжина» тощо) НІКОЛИ не повинні ставати папками чи підкатегоріями (groupHeader)!
+   - Усі товари мають розподілятися строго за своїми матеріальними папками:
+     * «Квадрат» (для всіх квадратів металевих, напр. Квадрат металевий 20, Квадрат 12, Квадрат 20 ст.45)
+     * «Дріт» (для дроту в'язального, ВР-1 тощо)
+     * «Балка» (для двотаврів та балок)
+     * «Арматура мірної довжини» або «Арматура»
+     * «Труба профільна квадратна» / «Труба профільна прямокутна»
+     * «Кутник» / «Кутник рівнополичний»
+     * «Швелер» / «Швелер сталевий»
+     * «Круг»
+     * «Полоса»
+     * «Листовий прокат»
+
+3. ФОРМУВАННЯ ПОВНОЇ НАЗВИ ТОВАРУ:
+   - Повна назва матеріалу конкатенується: [Підкатегорія] + [Специфікація/Розмір], з маркою сталі якщо вказана.
+   - Наприклад: «Квадрат металевий 20», «Квадрат металевий 20 (ст.45)», «Арматура мірної довжини 6 міра», «Труба профільна 40х40х2 мм ст.3».
+   - СУВОРЕ ТАБУ: Ігнорувати букви «т», «м.п.», «шт», «кг»! Вони не є назвою.
+
+4. ЛОГІКА ЄДИНОЇ ЦІНИ:
+   - З прайсу зчитується СТРОГО ОДНА цінова колонка — за 1 м/ лист (наприклад: 14.05, 175.36, 273.66, 393.21).
+   - ПОВНІСТЮ ІГНОРУВАТИ ціну за тонну (58 785, 51 180 тощо) та вартість різки!
+   - Якщо ціна за метр перевищує 3000 грн/м.п. для не-листового прокату — це помилка (підхопилася ціна тонни)! Запиши її в tonPrice, а для pricePerMeterOrSheet візьми ціну за метр із сусідньої колонки.
+
+Поверни валідний структурований JSON згідно зі схемою.`;
 
   const candidateModels = [
     'gemini-3.8-flash',
@@ -179,33 +193,18 @@ export async function processMetalPricePdf(params: {
   const supplier = customSupplier?.trim() || rawJson.supplier || 'ТОВ «Метал Холдінг»';
   const mainCategory = rawJson.mainCategory || 'Чорний металопрокат';
 
-  // Normalize existing materials map for quick lookup
-  const normalizeName = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[\s\t\n]+/g, ' ')
-      .replace(/[,;:]/g, ' ')
-      .replace(/["'«»]/g, '')
-      .replace(/x/g, 'х')
-      .trim();
-
-  const existingMap = new Map<string, MaterialItem>();
-  existingMaterials.forEach((m) => {
-    existingMap.set(normalizeName(m.name), m);
-  });
-
   const sections = Array.isArray(rawJson.sections) ? rawJson.sections : [];
 
   for (const sec of sections) {
-    let groupName = String(sec.groupHeader || 'Загальний прокат')
+    let rawGroupName = String(sec.groupHeader || '')
       .replace(/^[📁📂\s\-_:;]+/, '')
       .replace(/\s*\([^)]*\)/g, '')
       .replace(/[:;\.]$/, '')
       .trim();
 
-    if (!groupName) groupName = 'Загальний прокат';
-    if (!groupHeadersFound.includes(groupName)) {
-      groupHeadersFound.push(groupName);
+    // Prevent table headers from being group names
+    if (isTableHeaderRowOrText(rawGroupName)) {
+      rawGroupName = '';
     }
 
     const items = Array.isArray(sec.items) ? sec.items : [];
@@ -214,13 +213,21 @@ export async function processMetalPricePdf(params: {
       const article = it.article ? String(it.article).trim() : undefined;
 
       // Handle column shift and full name formation
-      let name = formatFullMaterialName(rawItemName, groupName, article);
+      let name = formatFullMaterialName(rawItemName, rawGroupName, article);
       if (!name || UNIT_ONLY_REGEX.test(name) || name === 'т' || name === 'м.п.') {
         continue;
       }
 
-      const norm = normalizeName(name);
-      const existing = existingMap.get(norm);
+      // Strictly map item into its material folder (Квадрат, Дріт, Балка, etc.)
+      const groupName = inferMaterialFolder(name, rawGroupName);
+      if (!groupHeadersFound.includes(groupName)) {
+        groupHeadersFound.push(groupName);
+      }
+
+      // Check against existing materials database using flexible matching with steel grade
+      const existing = existingMaterials.find((em) =>
+        areMaterialsMatching(em, { name, sourceArticle: article })
+      );
 
       let price = Number(it.pricePerMeterOrSheet) || 0;
       let tonPrice = Number(it.tonPrice) > 0 ? Number(it.tonPrice) : undefined;
@@ -247,8 +254,6 @@ export async function processMetalPricePdf(params: {
       const unit = isSheet ? 'м²' : (it.unit === 'м²' ? 'м²' : 'м.п.');
       const category: MaterialCategory = isSheet ? 'sheet_metal' : 'metal_profile';
 
-      const cuttingPrice = Number(it.cuttingPrice) > 0 ? Number(it.cuttingPrice) : undefined;
-
       let subcategory = mainCategory || 'Чорний метал';
       if (mainCategory.toLowerCase().includes('чорн') || mainCategory.toLowerCase().includes('метал')) {
         if (!mainCategory.toLowerCase().includes('нержав') && !mainCategory.toLowerCase().includes('алюмін')) {
@@ -264,7 +269,7 @@ export async function processMetalPricePdf(params: {
         groupHeader: groupName,
         unit,
         basePrice: Math.round(price * 100) / 100,
-        cuttingPrice: cuttingPrice ? Math.round(cuttingPrice * 100) / 100 : undefined,
+        cuttingPrice: undefined, // Strictly ignored as per specification
         sourceArticle: article,
         tonPrice: tonPrice ? Math.round(tonPrice * 100) / 100 : undefined,
         isExisting: !!existing,

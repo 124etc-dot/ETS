@@ -513,11 +513,6 @@ export const MasterDataModal: React.FC<Props> = ({
                                     📁 {mat.groupHeader}
                                   </span>
                                 )}
-                                {mat.cuttingPrice !== undefined && (
-                                  <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded flex items-center gap-0.5">
-                                    ✂️ Різка: {mat.cuttingPrice.toFixed(2)} ₴
-                                  </span>
-                                )}
                                 {mat.notes && (
                                   <span className="text-[10px] text-slate-400 font-normal italic">
                                     {mat.notes}

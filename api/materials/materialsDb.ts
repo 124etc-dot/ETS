@@ -2,6 +2,10 @@ import fs from 'fs';
 import path from 'path';
 import { MaterialItem, ParsedPriceItem } from '../../src/types/calculator';
 import { DEFAULT_MATERIALS } from '../../src/data/calculatorDefaults';
+import {
+  areMaterialsMatching,
+  inferMaterialFolder,
+} from '../../src/services/metalPriceParser';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'materials.json');
@@ -44,34 +48,26 @@ export function resetMaterialsDb(): MaterialItem[] {
   return saveMaterialsToDb([...DEFAULT_MATERIALS]);
 }
 
-function normalizeKey(str: string): string {
-  return str
-    .toLowerCase()
-    .replace(/[\s\t\n]+/g, ' ')
-    .replace(/[,;:]/g, ' ')
-    .replace(/["'«»]/g, '')
-    .replace(/x/g, 'х')
-    .trim();
-}
-
 export function importPriceItemsToDb(
   items: (ParsedPriceItem | MaterialItem)[],
   supplierName: string = 'ТОВ «Метал Холдінг»'
 ): { updatedMaterials: MaterialItem[]; addedCount: number; updatedCount: number } {
   const currentMaterials = getMaterialsFromDb();
-  const materialsMap = new Map<string, MaterialItem>();
-
-  currentMaterials.forEach((m) => {
-    materialsMap.set(normalizeKey(m.name), { ...m });
-  });
+  
+  // Clean all previous cutting prices and cutting notes from existing database entries
+  const materialsList: MaterialItem[] = currentMaterials.map((m) => ({
+    ...m,
+    cuttingPrice: undefined,
+    notes: m.notes && m.notes.includes('Різка:') ? undefined : m.notes,
+  }));
 
   let addedCount = 0;
   let updatedCount = 0;
   const nowIso = new Date().toISOString();
 
   for (const item of items) {
-    const normKey = normalizeKey(item.name);
-    const existing = materialsMap.get(normKey);
+    // Strict duplicate protection: match existing by full name, spec, or steel grade
+    const existingIndex = materialsList.findIndex((em) => areMaterialsMatching(em, item));
 
     // Normalize subcategory
     let subcategory = item.subcategory || 'Чорний метал';
@@ -81,21 +77,24 @@ export function importPriceItemsToDb(
       }
     }
 
-    if (existing) {
+    if (existingIndex !== -1) {
+      const existing = materialsList[existingIndex];
+      // STRICT RULE: Update ONLY basePrice per meter/sheet. No duplicates!
       const updatedItem: MaterialItem = {
         ...existing,
         basePrice: item.basePrice,
-        cuttingPrice: item.cuttingPrice !== undefined ? item.cuttingPrice : existing.cuttingPrice,
+        cuttingPrice: undefined, // Exclude cutting price completely
         unit: item.unit || existing.unit,
         parentCategory: item.parentCategory || existing.parentCategory || 'Металопрокат',
         subcategory,
-        groupHeader: item.groupHeader || existing.groupHeader,
+        groupHeader: inferMaterialFolder(existing.name, item.groupHeader || existing.groupHeader),
         supplier: supplierName || (item as any).supplier || existing.supplier,
         sourceArticle: (item as any).sourceArticle || existing.sourceArticle,
         tonPrice: (item as any).tonPrice || existing.tonPrice,
+        notes: existing.notes && existing.notes.includes('Різка:') ? undefined : existing.notes,
         updatedAt: nowIso,
       };
-      materialsMap.set(normKey, updatedItem);
+      materialsList[existingIndex] = updatedItem;
       updatedCount++;
     } else {
       const defaultWaste = item.category === 'sheet_metal' ? 1.15 : 1.10;
@@ -105,27 +104,26 @@ export function importPriceItemsToDb(
         category: item.category,
         parentCategory: item.parentCategory || 'Металопрокат',
         subcategory,
-        groupHeader: item.groupHeader || 'Загальний сортамент',
+        groupHeader: inferMaterialFolder(item.name, item.groupHeader),
         unit: item.unit || 'м.п.',
         basePrice: item.basePrice,
-        cuttingPrice: item.cuttingPrice,
+        cuttingPrice: undefined, // Exclude cutting price completely
         defaultWasteFactor: defaultWaste,
         supplier: supplierName || (item as any).supplier,
         sourceArticle: (item as any).sourceArticle,
         tonPrice: (item as any).tonPrice,
-        notes: item.cuttingPrice ? `Різка: ${item.cuttingPrice.toFixed(2)} грн` : undefined,
+        notes: undefined,
         updatedAt: nowIso,
       };
-      materialsMap.set(normKey, newItem);
+      materialsList.push(newItem);
       addedCount++;
     }
   }
 
-  const updatedMaterials = Array.from(materialsMap.values());
-  saveMaterialsToDb(updatedMaterials);
+  saveMaterialsToDb(materialsList);
 
   return {
-    updatedMaterials,
+    updatedMaterials: materialsList,
     addedCount,
     updatedCount,
   };

@@ -566,11 +566,6 @@ export const ImportMetalPriceModal: React.FC<Props> = ({
                                         })}{' '}
                                         грн / {it.unit}
                                       </span>
-                                      {it.cuttingPrice !== undefined && (
-                                        <span className="text-[11px] text-amber-400 bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-800/40">
-                                          (Різка: {it.cuttingPrice.toFixed(2)} грн)
-                                        </span>
-                                      )}
                                       {it.isExisting ? (
                                         <span className="text-[10px] text-amber-300 bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-700/50">
                                           Оновлення: {it.oldPrice?.toFixed(2)} ₴ ➔ {it.basePrice.toFixed(2)} ₴
@@ -603,7 +598,6 @@ export const ImportMetalPriceModal: React.FC<Props> = ({
                         <th className="py-2 px-3">Назва матеріалу</th>
                         <th className="py-2 px-3 text-center">Од.</th>
                         <th className="py-2 px-3 text-right">Ціна роздрібна</th>
-                        <th className="py-2 px-3 text-right">Вартість різки</th>
                         <th className="py-2 px-3 text-center">Статус</th>
                       </tr>
                     </thead>
@@ -621,9 +615,6 @@ export const ImportMetalPriceModal: React.FC<Props> = ({
                           </td>
                           <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900">
                             {item.basePrice.toFixed(2)} ₴
-                          </td>
-                          <td className="py-1.5 px-3 text-right font-mono text-slate-600">
-                            {item.cuttingPrice ? `${item.cuttingPrice.toFixed(2)} ₴` : '—'}
                           </td>
                           <td className="py-1.5 px-3 text-center">
                             {item.isExisting ? (

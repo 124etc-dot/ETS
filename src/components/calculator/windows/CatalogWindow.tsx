@@ -360,11 +360,6 @@ export const CatalogWindow: React.FC<Props> = ({
                             📁 {mat.groupHeader}
                           </span>
                         )}
-                        {mat.cuttingPrice !== undefined && (
-                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded font-semibold flex items-center gap-0.5">
-                            ✂️ Різка: {mat.cuttingPrice.toFixed(2)} ₴
-                          </span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -507,11 +502,6 @@ export const CatalogWindow: React.FC<Props> = ({
                                                   </div>
                                                   <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
                                                     {mat.supplier && <span>{mat.supplier}</span>}
-                                                    {mat.cuttingPrice !== undefined && (
-                                                      <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded font-semibold flex items-center gap-0.5">
-                                                        ✂️ {mat.cuttingPrice.toFixed(2)} ₴
-                                                      </span>
-                                                    )}
                                                   </div>
                                                 </div>
                                               </div>
@@ -556,11 +546,6 @@ export const CatalogWindow: React.FC<Props> = ({
                                       </div>
                                       <div className="flex items-center gap-2 text-[10px] text-slate-400">
                                         {mat.supplier && <span>{mat.supplier}</span>}
-                                        {mat.cuttingPrice !== undefined && (
-                                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded font-semibold flex items-center gap-0.5">
-                                            ✂️ Різка: {mat.cuttingPrice.toFixed(2)} ₴
-                                          </span>
-                                        )}
                                       </div>
                                     </div>
                                   </div>
