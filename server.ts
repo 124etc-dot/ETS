@@ -6,6 +6,12 @@ import { createServer as createViteServer } from 'vite';
 import { processOcrDocument } from './api/ocr/process';
 import { processMetalPricePdf } from './api/metal-price/parsePdf';
 import { generateMetalHoldingSamplePdf } from './api/metal-price/samplePdf';
+import {
+  getMaterialsFromDb,
+  saveMaterialsToDb,
+  importPriceItemsToDb,
+  resetMaterialsDb,
+} from './api/materials/materialsDb';
 
 dotenv.config();
 
@@ -109,22 +115,125 @@ app.post(['/api/metal-price/parse-pdf', '/api/metal-price/pdf'], async (req, res
       });
     }
 
+    const currentDbMaterials = getMaterialsFromDb();
     const result = await processMetalPricePdf({
       fileData,
       fileName,
-      existingMaterials,
+      existingMaterials: (Array.isArray(existingMaterials) && existingMaterials.length > 0)
+        ? existingMaterials
+        : currentDbMaterials,
       customSupplier,
     });
+
+    // Automatically persist recognized items into server database (e.g. 595 items)
+    let persistedMaterials = currentDbMaterials;
+    let totalInDb = currentDbMaterials.length;
+    if (result.recognizedItems && result.recognizedItems.length > 0) {
+      try {
+        const dbSync = importPriceItemsToDb(result.recognizedItems, result.supplier);
+        persistedMaterials = dbSync.updatedMaterials;
+        totalInDb = dbSync.updatedMaterials.length;
+        console.log(`[Metal Price PDF] Saved ${result.recognizedItems.length} items to DB. Total in DB: ${totalInDb}`);
+      } catch (saveErr) {
+        console.warn('Failed to auto-save to materials DB:', saveErr);
+      }
+    }
 
     return res.json({
       success: true,
       ...result,
+      totalInDb,
+      persistedMaterials,
     });
   } catch (error: any) {
     console.error('Metal Price PDF parsing error in server.ts:', error);
     return res.status(500).json({
       success: false,
       error: error?.message || 'Не вдалося розпізнати PDF-прайс металу',
+    });
+  }
+});
+
+// Materials Catalog Database Endpoints
+app.get(['/api/materials', '/api/materials/'], (req, res) => {
+  try {
+    const materials = getMaterialsFromDb();
+    return res.json({
+      success: true,
+      count: materials.length,
+      materials,
+    });
+  } catch (err: any) {
+    console.error('Error in GET /api/materials:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Не вдалося отримати матеріали з БД',
+    });
+  }
+});
+
+app.post(['/api/materials', '/api/materials/'], (req, res) => {
+  try {
+    const { materials } = req.body || {};
+    if (!Array.isArray(materials)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Потрібно передати масив materials',
+      });
+    }
+    const saved = saveMaterialsToDb(materials);
+    return res.json({
+      success: true,
+      count: saved.length,
+      materials: saved,
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/materials:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Не вдалося зберегти матеріали',
+    });
+  }
+});
+
+app.post(['/api/materials/batch', '/api/materials/import'], (req, res) => {
+  try {
+    const { items, supplier } = req.body || {};
+    if (!Array.isArray(items)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Потрібно передати масив items',
+      });
+    }
+    const syncResult = importPriceItemsToDb(items, supplier);
+    return res.json({
+      success: true,
+      count: syncResult.updatedMaterials.length,
+      ...syncResult,
+      materials: syncResult.updatedMaterials,
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/materials/batch:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Не вдалося імпортувати матеріали в БД',
+    });
+  }
+});
+
+app.post('/api/materials/reset', (req, res) => {
+  try {
+    const reset = resetMaterialsDb();
+    return res.json({
+      success: true,
+      count: reset.length,
+      materials: reset,
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/materials/reset:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Не вдалося скинути матеріали',
     });
   }
 });

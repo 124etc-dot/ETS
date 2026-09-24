@@ -219,11 +219,18 @@ export async function processMetalPricePdf(params: {
       const tonPrice = Number(it.tonPrice) > 0 ? Number(it.tonPrice) : undefined;
       const article = it.article ? String(it.article).trim() : undefined;
 
+      let subcategory = mainCategory || 'Чорний метал';
+      if (mainCategory.toLowerCase().includes('чорн') || mainCategory.toLowerCase().includes('метал')) {
+        if (!mainCategory.toLowerCase().includes('нержав') && !mainCategory.toLowerCase().includes('алюмін')) {
+          subcategory = 'Чорний метал';
+        }
+      }
+
       recognizedItems.push({
         name,
         category,
         parentCategory: 'Металопрокат',
-        subcategory: mainCategory,
+        subcategory,
         groupHeader: groupName,
         unit,
         basePrice: Math.round(price * 100) / 100,

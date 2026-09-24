@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { MaterialItem, ParsedPriceItem, PriceParseResult } from '../../types/calculator';
 import { MetalPriceParserService } from '../../services/metalPriceParser';
+import { CalculatorStorageService } from '../../services/calculatorStorage';
 
 interface Props {
   isOpen: boolean;
@@ -199,7 +200,7 @@ export const ImportMetalPriceModal: React.FC<Props> = ({
     }));
   };
 
-  const handleConfirmImport = () => {
+  const handleConfirmImport = async () => {
     if (!parseResult || parseResult.recognizedItems.length === 0) return;
 
     const { updatedMaterials, addedCount, updatedCount } =
@@ -209,8 +210,16 @@ export const ImportMetalPriceModal: React.FC<Props> = ({
         existingMaterials
       );
 
-    const msg = `Імпорт завершено! Додано ${addedCount} нових позицій, оновлено ціни у ${updatedCount} існуючих матеріалах.`;
+    // Save to database API immediately
+    try {
+      await CalculatorStorageService.saveMaterialsToApi(updatedMaterials);
+    } catch (apiErr) {
+      console.warn('Failed to sync materials with /api/materials:', apiErr);
+    }
+
+    const msg = `Імпорт завершено! Додано ${addedCount} нових позицій, оновлено ціни у ${updatedCount} існуючих матеріалах (Всього в базі: ${updatedMaterials.length} поз.).`;
     onApplyImport(updatedMaterials, msg);
+    CalculatorStorageService.notifyMaterialsChanged(updatedMaterials);
     onClose();
   };
 

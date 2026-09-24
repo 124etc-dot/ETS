@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Calculator,
   Plus,
@@ -88,6 +88,41 @@ export const CalculatorTab: React.FC<Props> = ({
   const [materials, setMaterials] = useState<MaterialItem[]>(() =>
     CalculatorStorageService.loadMaterials()
   );
+  const [isRefreshingMaterials, setIsRefreshingMaterials] = useState(false);
+
+  const refetchMaterials = useCallback(async () => {
+    setIsRefreshingMaterials(true);
+    try {
+      const fetched = await CalculatorStorageService.loadMaterialsFromApi();
+      if (Array.isArray(fetched) && fetched.length > 0) {
+        setMaterials(fetched);
+      }
+    } catch (err) {
+      console.warn('Failed to refetch materials:', err);
+    } finally {
+      setIsRefreshingMaterials(false);
+    }
+  }, []);
+
+  // Fetch materials on mount and listen for real-time revalidation events
+  useEffect(() => {
+    refetchMaterials();
+
+    const handleRevalidation = (e: any) => {
+      if (e.detail && Array.isArray(e.detail) && e.detail.length > 0) {
+        setMaterials(e.detail);
+      } else {
+        refetchMaterials();
+      }
+    };
+
+    window.addEventListener('materials-revalidated', handleRevalidation);
+    window.addEventListener('materials-updated', handleRevalidation);
+    return () => {
+      window.removeEventListener('materials-revalidated', handleRevalidation);
+      window.removeEventListener('materials-updated', handleRevalidation);
+    };
+  }, [refetchMaterials]);
   const [coefficients, setCoefficients] = useState<CalculatorCoefficients>(() =>
     CalculatorStorageService.loadCoefficients()
   );
@@ -1101,6 +1136,8 @@ export const CalculatorTab: React.FC<Props> = ({
               onOpenMasterData={() => setIsMasterDataOpen(true)}
               onOpenImportPrice={() => setIsImportMetalModalOpen(true)}
               onAddMaterial={handleDropMaterialToActiveUnit}
+              onRefreshMaterials={refetchMaterials}
+              isRefreshing={isRefreshingMaterials}
             />
           </div>
 
@@ -1327,6 +1364,7 @@ export const CalculatorTab: React.FC<Props> = ({
           setMaterials(updatedMats);
           CalculatorStorageService.saveMaterials(updatedMats);
           showToast(msg, 'success');
+          refetchMaterials();
         }}
       />
 

@@ -21,6 +21,25 @@ const STORAGE_KEYS = {
 
 export class CalculatorStorageService {
   /**
+   * Load materials catalog from database API (/api/materials) with localStorage fallback
+   */
+  public static async loadMaterialsFromApi(): Promise<MaterialItem[]> {
+    try {
+      const res = await fetch('/api/materials');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.materials) && data.materials.length > 0) {
+          this.saveMaterials(data.materials, false);
+          return data.materials;
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch materials from /api/materials, using local fallback:', e);
+    }
+    return this.loadMaterials();
+  }
+
+  /**
    * Load materials catalog from localStorage or fallback to default
    */
   public static loadMaterials(): MaterialItem[] {
@@ -35,7 +54,7 @@ export class CalculatorStorageService {
           const missingDefaults = DEFAULT_MATERIALS.filter((dm) => !existingIds.has(dm.id));
           if (missingDefaults.length > 0) {
             const merged = [...parsed, ...missingDefaults];
-            this.saveMaterials(merged);
+            this.saveMaterials(merged, false);
             return merged;
           }
           return parsed;
@@ -48,22 +67,88 @@ export class CalculatorStorageService {
   }
 
   /**
-   * Save materials catalog
+   * Save materials catalog to localStorage and sync to database API
    */
-  public static saveMaterials(materials: MaterialItem[]): void {
+  public static saveMaterials(materials: MaterialItem[], syncToApi: boolean = true): void {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(STORAGE_KEYS.MATERIALS, JSON.stringify(materials));
     } catch (e) {
       console.error('Failed to save materials to localStorage', e);
     }
+
+    if (syncToApi) {
+      this.saveMaterialsToApi(materials).catch((err) =>
+        console.warn('Background save to /api/materials failed:', err)
+      );
+    }
+  }
+
+  /**
+   * Sync materials to database API (/api/materials)
+   */
+  public static async saveMaterialsToApi(materials: MaterialItem[]): Promise<boolean> {
+    try {
+      const res = await fetch('/api/materials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ materials }),
+      });
+      if (res.ok) {
+        this.notifyMaterialsChanged(materials);
+        return true;
+      }
+    } catch (err) {
+      console.warn('saveMaterialsToApi error:', err);
+    }
+    return false;
+  }
+
+  /**
+   * Batch import price items to database API (/api/materials/batch)
+   */
+  public static async importPriceItemsApi(items: any[], supplier?: string): Promise<MaterialItem[] | null> {
+    try {
+      const res = await fetch('/api/materials/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, supplier }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.materials)) {
+          this.saveMaterials(data.materials, false);
+          this.notifyMaterialsChanged(data.materials);
+          return data.materials;
+        }
+      }
+    } catch (err) {
+      console.warn('importPriceItemsApi error:', err);
+    }
+    return null;
+  }
+
+  /**
+   * Notify components that materials were revalidated / updated
+   */
+  public static notifyMaterialsChanged(materials: MaterialItem[]): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('materials-revalidated', { detail: materials }));
+      window.dispatchEvent(new CustomEvent('materials-updated', { detail: materials }));
+    }
   }
 
   /**
    * Reset materials to initial defaults
    */
-  public static resetMaterialsToDefault(): MaterialItem[] {
-    this.saveMaterials(DEFAULT_MATERIALS);
+  public static async resetMaterialsToDefault(): Promise<MaterialItem[]> {
+    try {
+      await fetch('/api/materials/reset', { method: 'POST' });
+    } catch (e) {
+      console.warn('Reset API failed, resetting locally:', e);
+    }
+    this.saveMaterials(DEFAULT_MATERIALS, false);
+    this.notifyMaterialsChanged(DEFAULT_MATERIALS);
     return [...DEFAULT_MATERIALS];
   }
 

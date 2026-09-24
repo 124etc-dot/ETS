@@ -560,6 +560,13 @@ export class MetalPriceParserService {
       const normKey = this.normalizeName(item.name);
       const existing = materialsMap.get(normKey);
 
+      let normSubcategory = item.subcategory || existing?.subcategory || 'Чорний метал';
+      if (normSubcategory.toLowerCase().includes('чорн') || normSubcategory.toLowerCase().includes('метал')) {
+        if (!normSubcategory.toLowerCase().includes('нержав') && !normSubcategory.toLowerCase().includes('алюмін')) {
+          normSubcategory = 'Чорний метал';
+        }
+      }
+
       if (existing) {
         // Update existing item without duplicating
         const updatedItem: MaterialItem = {
@@ -568,7 +575,7 @@ export class MetalPriceParserService {
           cuttingPrice: item.cuttingPrice !== undefined ? item.cuttingPrice : existing.cuttingPrice,
           unit: item.unit,
           parentCategory: item.parentCategory || 'Металопрокат',
-          subcategory: item.subcategory || existing.subcategory || 'Чорний металопрокат',
+          subcategory: normSubcategory,
           groupHeader: item.groupHeader || existing.groupHeader,
           supplier: supplierName || existing.supplier,
           sourceArticle: item.sourceArticle || existing.sourceArticle,
@@ -585,7 +592,7 @@ export class MetalPriceParserService {
           name: item.name,
           category: item.category,
           parentCategory: item.parentCategory || 'Металопрокат',
-          subcategory: item.subcategory || 'Чорний металопрокат',
+          subcategory: normSubcategory,
           groupHeader: item.groupHeader || 'Загальний металопрокат',
           unit: item.unit,
           basePrice: item.basePrice,

@@ -12,6 +12,8 @@ import {
   FolderOpen,
   FileSpreadsheet,
   Scissors,
+  RefreshCw,
+  Database,
 } from 'lucide-react';
 import { MaterialItem, MaterialCategory, MATERIAL_CATEGORIES } from '../../../types/calculator';
 
@@ -20,6 +22,8 @@ interface Props {
   onOpenMasterData: () => void;
   onOpenImportPrice?: () => void;
   onAddMaterial: (mat: MaterialItem) => void;
+  onRefreshMaterials?: () => Promise<void> | void;
+  isRefreshing?: boolean;
 }
 
 // 5 Main Branches defined in technical requirements
@@ -40,26 +44,33 @@ const CATALOG_BRANCHES: CatalogBranch[] = [
     icon: 'Box',
     subcategories: [
       {
-        name: 'Чорний метал (Лист, Проф. труба, Кутник, Круг, Квадрат)',
+        name: 'Чорний метал (Лист, Проф. труба, Кутник, Круг, Квадрат, Арматура)',
         matcher: (m) =>
-          (m.category === 'metal_profile' || m.category === 'sheet_metal') &&
-          (!m.subcategory || m.subcategory === 'Чорний метал') &&
+          (m.category === 'metal_profile' || m.category === 'sheet_metal' || m.parentCategory === 'Металопрокат') &&
+          !m.subcategory?.toLowerCase().includes('нержав') &&
+          !m.subcategory?.toLowerCase().includes('алюмін') &&
           !m.name.toLowerCase().includes('нержав') &&
-          !m.name.toLowerCase().includes('алюмін'),
+          !m.name.toLowerCase().includes('aisi') &&
+          !m.name.toLowerCase().includes('алюмін') &&
+          !m.name.toLowerCase().includes('т-паз'),
       },
       {
         name: 'Нержавіючий метал (AISI 304)',
         matcher: (m) =>
-          m.subcategory === 'Нержавіючий метал' ||
-          m.name.toLowerCase().includes('нержав') ||
-          m.name.toLowerCase().includes('aisi'),
+          (m.category === 'metal_profile' || m.category === 'sheet_metal' || m.parentCategory === 'Металопрокат') &&
+          (m.subcategory === 'Нержавіючий метал' ||
+            m.subcategory?.toLowerCase().includes('нержав') ||
+            m.name.toLowerCase().includes('нержав') ||
+            m.name.toLowerCase().includes('aisi')),
       },
       {
         name: 'Алюміній (Профіль, Лист, Бокс)',
         matcher: (m) =>
-          m.subcategory === 'Алюміній' ||
-          m.name.toLowerCase().includes('алюмін') ||
-          m.name.toLowerCase().includes('т-паз'),
+          (m.category === 'metal_profile' || m.category === 'sheet_metal' || m.parentCategory === 'Металопрокат') &&
+          (m.subcategory === 'Алюміній' ||
+            m.subcategory?.toLowerCase().includes('алюмін') ||
+            m.name.toLowerCase().includes('алюмін') ||
+            m.name.toLowerCase().includes('т-паз')),
       },
     ],
   },
@@ -163,8 +174,11 @@ export const CatalogWindow: React.FC<Props> = ({
   onOpenMasterData,
   onOpenImportPrice,
   onAddMaterial,
+  onRefreshMaterials,
+  isRefreshing = false,
 }) => {
   const [search, setSearch] = useState('');
+  const [localRefreshing, setLocalRefreshing] = useState(false);
   const [openBranches, setOpenBranches] = useState<Record<string, boolean>>({
     metal: true,
     plate_wood: true,
@@ -174,6 +188,18 @@ export const CatalogWindow: React.FC<Props> = ({
   });
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  const handleManualRefresh = async () => {
+    if (!onRefreshMaterials) return;
+    setLocalRefreshing(true);
+    try {
+      await onRefreshMaterials();
+    } finally {
+      setTimeout(() => setLocalRefreshing(false), 400);
+    }
+  };
+
+  const refreshingState = isRefreshing || localRefreshing;
 
   const toggleBranch = (id: string) => {
     setOpenBranches((prev) => ({
@@ -219,9 +245,18 @@ export const CatalogWindow: React.FC<Props> = ({
             02
           </div>
           <div className="min-w-0">
-            <h2 className="text-xs font-bold text-slate-900 tracking-tight">
-              Ієрархічний Каталог (Master Catalog)
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xs font-bold text-slate-900 tracking-tight">
+                Ієрархічний Каталог (Master Catalog)
+              </h2>
+              <span
+                className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200"
+                title="Реальна кількість позицій у БД"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                БД: {materials.length} поз.
+              </span>
+            </div>
             <p className="text-[10px] text-slate-500">
               Перетягуйте картки матеріалів у Вікно 1 (BOM Editor) або тисніть «+»
             </p>
@@ -229,6 +264,19 @@ export const CatalogWindow: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onRefreshMaterials && (
+            <button
+              type="button"
+              onClick={handleManualRefresh}
+              disabled={refreshingState}
+              className="p-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 transition flex items-center gap-1 cursor-pointer shadow-2xs disabled:opacity-50"
+              title="Синхронізувати з базою даних (GET /api/materials)"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-slate-600 ${refreshingState ? 'animate-spin text-emerald-600' : ''}`} />
+              <span className="hidden md:inline text-[11px]">Оновити</span>
+            </button>
+          )}
+
           {onOpenImportPrice && (
             <button
               type="button"
