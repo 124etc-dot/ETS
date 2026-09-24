@@ -253,7 +253,7 @@ export const CashFlowTab: React.FC<Props> = ({
     } catch {}
   };
 
-  // 3. User toggle for received tranches (marked as Fact)
+  // 3. User toggle for received/unreceived tranches
   const [receivedTrancheKeys, setReceivedTrancheKeys] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       try {
@@ -267,14 +267,43 @@ export const CashFlowTab: React.FC<Props> = ({
     return [];
   });
 
-  const toggleTrancheReceived = (uniqueKey: string) => {
-    setReceivedTrancheKeys((prev) => {
-      const next = prev.includes(uniqueKey) ? prev.filter((k) => k !== uniqueKey) : [...prev, uniqueKey];
+  const [unreceivedTrancheKeys, setUnreceivedTrancheKeys] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
       try {
-        localStorage.setItem(RECEIVED_TRANCHES_STORAGE_KEY, JSON.stringify(next));
+        const stored = localStorage.getItem('cashflow_unreceived_tranches_v2');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) return parsed;
+        }
       } catch {}
-      return next;
-    });
+    }
+    return [];
+  });
+
+  const toggleTrancheReceived = (uniqueKey: string, currentlyFact: boolean) => {
+    if (currentlyFact) {
+      setUnreceivedTrancheKeys((prev) => {
+        const next = prev.includes(uniqueKey) ? prev : [...prev, uniqueKey];
+        try { localStorage.setItem('cashflow_unreceived_tranches_v2', JSON.stringify(next)); } catch {}
+        return next;
+      });
+      setReceivedTrancheKeys((prev) => {
+        const next = prev.filter((k) => k !== uniqueKey);
+        try { localStorage.setItem(RECEIVED_TRANCHES_STORAGE_KEY, JSON.stringify(next)); } catch {}
+        return next;
+      });
+    } else {
+      setReceivedTrancheKeys((prev) => {
+        const next = prev.includes(uniqueKey) ? prev : [...prev, uniqueKey];
+        try { localStorage.setItem(RECEIVED_TRANCHES_STORAGE_KEY, JSON.stringify(next)); } catch {}
+        return next;
+      });
+      setUnreceivedTrancheKeys((prev) => {
+        const next = prev.filter((k) => k !== uniqueKey);
+        try { localStorage.setItem('cashflow_unreceived_tranches_v2', JSON.stringify(next)); } catch {}
+        return next;
+      });
+    }
   };
 
   // Selected Legal Entity (ТОВ/ФОП)
@@ -393,9 +422,10 @@ export const CashFlowTab: React.FC<Props> = ({
       startingBalance,
       payments: effectivePayments,
       receivedTrancheKeys,
+      unreceivedTrancheKeys,
       mode: viewMode,
     });
-  }, [projects, effectiveInvoices, effectivePayments, selectedYear, startingBalance, receivedTrancheKeys, viewMode]);
+  }, [projects, effectiveInvoices, effectivePayments, selectedYear, startingBalance, receivedTrancheKeys, unreceivedTrancheKeys, viewMode]);
 
   // Format currency in Ukrainian locale
   const formatMoney = (val: number): string => {
@@ -570,6 +600,9 @@ export const CashFlowTab: React.FC<Props> = ({
         ? getWeekDataForSelectedCompany(filteredWeeks[filteredWeeks.length - 1]).endBalance
         : startingBalance;
 
+    // 🏦 Формула: Початковий залишок + Всі фактичні надходження - Всі фактичні витрати
+    const liveMoney = Math.round((startingBalance + totalInflowFact - totalOutflowFact) * 100) / 100;
+
     return {
       totalInflowFact: Math.round(totalInflowFact * 100) / 100,
       totalInflowPlan: Math.round(totalInflowPlan * 100) / 100,
@@ -578,13 +611,13 @@ export const CashFlowTab: React.FC<Props> = ({
       totalOutflowPlan: Math.round(totalOutflowPlan * 100) / 100,
       totalOutflow: Math.round(totalOutflow * 100) / 100,
       netBalance,
-      liveMoney: cashFlowSummary.liveMoney,
+      liveMoney,
       projectedBalance,
       cashGapWeeksCount,
       normalWeeksCount,
       totalWeeks: filteredWeeks.length,
     };
-  }, [filteredWeeks, selectedCompany, cashFlowSummary.liveMoney, startingBalance]);
+  }, [filteredWeeks, selectedCompany, startingBalance]);
 
   // Render two-column details (left: Inflows, right: Outflows)
   const renderTwoColumnDetails = (week: WeeklyCashFlow, isInline = false) => {
@@ -715,7 +748,7 @@ export const CashFlowTab: React.FC<Props> = ({
                                 <td className="py-2.5 px-3 text-center whitespace-nowrap">
                                   <button
                                     type="button"
-                                    onClick={() => toggleTrancheReceived(trancheKey)}
+                                    onClick={() => toggleTrancheReceived(trancheKey, isFact)}
                                     className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer shadow-2xs ${
                                       isFact
                                         ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
@@ -779,7 +812,7 @@ export const CashFlowTab: React.FC<Props> = ({
                               <span className="text-slate-500">Оплата {item.trancheNumber}</span>
                               <button
                                 type="button"
-                                onClick={() => toggleTrancheReceived(trancheKey)}
+                                onClick={() => toggleTrancheReceived(trancheKey, isFact)}
                                 className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                   isFact ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
                                 }`}
@@ -1259,8 +1292,12 @@ export const CashFlowTab: React.FC<Props> = ({
             <p className="text-xl sm:text-2xl font-bold font-mono text-indigo-700 mt-1.5">
               {formatMoney(aggregatedTotals.liveMoney)}
             </p>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Початковий залишок: <span className="font-semibold text-slate-600">{formatMoney(startingBalance)}</span>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Залишок: <span className="font-semibold text-slate-700">{formatMoney(startingBalance)}</span>
+              {' + '}
+              <span className="font-semibold text-emerald-700">+{formatMoney(aggregatedTotals.totalInflowFact)}</span>
+              {' - '}
+              <span className="font-semibold text-rose-700">-{formatMoney(aggregatedTotals.totalOutflowFact)}</span>
             </p>
           </div>
           <button

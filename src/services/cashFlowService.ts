@@ -46,7 +46,22 @@ export interface CashFlowAggregationOptions {
   companyStartingBalances?: Record<string, number>;
   payments?: ExistingPaymentRow[]; // Фактичні банківські платіжки з виписки
   receivedTrancheKeys?: string[]; // IDs/keys траншів, позначених як отримані (Факт)
+  unreceivedTrancheKeys?: string[]; // IDs/keys траншів, позначених як очікує (План)
   mode?: CashFlowViewMode; // 'plan-fact' | 'fact-only' | 'plan-only'
+  includeDirectPayments?: boolean; // Default false so total Outflow Fact strictly matches Invoices Paid
+}
+
+/**
+ * Normalizes an invoice number for loose matching across payment purposes and invoices.
+ */
+function normalizeInvoiceNumForMatch(num?: string): string {
+  if (!num) return '';
+  return String(num)
+    .toLowerCase()
+    .replace(/^(№|#|рахунок|инвойс|счет|сф|sf)[-\s]*/i, '')
+    .replace(/[^a-z0-9а-яіїєґ]/gi, '')
+    .replace(/^0+/, '')
+    .trim();
 }
 
 /**
@@ -120,6 +135,8 @@ export function aggregateCashFlow(
   const mode = options.mode || 'plan-fact';
   const payments = options.payments || [];
   const receivedTrancheKeysSet = new Set(options.receivedTrancheKeys || []);
+  const unreceivedTrancheKeysSet = new Set(options.unreceivedTrancheKeys || []);
+  const includeDirectPayments = options.includeDirectPayments ?? false;
 
   // Map to store weekly data by weekKey e.g. "2026-W40"
   const weeksMap = new Map<string, WeeklyCashFlow>();
@@ -212,6 +229,10 @@ export function aggregateCashFlow(
   let unmatchedInflowsCount = 0;
   let unmatchedOutflowsCount = 0;
 
+  const currentIso = getIsoWeekDetails(new Date());
+  const currentIsoYear = currentIso ? currentIso.year : targetYear;
+  const currentIsoWeekNum = currentIso ? currentIso.weekNumber : 39;
+
   // 2. 🟢 Process INFLOWS (Вхід) from Projects' 4 tranches
   for (const project of projects) {
     const company = getCompanyFromProjectColG(project.colG);
@@ -219,6 +240,16 @@ export function aggregateCashFlow(
     const client = project.colB || '';
     const projectName = project.colC || '';
     const colG = project.colG || '';
+
+    // Calculate actual client payments from budget (colM) and remaining (colN)
+    const budgetM = parseCashFlowAmount(project.effectiveProjectSum || project.colM);
+    const remainingN = parseCashFlowAmount(project.colN);
+    const hasRemainingN = project.colN !== undefined && String(project.colN).trim() !== '' && !isNaN(remainingN);
+    const clientPaidToDate = hasRemainingN ? Math.max(0, budgetM - remainingN) : 0;
+    const isProjectCompleted =
+      project.colF?.toLowerCase().includes('здан') ||
+      project.colF?.toLowerCase().includes('заверш') ||
+      (hasRemainingN && remainingN === 0 && budgetM > 0);
 
     const tranches: Array<{
       num: 1 | 2 | 3 | 4;
@@ -230,6 +261,8 @@ export function aggregateCashFlow(
       { num: 3, amountRaw: project.colAD, weekRaw: project.colAE },
       { num: 4, amountRaw: project.colAF, weekRaw: project.colAG },
     ];
+
+    let cumulativeTranchesSoFar = 0;
 
     for (const tranche of tranches) {
       const amount = parseCashFlowAmount(tranche.amountRaw);
@@ -256,9 +289,30 @@ export function aggregateCashFlow(
 
       const compEntry = getOrCreateCompanyWeek(weekEntry, company);
 
-      // Check if this tranche is marked as received (Fact) or scheduled (Plan)
       const trancheUniqueKey = `${project.rowNumber}_t${tranche.num}`;
-      const isMarkedFact = receivedTrancheKeysSet.has(trancheUniqueKey);
+      cumulativeTranchesSoFar += amount;
+
+      // Check if this tranche is received (Fact) or scheduled (Plan):
+      // 1. Explicitly toggled off by user -> Plan
+      // 2. Explicitly toggled on by user -> Fact
+      // 3. Client payments to date (colM - colN) cover this tranche -> Fact
+      // 4. Project is completed / fully paid -> Fact
+      // 5. Tranche week is in the past and project has client payments -> Fact
+      let isMarkedFact = false;
+      if (unreceivedTrancheKeysSet.has(trancheUniqueKey)) {
+        isMarkedFact = false;
+      } else if (receivedTrancheKeysSet.has(trancheUniqueKey)) {
+        isMarkedFact = true;
+      } else if (clientPaidToDate > 0 && cumulativeTranchesSoFar <= (clientPaidToDate + 1.0)) {
+        isMarkedFact = true;
+      } else if (isProjectCompleted) {
+        isMarkedFact = true;
+      } else if (
+        (weekInfo.year < currentIsoYear || (weekInfo.year === currentIsoYear && weekInfo.weekNumber < currentIsoWeekNum)) &&
+        clientPaidToDate > 0
+      ) {
+        isMarkedFact = true;
+      }
 
       const item: CashFlowInflowItem = {
         projectRowNumber: project.rowNumber,
@@ -297,35 +351,72 @@ export function aggregateCashFlow(
 
   for (const invoice of invoices) {
     const totalAmount = parseCashFlowAmount(invoice.amount);
-    const paidAmount = parseCashFlowAmount(invoice.paidAmount);
-    const isFullyPaid = invoice.paymentStatus === 'Оплачено' || (totalAmount > 0 && paidAmount >= totalAmount);
-    const isPartiallyPaid = invoice.paymentStatus === 'Оплачено частково' && paidAmount > 0 && paidAmount < totalAmount;
-    const isUnpaid = invoice.paymentStatus === 'Не оплачено' || (!isFullyPaid && !isPartiallyPaid);
+    const paidColAmount = parseCashFlowAmount(invoice.paidAmount);
+    const isStatusPaid = invoice.paymentStatus === 'Оплачено';
+    const isFullyPaid = isStatusPaid || (totalAmount > 0 && paidColAmount >= totalAmount);
+    // Paid amount: column J if provided > 0, otherwise full invoice amount if status is 'Оплачено'
+    const factAmount = paidColAmount > 0 ? paidColAmount : (isFullyPaid ? totalAmount : 0);
+    const isPartiallyPaid = !isFullyPaid && factAmount > 0 && factAmount < totalAmount;
+    const isUnpaid = !isFullyPaid && !isPartiallyPaid;
+    const unpaidAmount = isPartiallyPaid ? Math.max(0, totalAmount - factAmount) : (isUnpaid ? totalAmount : 0);
 
     const company = getCompanyFromInvoice(invoice);
 
-    // Try to find matching bank payment in payments tab to get exact payment date and payment number
+    // Try to find matching bank payment in payments tab to get exact bank execution date and payment number
     let matchedPayment: ExistingPaymentRow | undefined;
-    if (isFullyPaid || isPartiallyPaid) {
+    const normInvNum = normalizeInvoiceNumForMatch(invoice.invoiceNumber);
+
+    if (factAmount > 0 || isFullyPaid || isPartiallyPaid) {
       matchedPayment = payments.find((p) => {
         if (matchedPaymentRowIndexes.has(p.rowIndex)) return false;
-        // Check invoice number reference
-        if (
-          invoice.invoiceNumber &&
-          p.referencedInvoiceNumber &&
-          invoice.invoiceNumber.trim().toLowerCase() === p.referencedInvoiceNumber.trim().toLowerCase()
-        ) {
+
+        const normRefNum = normalizeInvoiceNumForMatch(p.referencedInvoiceNumber);
+        if (normInvNum && normRefNum && normInvNum === normRefNum) {
           return true;
         }
+
+        // Check list of invoice numbers in payment (e.g. "СФ-101, СФ-102")
+        if (normInvNum && p.referencedInvoiceNumber) {
+          const tokens = p.referencedInvoiceNumber.split(/[,;\s]+/).map(normalizeInvoiceNumForMatch).filter(Boolean);
+          if (tokens.includes(normInvNum)) return true;
+        }
+
+        // Check payment purpose contains invoice number
+        if (normInvNum && normInvNum.length >= 2 && p.paymentPurpose) {
+          const purposeNorm = p.paymentPurpose.toLowerCase().replace(/[^a-z0-9а-яіїєґ]/gi, '');
+          if (purposeNorm.includes(normInvNum)) {
+            if (
+              Math.abs(p.amountPaid - factAmount) < 1.0 ||
+              (invoice.orderNumber && p.orderNumber && invoice.orderNumber.trim() === p.orderNumber.trim())
+            ) {
+              return true;
+            }
+          }
+        }
+
         // Check order number & amount
         if (
           invoice.orderNumber &&
           p.orderNumber &&
           invoice.orderNumber.trim() === p.orderNumber.trim() &&
-          Math.abs(p.amountPaid - (isFullyPaid ? totalAmount : paidAmount)) < 1.0
+          Math.abs(p.amountPaid - factAmount) < 1.0
         ) {
           return true;
         }
+
+        // Check supplier/payee & amount
+        if (
+          invoice.supplier &&
+          p.payee &&
+          Math.abs(p.amountPaid - factAmount) < 1.0
+        ) {
+          const s1 = invoice.supplier.toLowerCase().replace(/['"«»\s\-_]/g, '');
+          const s2 = p.payee.toLowerCase().replace(/['"«»\s\-_]/g, '');
+          if (s1.includes(s2) || s2.includes(s1)) {
+            return true;
+          }
+        }
+
         return false;
       });
 
@@ -335,16 +426,14 @@ export function aggregateCashFlow(
     }
 
     // A. 🔴 Сплачено (Факт) - if invoice is paid or partially paid
-    if (isFullyPaid || isPartiallyPaid) {
-      const factAmount = isFullyPaid ? totalAmount : paidAmount;
-
-      // Determine exact date money actually left bank (Дата фактичної оплати)
+    // Для фактично сплачених рахунків дата відображення в тижнях = Дата банківської проводки (оплати).
+    if (factAmount > 0) {
       const exactPaymentDateStr =
         matchedPayment?.paymentDate ||
         (invoice as any).paymentDate ||
         (invoice as any).paidDate ||
-        invoice.uploadedAt ||
         invoice.invoiceDate ||
+        invoice.uploadedAt ||
         '';
 
       const paymentDateObj = parseDateStringToDate(exactPaymentDateStr) || new Date();
@@ -397,122 +486,120 @@ export function aggregateCashFlow(
     }
 
     // B. ⏳ До сплати (План) - unpaid amount of invoice
-    if (isUnpaid || isPartiallyPaid) {
-      const unpaidAmount = isPartiallyPaid
-        ? Math.max(0, totalAmount - paidAmount)
-        : totalAmount;
+    // Для планових (неоплачених) рахунків дата відображення в тижнях = Дата завантаження + 5 днів.
+    if (unpaidAmount > 0) {
+      const { plannedDate, plannedDateIso } = calculatePlannedPaymentDate(
+        invoice.uploadedAt,
+        invoice.invoiceDate,
+        daysToAdd
+      );
 
-      if (unpaidAmount > 0) {
-        const { plannedDate, plannedDateIso } = calculatePlannedPaymentDate(
-          invoice.uploadedAt,
-          invoice.invoiceDate,
-          daysToAdd
+      const weekDetails = getIsoWeekDetails(plannedDate);
+      if (weekDetails) {
+        const weekEntry = getOrCreateWeek(
+          weekDetails.weekKey,
+          weekDetails.weekNumber,
+          weekDetails.year,
+          weekDetails.fullLabel,
+          weekDetails.shortLabel,
+          weekDetails.startDate,
+          weekDetails.endDate,
+          false
         );
 
-        const weekDetails = getIsoWeekDetails(plannedDate);
-        if (weekDetails) {
-          const weekEntry = getOrCreateWeek(
-            weekDetails.weekKey,
-            weekDetails.weekNumber,
-            weekDetails.year,
-            weekDetails.fullLabel,
-            weekDetails.shortLabel,
-            weekDetails.startDate,
-            weekDetails.endDate,
-            false
-          );
+        const compEntry = getOrCreateCompanyWeek(weekEntry, company);
 
-          const compEntry = getOrCreateCompanyWeek(weekEntry, company);
+        const item: CashFlowOutflowItem = {
+          invoiceRowIndex: invoice.rowIndex,
+          invoiceNumber: invoice.invoiceNumber || 'б/н',
+          supplier: invoice.supplier || 'Постачальник',
+          buyer: invoice.buyer || '',
+          company,
+          orderNumber: invoice.orderNumber,
+          amount: unpaidAmount,
+          totalInvoiceAmount: totalAmount,
+          paidAmount: factAmount,
+          approvalStatus: invoice.approvalStatus || 'ПОГОДЖЕНО',
+          uploadedAt: invoice.uploadedAt || '',
+          invoiceDate: invoice.invoiceDate,
+          plannedPaymentDate: plannedDateIso,
+          actualPaymentDate: undefined,
+          status: 'plan',
+          isFact: false,
+          weekKey: weekDetails.weekKey,
+          weekNumber: weekDetails.weekNumber,
+          year: weekDetails.year,
+          weekLabel: weekDetails.fullLabel,
+        };
 
-          const item: CashFlowOutflowItem = {
-            invoiceRowIndex: invoice.rowIndex,
-            invoiceNumber: invoice.invoiceNumber || 'б/н',
-            supplier: invoice.supplier || 'Постачальник',
-            buyer: invoice.buyer || '',
-            company,
-            orderNumber: invoice.orderNumber,
-            amount: unpaidAmount,
-            totalInvoiceAmount: totalAmount,
-            paidAmount: isPartiallyPaid ? paidAmount : 0,
-            approvalStatus: invoice.approvalStatus || 'ПОГОДЖЕНО',
-            uploadedAt: invoice.uploadedAt || '',
-            invoiceDate: invoice.invoiceDate,
-            plannedPaymentDate: plannedDateIso,
-            actualPaymentDate: undefined,
-            status: 'plan',
-            isFact: false,
-            weekKey: weekDetails.weekKey,
-            weekNumber: weekDetails.weekNumber,
-            year: weekDetails.year,
-            weekLabel: weekDetails.fullLabel,
-          };
-
-          compEntry.outflowItems.push(item);
-          compEntry.outflowPlan += unpaidAmount;
-          weekEntry.outflowPlan += unpaidAmount;
-        } else {
-          unmatchedOutflowsCount++;
-        }
+        compEntry.outflowItems.push(item);
+        compEntry.outflowPlan += unpaidAmount;
+        weekEntry.outflowPlan += unpaidAmount;
+      } else {
+        unmatchedOutflowsCount++;
       }
     }
   }
 
   // 4. 🔴 Direct Bank Payments from "Платіжки" not matched to an existing invoice
-  // (e.g. rent, taxes, utilities, direct wire transfers to vendors)
-  for (const payment of payments) {
-    if (matchedPaymentRowIndexes.has(payment.rowIndex)) continue;
-    const amount = parseCashFlowAmount(payment.amountPaid);
-    if (amount <= 0) continue;
+  // Included only if explicitly requested, so that by default, Total Outflow Fact
+  // strictly equals Total Invoices Paid in the Dashboard.
+  if (includeDirectPayments) {
+    for (const payment of payments) {
+      if (matchedPaymentRowIndexes.has(payment.rowIndex)) continue;
+      const amount = parseCashFlowAmount(payment.amountPaid);
+      if (amount <= 0) continue;
 
-    const company =
-      getCompanyFromProjectColG(payment.payer) ||
-      getCompanyFromProjectColG(payment.orderNumber) ||
-      'ТОВ ШОП ІНТЕРІОР';
+      const company =
+        getCompanyFromProjectColG(payment.payer) ||
+        getCompanyFromProjectColG(payment.orderNumber) ||
+        'ТОВ ШОП ІНТЕРІОР';
 
-    const paymentDateObj = parseDateStringToDate(payment.paymentDate) || new Date();
-    const weekDetails = getIsoWeekDetails(paymentDateObj);
+      const paymentDateObj = parseDateStringToDate(payment.paymentDate) || new Date();
+      const weekDetails = getIsoWeekDetails(paymentDateObj);
 
-    if (weekDetails) {
-      const weekEntry = getOrCreateWeek(
-        weekDetails.weekKey,
-        weekDetails.weekNumber,
-        weekDetails.year,
-        weekDetails.fullLabel,
-        weekDetails.shortLabel,
-        weekDetails.startDate,
-        weekDetails.endDate,
-        false
-      );
+      if (weekDetails) {
+        const weekEntry = getOrCreateWeek(
+          weekDetails.weekKey,
+          weekDetails.weekNumber,
+          weekDetails.year,
+          weekDetails.fullLabel,
+          weekDetails.shortLabel,
+          weekDetails.startDate,
+          weekDetails.endDate,
+          false
+        );
 
-      const compEntry = getOrCreateCompanyWeek(weekEntry, company);
+        const compEntry = getOrCreateCompanyWeek(weekEntry, company);
 
-      const item: CashFlowOutflowItem = {
-        invoiceRowIndex: -payment.rowIndex,
-        invoiceNumber: payment.referencedInvoiceNumber || `Пл. №${payment.paymentNumber || payment.rowIndex}`,
-        supplier: payment.payee || 'Банківський переказ',
-        buyer: payment.payer || company,
-        company,
-        orderNumber: payment.orderNumber,
-        amount,
-        totalInvoiceAmount: amount,
-        paidAmount: amount,
-        approvalStatus: 'ПОГОДЖЕНО',
-        uploadedAt: payment.uploadedAt || payment.paymentDate,
-        invoiceDate: payment.paymentDate,
-        plannedPaymentDate: payment.paymentDate,
-        actualPaymentDate: formatDateToUk(paymentDateObj),
-        paymentNumber: payment.paymentNumber,
-        status: 'fact',
-        isFact: true,
-        weekKey: weekDetails.weekKey,
-        weekNumber: weekDetails.weekNumber,
-        year: weekDetails.year,
-        weekLabel: weekDetails.fullLabel,
-      };
+        const item: CashFlowOutflowItem = {
+          invoiceRowIndex: -payment.rowIndex,
+          invoiceNumber: payment.referencedInvoiceNumber || `Пл. №${payment.paymentNumber || payment.rowIndex}`,
+          supplier: payment.payee || 'Банківський переказ',
+          buyer: payment.payer || company,
+          company,
+          orderNumber: payment.orderNumber,
+          amount,
+          totalInvoiceAmount: amount,
+          paidAmount: amount,
+          approvalStatus: 'ПОГОДЖЕНО',
+          uploadedAt: payment.uploadedAt || payment.paymentDate,
+          invoiceDate: payment.paymentDate,
+          plannedPaymentDate: payment.paymentDate,
+          actualPaymentDate: formatDateToUk(paymentDateObj),
+          paymentNumber: payment.paymentNumber,
+          status: 'fact',
+          isFact: true,
+          weekKey: weekDetails.weekKey,
+          weekNumber: weekDetails.weekNumber,
+          year: weekDetails.year,
+          weekLabel: weekDetails.fullLabel,
+        };
 
-      compEntry.outflowItems.push(item);
-      compEntry.outflowFact += amount;
-      weekEntry.outflowFact += amount;
+        compEntry.outflowItems.push(item);
+        compEntry.outflowFact += amount;
+        weekEntry.outflowFact += amount;
+      }
     }
   }
 

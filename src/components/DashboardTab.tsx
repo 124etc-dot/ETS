@@ -414,7 +414,9 @@ export const DashboardTab: React.FC<Props> = ({
 
     existingInvoices.forEach((inv) => {
       const amt = Number(inv.amount) || 0;
-      const pd = Number(inv.paidAmount) || 0;
+      const paidCol = Number(inv.paidAmount) || 0;
+      const isPaid = inv.paymentStatus === 'Оплачено';
+      const pd = paidCol > 0 ? paidCol : (isPaid ? amt : 0);
       totalAmount += amt;
       totalPaid += pd;
 
