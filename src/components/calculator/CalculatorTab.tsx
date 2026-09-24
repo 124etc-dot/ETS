@@ -27,6 +27,7 @@ import {
 import {
   ConstructiveItem,
   MaterialItem,
+  MaterialCategory,
   CalculatorCoefficients,
   CalculationProject,
   CalculationSummary,
@@ -40,6 +41,7 @@ import { CalculatorStorageService } from '../../services/calculatorStorage';
 import { CALCULATOR_PRESETS } from '../../data/calculatorDefaults';
 import { MasterDataModal } from './MasterDataModal';
 import { ExportGoogleSheetModal } from './ExportGoogleSheetModal';
+import { ImportMetalPriceModal } from './ImportMetalPriceModal';
 import { GenerationResult, SpecificationSheetGenerator } from '../../services/specificationSheetGenerator';
 import { AddProjectModal, AddProjectInitialData } from '../AddProjectModal';
 import { DEFAULT_PROJECTS_SPREADSHEET_ID } from '../../services/googleSheets';
@@ -76,6 +78,7 @@ export const CalculatorTab: React.FC<Props> = ({
   // Navigation inside calculator
   const [activeSubView, setActiveSubView] = useState<'calculator' | 'saved'>('calculator');
   const [isMasterDataOpen, setIsMasterDataOpen] = useState(false);
+  const [isImportMetalModalOpen, setIsImportMetalModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
   const [addProjectInitialData, setAddProjectInitialData] = useState<AddProjectInitialData | null>(null);
@@ -125,43 +128,84 @@ export const CalculatorTab: React.FC<Props> = ({
 
   // Project Furniture Assemblies (Units) - Window 1 & Window 3
   const [units, setUnits] = useState<ProjectAssemblyUnit[]>(() => {
-    const preset = CALCULATOR_PRESETS[0];
     const initialCoeffs = CalculatorStorageService.loadCoefficients();
     const loadedMats = CalculatorStorageService.loadMaterials();
 
-    const initialItems = preset.items.map((pi, idx) => {
-      const mat = loadedMats.find((m) => m.name === pi.materialName) || loadedMats[0];
+    const createUnitItem = (
+      id: string,
+      constructive: string,
+      matName: string,
+      cat: MaterialCategory,
+      unit: string,
+      qty: number,
+      complexity: number,
+      notes: string = ''
+    ): ConstructiveItem => {
+      const mat = loadedMats.find((m) => m.name === matName) || loadedMats[0];
       const raw: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
-        id: `item_init_${idx}`,
-        constructive: pi.constructive,
+        id,
+        constructive,
         materialId: mat.id,
         materialName: mat.name,
-        category: pi.category,
-        unit: pi.unit,
-        quantity: parseFloat(Number(pi.quantity).toFixed(4)),
-        basePrice: parseFloat(Number(mat.basePrice).toFixed(2)),
-        wasteFactor: parseFloat(Number(initialCoeffs.wasteFactorsByCategory[pi.category] || mat.defaultWasteFactor).toFixed(3)),
-        complexityFactor: parseFloat(Number(preset.defaultComplexity).toFixed(2)),
-        notes: pi.notes || '',
+        category: cat,
+        unit,
+        quantity: qty,
+        basePrice: mat.basePrice,
+        wasteFactor: initialCoeffs.wasteFactorsByCategory[cat] || mat.defaultWasteFactor || 1.1,
+        complexityFactor: complexity,
+        notes,
       };
       return CalculatorStorageService.recalculateItem(
         raw,
-        preset.defaultComplexity,
-        preset.defaultMargin
+        complexity,
+        initialCoeffs.marginPercent || 35
       );
-    });
+    };
 
     return [
       {
-        id: 'unit_default_1',
-        name: 'Острівний стелаж 2000х1200х450',
+        id: 'unit_1',
+        name: 'Пристінний стелаж',
         quantity: 1,
-        items: initialItems,
+        items: [
+          createUnitItem('it_1_1', 'Опорний металокаркас', 'Труба профільна 40х40х2 мм ст.3', 'metal_profile', 'м.п.', 16.0, 1.15, 'Стійки та перемички'),
+          createUnitItem('it_1_2', 'Порошкове фарбування каркасу', 'Порошкове фарбування металу RAL (глянець/мат/муар)', 'coating', 'м²', 5.5, 1.10, 'Чорний муар RAL 9005'),
+          createUnitItem('it_1_3', 'Полиці вкладні ДСП', 'ДСП ламіноване Egger 18 мм (Стандартні декори)', 'plate_wood', 'м²', 3.2, 1.10, 'Дуб Галіфакс'),
+          createUnitItem('it_1_4', 'Кромкування полиць', 'Кромка ABS 22х2 мм з клеєм (вкл. нанесення)', 'plate_wood', 'м.п.', 12.0, 1.05, 'Кромка в тон плити'),
+          createUnitItem('it_1_5', 'Слюсарно-зварювальні роботи', 'Зварювальні слюсарні роботи (TIG/MIG)', 'services', 'год', 6.0, 1.15, 'Зварювання та зачистка'),
+        ],
+      },
+      {
+        id: 'unit_2',
+        name: 'Стелаж острівний',
+        quantity: 1,
+        items: [
+          createUnitItem('it_2_1', 'Несуча рама стелажа', 'Труба профільна 40х40х2 мм ст.3', 'metal_profile', 'м.п.', 18.5, 1.15, 'Двосторонній каркас'),
+          createUnitItem('it_2_2', 'Порошкове фарбування', 'Порошкове фарбування металу RAL (глянець/мат/муар)', 'coating', 'м²', 6.2, 1.10, 'Полімерне фарбування'),
+          createUnitItem('it_2_3', 'Полиці ДСП Egger', 'ДСП ламіноване Egger 18 мм (Стандартні декори)', 'plate_wood', 'м²', 3.6, 1.10, '5 поличок'),
+          createUnitItem('it_2_4', 'Контурне LED підсвічування', 'LED-стрічка COB 24V 4000K нейтральний білий IP20 (CRI>90)', 'lighting', 'м.п.', 6.0, 1.15, 'Врізний алюмінієвий профіль'),
+          createUnitItem('it_2_5', 'Блок живлення 100W', 'Блок живлення Mean Well LPV-100-24 (100W, 24V, IP67)', 'lighting', 'шт', 1.0, 1.05, 'Монтаж у цоколі'),
+          createUnitItem('it_2_6', 'Опори регульовані M10', 'Опори регульовані M10х50 з поліамідною основою', 'hardware', 'шт', 4.0, 1.05, 'Регулювання горизонту'),
+          createUnitItem('it_2_7', 'Складання та підгонка в цеху', 'Складання та підгонка виробу в цеху', 'services', 'год', 4.0, 1.10, 'Тестова збірка'),
+        ],
+      },
+      {
+        id: 'unit_3',
+        name: 'Каса',
+        quantity: 1,
+        items: [
+          createUnitItem('it_3_1', 'Металевий каркас касової зони', 'Труба профільна 40х40х2 мм ст.3', 'metal_profile', 'м.п.', 12.0, 1.20, 'Посилений каркас під обладнання'),
+          createUnitItem('it_3_2', 'Фронтальна обшивка нержавійкою', 'Лист нержавіючий AISI 304 1.5 мм шліфований в плівці', 'sheet_metal', 'м²', 2.5, 1.25, 'Шліфована нержавійка сатин'),
+          createUnitItem('it_3_3', 'Стільниця каси шпонована', 'МДФ 19 мм шпонований дубом (двосторонній)', 'plate_wood', 'м²', 2.0, 1.20, 'Зносостійкий матовий лак'),
+          createUnitItem('it_3_4', 'Висувні шухляди Blum', 'Напрямні прихованого монтажу Blum Movento 500 мм Tip-On Blumotion', 'hardware', 'компл', 2.0, 1.10, 'Плавне відкривання'),
+          createUnitItem('it_3_5', 'Замок меблевий SISO', 'Замок меблевий центральний SISO для скляних дверей', 'hardware', 'шт', 1.0, 1.05, 'Замок на шухляду касира'),
+          createUnitItem('it_3_6', 'Слюсарно-зварювальні роботи', 'Зварювальні слюсарні роботи (TIG/MIG)', 'services', 'год', 5.0, 1.20, 'Збірка та нівелювання'),
+        ],
       },
     ];
   });
 
-  const [activeUnitId, setActiveUnitId] = useState<string>('unit_default_1');
+  const [activeUnitId, setActiveUnitId] = useState<string>('unit_1');
 
   // Additional Services (Delivery & Installation) - Window 3
   const [servicesConfig, setServicesConfig] = useState<ProjectServicesConfig>({
@@ -364,9 +408,27 @@ export const CalculatorTab: React.FC<Props> = ({
       ? 1.0
       : coefficients.wasteFactorsByCategory[mat.category] || mat.defaultWasteFactor || 1.10;
 
+    // Requirement 2: Sensible constructive node name rather than duplicating material name
+    let defaultConstructive = 'Конструктивний вузол';
+    if (mat.category === 'metal_profile' || mat.category === 'sheet_metal') {
+      defaultConstructive = 'Опорний металокаркас';
+    } else if (mat.category === 'plate_wood') {
+      defaultConstructive = 'Фасад / Корпус';
+    } else if (mat.category === 'glass_mirror') {
+      defaultConstructive = 'Скляне наповнення / Полиця';
+    } else if (mat.category === 'lighting') {
+      defaultConstructive = 'Контурне LED підсвічування';
+    } else if (mat.category === 'hardware') {
+      defaultConstructive = 'Фурнітура та кріплення';
+    } else if (mat.category === 'coating') {
+      defaultConstructive = 'Порошкове фарбування';
+    } else if (mat.category === 'services') {
+      defaultConstructive = 'Виробнича послуга / Обробка';
+    }
+
     const rawItem: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
       id: `item_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      constructive: mat.name,
+      constructive: defaultConstructive,
       materialId: mat.id,
       materialName: mat.name,
       category: mat.category,
@@ -1037,6 +1099,7 @@ export const CalculatorTab: React.FC<Props> = ({
             <CatalogWindow
               materials={materials}
               onOpenMasterData={() => setIsMasterDataOpen(true)}
+              onOpenImportPrice={() => setIsImportMetalModalOpen(true)}
               onAddMaterial={handleDropMaterialToActiveUnit}
             />
           </div>
@@ -1249,6 +1312,22 @@ export const CalculatorTab: React.FC<Props> = ({
         coefficients={coefficients}
         onMaterialsChange={(mats) => setMaterials(mats)}
         onCoefficientsChange={(coeffs) => handleUpdateCoefficients(coeffs)}
+        onOpenImportPrice={() => {
+          setIsMasterDataOpen(false);
+          setIsImportMetalModalOpen(true);
+        }}
+      />
+
+      {/* Import Metal Pricelist Modal (Excel / CSV) */}
+      <ImportMetalPriceModal
+        isOpen={isImportMetalModalOpen}
+        onClose={() => setIsImportMetalModalOpen(false)}
+        existingMaterials={materials}
+        onApplyImport={(updatedMats, msg) => {
+          setMaterials(updatedMats);
+          CalculatorStorageService.saveMaterials(updatedMats);
+          showToast(msg, 'success');
+        }}
       />
 
       {/* Export to Google Sheets & Drive Modal */}

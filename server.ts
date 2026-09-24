@@ -4,6 +4,8 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { processOcrDocument } from './api/ocr/process';
+import { processMetalPricePdf } from './api/metal-price/parsePdf';
+import { generateMetalHoldingSamplePdf } from './api/metal-price/samplePdf';
 
 dotenv.config();
 
@@ -93,6 +95,50 @@ app.post(['/api/ocr/process', '/api/ocr/process/', '/api/ocr', '/api/ocr/', '/ap
       error: userFriendlyMessage,
       details: rawMsg,
     });
+  }
+});
+
+// Metal Price List PDF Parser Endpoint (Optimized for Metal Holding / Metinvest PDFs)
+app.post(['/api/metal-price/parse-pdf', '/api/metal-price/pdf'], async (req, res) => {
+  try {
+    const { fileData, fileName, existingMaterials, customSupplier } = req.body || {};
+    if (!fileData) {
+      return res.status(400).json({
+        success: false,
+        error: 'Файл не передано (fileData is missing)',
+      });
+    }
+
+    const result = await processMetalPricePdf({
+      fileData,
+      fileName,
+      existingMaterials,
+      customSupplier,
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error: any) {
+    console.error('Metal Price PDF parsing error in server.ts:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Не вдалося розпізнати PDF-прайс металу',
+    });
+  }
+});
+
+// Download sample Metal Holding PDF
+app.get(['/api/metal-price/sample-pdf', '/api/metal-price/sample.pdf'], (req, res) => {
+  try {
+    const pdfBuffer = generateMetalHoldingSamplePdf();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="Price_Metal_Holding.pdf"');
+    res.send(pdfBuffer);
+  } catch (err: any) {
+    console.error('Error generating sample PDF:', err);
+    res.status(500).json({ error: 'Не вдалося згенерувати зразок PDF' });
   }
 });
 

@@ -10,12 +10,15 @@ import {
   Settings,
   Folder,
   FolderOpen,
+  FileSpreadsheet,
+  Scissors,
 } from 'lucide-react';
 import { MaterialItem, MaterialCategory, MATERIAL_CATEGORIES } from '../../../types/calculator';
 
 interface Props {
   materials: MaterialItem[];
   onOpenMasterData: () => void;
+  onOpenImportPrice?: () => void;
   onAddMaterial: (mat: MaterialItem) => void;
 }
 
@@ -158,6 +161,7 @@ const CATALOG_BRANCHES: CatalogBranch[] = [
 export const CatalogWindow: React.FC<Props> = ({
   materials,
   onOpenMasterData,
+  onOpenImportPrice,
   onAddMaterial,
 }) => {
   const [search, setSearch] = useState('');
@@ -169,10 +173,19 @@ export const CatalogWindow: React.FC<Props> = ({
     services: false,
   });
 
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
   const toggleBranch = (id: string) => {
     setOpenBranches((prev) => ({
       ...prev,
       [id]: !prev[id],
+    }));
+  };
+
+  const toggleGroup = (groupId: string) => {
+    setOpenGroups((prev) => ({
+      ...prev,
+      [groupId]: prev[groupId] !== undefined ? !prev[groupId] : false, // default open if undefined
     }));
   };
 
@@ -192,6 +205,7 @@ export const CatalogWindow: React.FC<Props> = ({
         m.name.toLowerCase().includes(query) ||
         m.supplier?.toLowerCase().includes(query) ||
         m.subcategory?.toLowerCase().includes(query) ||
+        m.groupHeader?.toLowerCase().includes(query) ||
         m.notes?.toLowerCase().includes(query)
     );
   }, [materials, search, isSearchActive]);
@@ -215,6 +229,18 @@ export const CatalogWindow: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {onOpenImportPrice && (
+            <button
+              type="button"
+              onClick={onOpenImportPrice}
+              className="px-2.5 py-1 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Імпорт прайс-листа металопрокату (PDF Метал Холдінг / Excel / CSV) та генерація дерева"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="hidden sm:inline">Імпорт прайсу</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onOpenMasterData}
@@ -278,9 +304,19 @@ export const CatalogWindow: React.FC<Props> = ({
                       <div className="text-xs font-semibold text-slate-900 truncate">
                         {mat.name}
                       </div>
-                      <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                      <div className="text-[10px] text-slate-400 flex flex-wrap items-center gap-1.5 mt-0.5">
                         <span>{MATERIAL_CATEGORIES[mat.category]?.name}</span>
                         {mat.subcategory && <span>• {mat.subcategory}</span>}
+                        {mat.groupHeader && (
+                          <span className="text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded font-medium">
+                            📁 {mat.groupHeader}
+                          </span>
+                        )}
+                        {mat.cuttingPrice !== undefined && (
+                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded font-semibold flex items-center gap-0.5">
+                            ✂️ Різка: {mat.cuttingPrice.toFixed(2)} ₴
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -356,13 +392,107 @@ export const CatalogWindow: React.FC<Props> = ({
                             <span className="text-[10px] text-slate-400 font-mono">({subItems.length})</span>
                           </div>
 
-                          {/* Items Cards */}
+                          {/* Items Cards or Nested Group Folders */}
                           <div className="space-y-1">
                             {subItems.length === 0 ? (
                               <div className="text-[10px] text-slate-400 italic pl-3">
                                 Позицій немає
                               </div>
+                            ) : subItems.some((m) => !!m.groupHeader) ? (
+                              /* Grouped by Group Header (e.g. Арматура мірної довжини, Труба профільна, etc.) */
+                              (() => {
+                                const groupsMap = new Map<string, MaterialItem[]>();
+                                subItems.forEach((m) => {
+                                  const gName = m.groupHeader || 'Основний сортамент';
+                                  if (!groupsMap.has(gName)) groupsMap.set(gName, []);
+                                  groupsMap.get(gName)!.push(m);
+                                });
+
+                                return Array.from(groupsMap.entries()).map(([gName, gItems]) => {
+                                  const groupKey = `${branch.id}_${sIdx}_${gName}`;
+                                  const isGroupOpen = openGroups[groupKey] !== false; // open by default
+
+                                  return (
+                                    <div
+                                      key={gName}
+                                      className="border border-slate-200/80 rounded-lg overflow-hidden bg-slate-50/50 mb-1"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleGroup(groupKey)}
+                                        className="w-full px-2.5 py-1.5 bg-slate-100/70 hover:bg-slate-200/70 text-left flex items-center justify-between gap-1.5 transition cursor-pointer select-none text-[11px] font-semibold text-slate-800"
+                                      >
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          {isGroupOpen ? (
+                                            <FolderOpen className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                          ) : (
+                                            <Folder className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                          )}
+                                          <span className="truncate">{gName}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          <span className="text-[9px] font-mono font-bold bg-white text-slate-600 px-1.5 py-0.2 rounded border border-slate-200">
+                                            {gItems.length}
+                                          </span>
+                                          {isGroupOpen ? (
+                                            <ChevronDown className="w-3 h-3 text-slate-400" />
+                                          ) : (
+                                            <ChevronRight className="w-3 h-3 text-slate-400" />
+                                          )}
+                                        </div>
+                                      </button>
+
+                                      {isGroupOpen && (
+                                        <div className="p-1.5 space-y-1 bg-white">
+                                          {gItems.map((mat) => (
+                                            <div
+                                              key={mat.id}
+                                              draggable
+                                              onDragStart={(e) => handleDragStart(e, mat)}
+                                              className="p-1.5 bg-white hover:bg-emerald-50/50 rounded-lg border border-slate-200 hover:border-emerald-300 transition flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing group shadow-2xs"
+                                            >
+                                              <div className="flex items-center gap-1.5 min-w-0">
+                                                <GripVertical className="w-3 h-3 text-slate-300 group-hover:text-emerald-500 shrink-0" />
+                                                <div className="min-w-0">
+                                                  <div className="text-xs font-medium text-slate-900 truncate">
+                                                    {mat.name}
+                                                  </div>
+                                                  <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
+                                                    {mat.supplier && <span>{mat.supplier}</span>}
+                                                    {mat.cuttingPrice !== undefined && (
+                                                      <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded font-semibold flex items-center gap-0.5">
+                                                        ✂️ {mat.cuttingPrice.toFixed(2)} ₴
+                                                      </span>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              </div>
+
+                                              <div className="flex items-center gap-1 shrink-0">
+                                                <span className="font-mono font-bold text-[11px] text-slate-800">
+                                                  {mat.basePrice.toLocaleString('uk-UA')} ₴
+                                                </span>
+                                                <span className="text-[9px] text-slate-400">/{mat.unit}</span>
+
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onAddMaterial(mat)}
+                                                  className="p-1 rounded-md bg-slate-100 hover:bg-emerald-600 text-slate-600 hover:text-white transition cursor-pointer ml-1"
+                                                  title="Додати у виріб"
+                                                >
+                                                  <Plus className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                });
+                              })()
                             ) : (
+                              /* Flat List */
                               subItems.map((mat) => (
                                 <div
                                   key={mat.id}
@@ -376,11 +506,14 @@ export const CatalogWindow: React.FC<Props> = ({
                                       <div className="text-xs font-medium text-slate-900 truncate">
                                         {mat.name}
                                       </div>
-                                      {mat.supplier && (
-                                        <div className="text-[10px] text-slate-400 truncate">
-                                          {mat.supplier}
-                                        </div>
-                                      )}
+                                      <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                                        {mat.supplier && <span>{mat.supplier}</span>}
+                                        {mat.cuttingPrice !== undefined && (
+                                          <span className="text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded font-semibold flex items-center gap-0.5">
+                                            ✂️ Різка: {mat.cuttingPrice.toFixed(2)} ₴
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
 

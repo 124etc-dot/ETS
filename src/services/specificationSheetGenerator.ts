@@ -174,7 +174,7 @@ export class SpecificationSheetGenerator {
             sheetId: 0,
             title: 'Специфікація цеху',
             gridProperties: {
-              rowCount: Math.max(80, project.items.length + 40),
+              rowCount: Math.max(180, (project.items?.length || 20) + 120),
               columnCount: 14,
               frozenRowCount: 7,
             },
@@ -185,9 +185,9 @@ export class SpecificationSheetGenerator {
             sheetId: 1,
             title: 'Кошторис клієнта',
             gridProperties: {
-              rowCount: Math.max(60, project.items.length + 30),
+              rowCount: Math.max(150, (project.items?.length || 20) + 100),
               columnCount: 8,
-              frozenRowCount: 6,
+              frozenRowCount: 5,
             },
           },
         },
@@ -227,7 +227,22 @@ export class SpecificationSheetGenerator {
       await this.moveFileToFolder(spreadsheetId, options.targetFolderId, accessToken);
     }
 
-    // 3. Prepare data for Tab 1: «Внутрішня специфікація»
+    // Track styling metadata for batch formatting
+    const stylingMeta = {
+      tab0UnitHeaders: [] as number[],
+      tab0UnitSubtotals: [] as number[],
+      tab0ServiceHeaders: [] as number[],
+      tab0ServiceSubtotals: [] as number[],
+      tab0SummaryHeaders: [] as number[],
+      tab0GrandTotals: [] as number[],
+      tab1UnitHeaders: [] as number[],
+      tab1UnitSubtotals: [] as number[],
+      tab1ServiceHeaders: [] as number[],
+      tab1ServiceSubtotals: [] as number[],
+      tab1GrandTotals: [] as number[],
+    };
+
+    // 3. Prepare data for Tab 1: «Специфікація цеху»
     const internalValues: any[][] = [];
 
     // Header block
@@ -276,62 +291,232 @@ export class SpecificationSheetGenerator {
       'Примітки'
     ]);
 
-    // Constructive item rows
-    project.items.forEach((item, index) => {
-      const catLabel = MATERIAL_CATEGORIES[item.category]?.name || item.category;
+    // Units from Project Tree (Requirement 1: Ієрархічне групування за об'єктами з Project Tree)
+    const unitsToRender = (project.units && project.units.length > 0)
+      ? project.units
+      : [
+          {
+            id: 'unit_default',
+            name: project.projectName || 'Основний виріб',
+            quantity: 1,
+            items: project.items || [],
+          }
+        ];
+
+    // Helper to get non-duplicate constructive element name
+    const getConstructiveNodeName = (item: ConstructiveItem): string => {
+      let constructiveNode = (item.constructive || '').trim();
+      const materialName = (item.materialName || '').trim();
+
+      // If empty or identical to materialName, do NOT duplicate material name:
+      if (!constructiveNode || constructiveNode.toLowerCase() === materialName.toLowerCase()) {
+        switch (item.category) {
+          case 'metal_profile':
+          case 'sheet_metal':
+            return 'Опорний металокаркас';
+          case 'plate_wood':
+            return 'Корпус / Фасад';
+          case 'glass_mirror':
+            return 'Скляне наповнення / Полиця';
+          case 'lighting':
+            return 'Контурне LED підсвічування';
+          case 'hardware':
+            return 'Фурнітура та кріплення';
+          case 'coating':
+            return 'Порошкове / захисне фарбування';
+          case 'services':
+            return 'Виробнича операція / Обробка';
+          default:
+            return 'Конструктивний вузол';
+        }
+      }
+      return constructiveNode;
+    };
+
+    // Iterate through each assembly unit
+    unitsToRender.forEach((unit, unitIdx) => {
+      const cleanUnitName = unit.name.replace(/^\d+[\.\)]\s*/, '').trim();
+      const unitSectionTitle = `${unitIdx + 1}. ${cleanUnitName}${unit.quantity > 1 ? ` (Кількість: ${unit.quantity} шт)` : ''}`;
+
+      // Unit Header Section (Requirement 1: Заголовок-секція для кожного Виробу)
+      stylingMeta.tab0UnitHeaders.push(internalValues.length);
       internalValues.push([
-        index + 1,
-        item.constructive,
-        item.materialName,
-        catLabel,
-        item.quantity,
-        item.unit,
-        item.wasteFactor,
-        item.effectiveQuantity,
-        item.basePrice,
-        item.materialCost,
-        item.complexityFactor,
-        item.totalCost,
-        item.clientPrice,
-        item.notes || ''
+        `${unitIdx + 1}`,
+        unitSectionTitle,
+        '', '', '', '', '', '', '', '', '', '', '', ''
+      ]);
+
+      let unitPrimeSum = 0;
+      let unitClientSum = 0;
+
+      // Constructive item rows within this unit
+      (unit.items || []).forEach((item, itemIdx) => {
+        const catLabel = MATERIAL_CATEGORIES[item.category]?.name || item.category;
+        unitPrimeSum += item.totalCost || 0;
+        unitClientSum += item.clientPrice || 0;
+
+        // Requirement 2: Виводити назву вузла/деталі, вказану користувачем у Вікні 1, а НЕ дублювати назву самого матеріалу
+        const constructiveNode = getConstructiveNodeName(item);
+
+        internalValues.push([
+          `${unitIdx + 1}.${itemIdx + 1}`,
+          constructiveNode,
+          item.materialName,
+          catLabel,
+          item.quantity,
+          item.unit,
+          item.wasteFactor,
+          item.effectiveQuantity,
+          item.basePrice,
+          item.materialCost,
+          item.complexityFactor,
+          item.totalCost,
+          item.clientPrice,
+          item.notes || ''
+        ]);
+      });
+
+      // Unit Subtotal row (Requirement 1: Під кожним виробом додавати рядок підсумку «Разом за виробом [Назва]: X грн»)
+      stylingMeta.tab0UnitSubtotals.push(internalValues.length);
+      internalValues.push([
+        '',
+        `Разом за виробом ${cleanUnitName}: ${Math.round(unitPrimeSum).toLocaleString('uk-UA')} грн`,
+        '', '', '', '', '', '', '', '', '',
+        Math.round(unitPrimeSum * 100) / 100,
+        Math.round(unitClientSum * 100) / 100,
+        ''
       ]);
     });
 
+    // Requirement 3: Окремий блок для Доставки та Монтажу
+    const servicesConfig = project.servicesConfig;
+    const deliveryEnabled = Boolean(servicesConfig?.delivery?.enabled);
+    const deliveryCost = deliveryEnabled
+      ? (servicesConfig?.delivery?.trips || 1) * (servicesConfig?.delivery?.ratePerTrip || 0)
+      : (project.summary.deliveryCost || 0);
+
+    const installationEnabled = Boolean(servicesConfig?.installation?.enabled);
+    const installationCost = installationEnabled
+      ? (servicesConfig?.installation?.workers || 1) *
+        (servicesConfig?.installation?.hours || 0) *
+        (servicesConfig?.installation?.ratePerHour || 0)
+      : (project.summary.installationCost || 0);
+
+    const hasLogisticsOrInstallation = deliveryCost > 0 || installationCost > 0 || deliveryEnabled || installationEnabled;
+
+    if (hasLogisticsOrInstallation) {
+      internalValues.push(['']);
+      stylingMeta.tab0ServiceHeaders.push(internalValues.length);
+      internalValues.push([
+        'Д/М',
+        'ДОСТАВКА ТА МОНТАЖ (Послуги доставки та виїзні роботи на обʼєкті)',
+        '', '', '', '', '', '', '', '', '', '', '', ''
+      ]);
+
+      if (deliveryCost > 0 || deliveryEnabled) {
+        internalValues.push([
+          'Д.1',
+          'Послуги доставки',
+          servicesConfig?.delivery?.name || 'Вантажне авто (Київ та область)',
+          'Логістика',
+          servicesConfig?.delivery?.trips || 1,
+          'рейс',
+          1.0,
+          servicesConfig?.delivery?.trips || 1,
+          servicesConfig?.delivery?.ratePerTrip || deliveryCost,
+          deliveryCost,
+          1.0,
+          deliveryCost,
+          deliveryCost,
+          servicesConfig?.delivery?.notes || 'Доставка готових виробів на локацію'
+        ]);
+      }
+
+      if (installationCost > 0 || installationEnabled) {
+        const workers = servicesConfig?.installation?.workers || 1;
+        const hours = servicesConfig?.installation?.hours || 0;
+        const totalManHours = workers * hours;
+        internalValues.push([
+          'М.1',
+          'Послуги монтажу',
+          `${servicesConfig?.installation?.name || 'Монтажна бригада'} (${workers} монтажн. х ${hours} год)`,
+          'Монтаж',
+          totalManHours > 0 ? totalManHours : 1,
+          'люд.-год',
+          1.0,
+          totalManHours > 0 ? totalManHours : 1,
+          servicesConfig?.installation?.ratePerHour || installationCost,
+          installationCost,
+          1.0,
+          installationCost,
+          installationCost,
+          servicesConfig?.installation?.notes || 'Монтаж, нівелювання та фіксація конструкцій'
+        ]);
+      }
+
+      stylingMeta.tab0ServiceSubtotals.push(internalValues.length);
+      const totalLogisticsAndInstallation = Math.round((deliveryCost + installationCost) * 100) / 100;
+      internalValues.push([
+        '',
+        `Разом за доставку та монтаж: ${totalLogisticsAndInstallation.toLocaleString('uk-UA')} грн`,
+        '', '', '', '', '', '', '', '', '',
+        totalLogisticsAndInstallation,
+        totalLogisticsAndInstallation,
+        ''
+      ]);
+    }
+
     // Summary block rows
     internalValues.push(['']);
+    stylingMeta.tab0SummaryHeaders.push(internalValues.length);
     internalValues.push([
       '', '', '', '', '', '', '', '', 'ПІДСУМКОВИЙ ФІНАНСОВИЙ РОЗРАХУНОК:', '', '', '', '', ''
     ]);
     internalValues.push([
       '', '', '', '', '', '', '', '',
-      'Чиста вартість матеріалів:',
-      project.summary.rawMaterialCost,
+      'Чиста вартість матеріалів (з відходом):',
+      project.summary.materialsSubtotal,
       '', '', '', ''
     ]);
-    internalValues.push([
-      '', '', '', '', '', '', '', '',
-      'Технологічний відхід матеріалів:',
-      project.summary.wasteAddedCost,
-      '', '', '', ''
-    ]);
-    internalValues.push([
-      '', '', '', '', '', '', '', '',
-      'Послуги та роботи цеху/підрядників:',
-      project.summary.servicesSubtotal,
-      '', '', '', ''
-    ]);
-    internalValues.push([
-      '', '', '', '', '', '', '', '',
-      'Надбавка за виробничу складність:',
-      project.summary.complexityAddedCost,
-      '', '', '', ''
-    ]);
+    if (project.summary.servicesSubtotal > 0) {
+      internalValues.push([
+        '', '', '', '', '', '', '', '',
+        'Послуги та роботи цеху/підрядників:',
+        project.summary.servicesSubtotal,
+        '', '', '', ''
+      ]);
+    }
+    if (deliveryCost > 0) {
+      internalValues.push([
+        '', '', '', '', '', '', '', '',
+        'Послуги доставки:',
+        deliveryCost,
+        '', '', '', ''
+      ]);
+    }
+    if (installationCost > 0) {
+      internalValues.push([
+        '', '', '', '', '', '', '', '',
+        'Монтажні роботи на обʼєкті:',
+        installationCost,
+        '', '', '', ''
+      ]);
+    }
+    if (project.summary.complexityAddedCost > 0) {
+      internalValues.push([
+        '', '', '', '', '', '', '', '',
+        'Надбавка за виробничу складність:',
+        project.summary.complexityAddedCost,
+        '', '', '', ''
+      ]);
+    }
     internalValues.push([
       '', '', '', '', '', '', '', '',
       `Загальновиробничі накладні (${project.coefficients.overheadPercent}%):`,
       project.summary.overheadCost,
       '', '', '', ''
     ]);
+    stylingMeta.tab0GrandTotals.push(internalValues.length);
     internalValues.push([
       '', '', '', '', '', '', '', '',
       'ПОВНА ВИРОБНИЧА СОБІВАРТІСТЬ:',
@@ -344,6 +529,7 @@ export class SpecificationSheetGenerator {
       project.summary.marginAmount,
       '', '', '', ''
     ]);
+    stylingMeta.tab0GrandTotals.push(internalValues.length);
     internalValues.push([
       '', '', '', '', '', '', '', '',
       'ПІДСУМКОВА ВАРТІСТЬ ДЛЯ КЛІЄНТА (БЕЗ ПДВ):',
@@ -357,15 +543,16 @@ export class SpecificationSheetGenerator {
         project.summary.vatAmount,
         '', '', '', ''
       ]);
+      stylingMeta.tab0GrandTotals.push(internalValues.length);
+      internalValues.push([
+        '', '', '', '', '', '', '', '',
+        'ВСЬОГО ДО СПЛАТИ З ПДВ:',
+        project.summary.clientTotalWithVat,
+        '', '', '', ''
+      ]);
     }
-    internalValues.push([
-      '', '', '', '', '', '', '', '',
-      'ВСЬОГО ДО СПЛАТИ З ПДВ:',
-      project.summary.clientTotalWithVat,
-      '', '', '', ''
-    ]);
 
-    // 4. Prepare data for Tab 2: «Кошторис для клієнта»
+    // 4. Prepare data for Tab 2: «Кошторис клієнта»
     const clientValues: any[][] = [];
 
     clientValues.push(['ETS PROJECTS', '', '', '', '', '', '', '']);
@@ -393,26 +580,101 @@ export class SpecificationSheetGenerator {
       'Примітки'
     ]);
 
-    // Group or list constructive positions
-    project.items.forEach((item, index) => {
-      const unitClientPrice = item.quantity > 0
-        ? Math.round((item.clientPrice / item.quantity) * 100) / 100
-        : item.clientPrice;
-
+    // Group items by units for client estimate
+    unitsToRender.forEach((unit, unitIdx) => {
+      const cleanUnitName = unit.name.replace(/^\d+[\.\)]\s*/, '').trim();
+      stylingMeta.tab1UnitHeaders.push(clientValues.length);
       clientValues.push([
-        index + 1,
-        item.constructive,
-        `${item.materialName} (${MATERIAL_CATEGORIES[item.category]?.name || ''})`,
-        item.quantity,
-        item.unit,
-        unitClientPrice,
-        item.clientPrice,
-        item.notes || ''
+        `${unitIdx + 1}`,
+        `${unitIdx + 1}. ${cleanUnitName}${unit.quantity > 1 ? ` (${unit.quantity} шт)` : ''}`,
+        '', '', '', '', '', ''
+      ]);
+
+      let clientUnitSum = 0;
+
+      (unit.items || []).forEach((item, itemIdx) => {
+        clientUnitSum += item.clientPrice || 0;
+        const unitClientPrice = item.quantity > 0
+          ? Math.round((item.clientPrice / item.quantity) * 100) / 100
+          : item.clientPrice;
+
+        const constructiveNode = getConstructiveNodeName(item);
+
+        clientValues.push([
+          `${unitIdx + 1}.${itemIdx + 1}`,
+          constructiveNode,
+          `${item.materialName} (${MATERIAL_CATEGORIES[item.category]?.name || ''})`,
+          item.quantity,
+          item.unit,
+          unitClientPrice,
+          item.clientPrice,
+          item.notes || ''
+        ]);
+      });
+
+      stylingMeta.tab1UnitSubtotals.push(clientValues.length);
+      clientValues.push([
+        '',
+        `Разом за виробом ${cleanUnitName}: ${Math.round(clientUnitSum).toLocaleString('uk-UA')} грн`,
+        '', '', '', '',
+        Math.round(clientUnitSum * 100) / 100,
+        ''
       ]);
     });
 
+    // Delivery and installation block for Tab 2
+    if (hasLogisticsOrInstallation) {
+      clientValues.push(['']);
+      stylingMeta.tab1ServiceHeaders.push(clientValues.length);
+      clientValues.push([
+        'Д/М',
+        'ПОСЛУГИ ДОСТАВКИ ТА МОНТАЖУ',
+        '', '', '', '', '', ''
+      ]);
+
+      if (deliveryCost > 0 || deliveryEnabled) {
+        clientValues.push([
+          'Д.1',
+          'Послуги доставки на обʼєкт',
+          `${servicesConfig?.delivery?.name || 'Вантажне авто'} (${servicesConfig?.delivery?.trips || 1} рейс.)`,
+          servicesConfig?.delivery?.trips || 1,
+          'рейс',
+          servicesConfig?.delivery?.ratePerTrip || deliveryCost,
+          deliveryCost,
+          servicesConfig?.delivery?.notes || 'Транспортні послуги'
+        ]);
+      }
+
+      if (installationCost > 0 || installationEnabled) {
+        const workers = servicesConfig?.installation?.workers || 1;
+        const hours = servicesConfig?.installation?.hours || 0;
+        const totalManHours = workers * hours;
+        clientValues.push([
+          'М.1',
+          'Монтажні та пусконалагоджувальні роботи',
+          `${servicesConfig?.installation?.name || 'Монтажна бригада'} (${workers} монтажн. х ${hours} год)`,
+          totalManHours > 0 ? totalManHours : 1,
+          'люд.-год',
+          servicesConfig?.installation?.ratePerHour || installationCost,
+          installationCost,
+          servicesConfig?.installation?.notes || 'Встановлення та закріплення на обʼєкті'
+        ]);
+      }
+
+      stylingMeta.tab1ServiceSubtotals.push(clientValues.length);
+      const totalLogisticsAndInstallation = Math.round((deliveryCost + installationCost) * 100) / 100;
+      clientValues.push([
+        '',
+        `Разом за доставку та монтаж: ${totalLogisticsAndInstallation.toLocaleString('uk-UA')} грн`,
+        '', '', '', '',
+        totalLogisticsAndInstallation,
+        ''
+      ]);
+    }
+
     // Client commercial totals
     clientValues.push(['']);
+    stylingMeta.tab1GrandTotals.push(clientValues.length);
     clientValues.push([
       '', '', '', '', '',
       'Разом без ПДВ:',
@@ -427,6 +689,7 @@ export class SpecificationSheetGenerator {
         ''
       ]);
     }
+    stylingMeta.tab1GrandTotals.push(clientValues.length);
     clientValues.push([
       '', '', '', '', '',
       'ВСЬОГО ДО СПЛАТИ:',
@@ -474,7 +737,7 @@ export class SpecificationSheetGenerator {
 
     // 6. Apply professional styling (batchUpdate format requests)
     try {
-      await this.applySheetStyling(spreadsheetId, project, accessToken);
+      await this.applySheetStyling(spreadsheetId, project, accessToken, stylingMeta);
     } catch (e) {
       console.warn('Styling failed, data was successfully saved:', e);
     }
@@ -494,11 +757,24 @@ export class SpecificationSheetGenerator {
   private static async applySheetStyling(
     spreadsheetId: string,
     project: CalculationProject,
-    accessToken: string
+    accessToken: string,
+    meta?: {
+      tab0UnitHeaders: number[];
+      tab0UnitSubtotals: number[];
+      tab0ServiceHeaders: number[];
+      tab0ServiceSubtotals: number[];
+      tab0SummaryHeaders: number[];
+      tab0GrandTotals: number[];
+      tab1UnitHeaders: number[];
+      tab1UnitSubtotals: number[];
+      tab1ServiceHeaders: number[];
+      tab1ServiceSubtotals: number[];
+      tab1GrandTotals: number[];
+    }
   ): Promise<void> {
     const requests: any[] = [];
 
-    // --- Styling Tab 0 («Внутрішня специфікація») ---
+    // --- Styling Tab 0 («Специфікація цеху») ---
     // Title format (Row 1-2)
     requests.push({
       repeatCell: {
@@ -531,6 +807,113 @@ export class SpecificationSheetGenerator {
       },
     });
 
+    // Format Tab 0 Unit Headers
+    meta?.tab0UnitHeaders?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 0, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 14 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.91, green: 0.93, blue: 0.97 }, // Ice Indigo #E8EDF8
+              textFormat: { foregroundColor: { red: 0.12, green: 0.18, blue: 0.35 }, bold: true, fontSize: 10 },
+              horizontalAlignment: 'LEFT',
+              verticalAlignment: 'MIDDLE',
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+        },
+      });
+    });
+
+    // Format Tab 0 Unit Subtotals
+    meta?.tab0UnitSubtotals?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 0, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 14 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.96, green: 0.97, blue: 0.98 },
+              textFormat: { foregroundColor: { red: 0.15, green: 0.2, blue: 0.25 }, bold: true, fontSize: 10 },
+              borders: {
+                top: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
+                bottom: { style: 'SOLID', color: { red: 0.8, green: 0.83, blue: 0.88 } },
+              },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,borders)',
+        },
+      });
+    });
+
+    // Format Tab 0 Delivery & Installation Header
+    meta?.tab0ServiceHeaders?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 0, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 14 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.99, green: 0.95, blue: 0.88 }, // Light Warm Amber
+              textFormat: { foregroundColor: { red: 0.5, green: 0.25, blue: 0.05 }, bold: true, fontSize: 10 },
+              horizontalAlignment: 'LEFT',
+              verticalAlignment: 'MIDDLE',
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+        },
+      });
+    });
+
+    // Format Tab 0 Delivery & Installation Subtotals
+    meta?.tab0ServiceSubtotals?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 0, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 14 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.99, green: 0.97, blue: 0.93 },
+              textFormat: { bold: true, fontSize: 10 },
+              borders: {
+                top: { style: 'SOLID', color: { red: 0.85, green: 0.75, blue: 0.6 } },
+                bottom: { style: 'SOLID', color: { red: 0.85, green: 0.75, blue: 0.6 } },
+              },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,borders)',
+        },
+      });
+    });
+
+    // Format Tab 0 Summary Headers
+    meta?.tab0SummaryHeaders?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 0, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 14 },
+          cell: {
+            userEnteredFormat: {
+              textFormat: { bold: true, fontSize: 10, foregroundColor: { red: 0.15, green: 0.2, blue: 0.3 } },
+            },
+          },
+          fields: 'userEnteredFormat(textFormat)',
+        },
+      });
+    });
+
+    // Format Tab 0 Grand Totals
+    meta?.tab0GrandTotals?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 0, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 14 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.93, green: 0.97, blue: 0.94 }, // Light Mint
+              textFormat: { bold: true, fontSize: 10.5, foregroundColor: { red: 0.05, green: 0.35, blue: 0.15 } },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
+    });
+
     // Column widths for Tab 0
     const colWidthsTab0 = [
       { col: 0, width: 45 },   // №
@@ -559,7 +942,7 @@ export class SpecificationSheetGenerator {
       });
     });
 
-    // --- Styling Tab 1 («Кошторис для клієнта») ---
+    // --- Styling Tab 1 («Кошторис клієнта») ---
     // Title format
     requests.push({
       repeatCell: {
@@ -590,6 +973,98 @@ export class SpecificationSheetGenerator {
         },
         fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)',
       },
+    });
+
+    // Format Tab 1 Unit Headers
+    meta?.tab1UnitHeaders?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 1, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 8 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.92, green: 0.96, blue: 0.95 },
+              textFormat: { foregroundColor: { red: 0.05, green: 0.35, blue: 0.3 }, bold: true, fontSize: 10 },
+              horizontalAlignment: 'LEFT',
+              verticalAlignment: 'MIDDLE',
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+        },
+      });
+    });
+
+    // Format Tab 1 Unit Subtotals
+    meta?.tab1UnitSubtotals?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 1, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 8 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.96, green: 0.98, blue: 0.97 },
+              textFormat: { bold: true, fontSize: 10 },
+              borders: {
+                top: { style: 'SOLID', color: { red: 0.75, green: 0.85, blue: 0.8 } },
+                bottom: { style: 'SOLID', color: { red: 0.75, green: 0.85, blue: 0.8 } },
+              },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,borders)',
+        },
+      });
+    });
+
+    // Format Tab 1 Delivery & Installation Header
+    meta?.tab1ServiceHeaders?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 1, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 8 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.99, green: 0.95, blue: 0.88 },
+              textFormat: { foregroundColor: { red: 0.5, green: 0.25, blue: 0.05 }, bold: true, fontSize: 10 },
+              horizontalAlignment: 'LEFT',
+              verticalAlignment: 'MIDDLE',
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment)',
+        },
+      });
+    });
+
+    // Format Tab 1 Delivery & Installation Subtotals
+    meta?.tab1ServiceSubtotals?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 1, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 8 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.99, green: 0.97, blue: 0.93 },
+              textFormat: { bold: true, fontSize: 10 },
+              borders: {
+                top: { style: 'SOLID', color: { red: 0.85, green: 0.75, blue: 0.6 } },
+                bottom: { style: 'SOLID', color: { red: 0.85, green: 0.75, blue: 0.6 } },
+              },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat,borders)',
+        },
+      });
+    });
+
+    // Format Tab 1 Grand Totals
+    meta?.tab1GrandTotals?.forEach((rowIdx) => {
+      requests.push({
+        repeatCell: {
+          range: { sheetId: 1, startRowIndex: rowIdx, endRowIndex: rowIdx + 1, startColumnIndex: 0, endColumnIndex: 8 },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: { red: 0.88, green: 0.96, blue: 0.92 }, // Mint Green
+              textFormat: { bold: true, fontSize: 11, foregroundColor: { red: 0.02, green: 0.35, blue: 0.2 } },
+            },
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)',
+        },
+      });
     });
 
     // Column widths for Tab 1

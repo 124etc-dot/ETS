@@ -14,6 +14,7 @@ import {
   AlertCircle,
   HelpCircle,
   Sparkles,
+  FileSpreadsheet,
 } from 'lucide-react';
 import {
   MaterialCategory,
@@ -30,6 +31,7 @@ interface Props {
   coefficients: CalculatorCoefficients;
   onMaterialsChange: (materials: MaterialItem[]) => void;
   onCoefficientsChange: (coeffs: CalculatorCoefficients) => void;
+  onOpenImportPrice?: () => void;
 }
 
 export const MasterDataModal: React.FC<Props> = ({
@@ -39,6 +41,7 @@ export const MasterDataModal: React.FC<Props> = ({
   coefficients,
   onMaterialsChange,
   onCoefficientsChange,
+  onOpenImportPrice,
 }) => {
   const [activeTab, setActiveTab] = useState<'materials' | 'waste' | 'coefficients'>('materials');
   const [selectedCatFilter, setSelectedCatFilter] = useState<MaterialCategory | 'all'>('all');
@@ -261,6 +264,18 @@ export const MasterDataModal: React.FC<Props> = ({
           </div>
 
           <div className="hidden sm:flex items-center gap-2 pb-2">
+            {onOpenImportPrice && (
+              <button
+                type="button"
+                onClick={onOpenImportPrice}
+                className="px-2.5 py-1 text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 rounded-lg text-xs font-bold border border-blue-200 flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                title="Імпорт прайс-листа металопрокату (PDF Метал Холдінг / Excel / CSV)"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+                <span>Імпорт прайсу (PDF / Excel)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleExportJson}
@@ -492,11 +507,23 @@ export const MasterDataModal: React.FC<Props> = ({
                           <tr key={mat.id} className="hover:bg-slate-50 transition-colors">
                             <td className="py-2.5 px-3 font-semibold text-slate-900">
                               <div>{mat.name}</div>
-                              {mat.notes && (
-                                <div className="text-[10px] text-slate-400 font-normal italic">
-                                  {mat.notes}
-                                </div>
-                              )}
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                {mat.groupHeader && (
+                                  <span className="text-[10px] font-medium text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded">
+                                    📁 {mat.groupHeader}
+                                  </span>
+                                )}
+                                {mat.cuttingPrice !== undefined && (
+                                  <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                                    ✂️ Різка: {mat.cuttingPrice.toFixed(2)} ₴
+                                  </span>
+                                )}
+                                {mat.notes && (
+                                  <span className="text-[10px] text-slate-400 font-normal italic">
+                                    {mat.notes}
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             <td className="py-2.5 px-3">

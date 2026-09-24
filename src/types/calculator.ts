@@ -95,6 +95,40 @@ export interface MaterialItem {
   supplier?: string;
   notes?: string;
   updatedAt: string;
+  // Hierarchical price list fields
+  groupHeader?: string; // Підкатегорія з рядка-розділювача (напр. "Арматура мірної довжини", "Труба профільна")
+  parentCategory?: string; // Головна гілка довідника (напр. "Металопрокат")
+  cuttingPrice?: number; // Вартість різки за 1 різ / м.п. (грн)
+  sourceArticle?: string; // Артикул з прайсу (довідково)
+  tonPrice?: number; // Ціна за тонну (довідково)
+}
+
+export interface ParsedPriceItem {
+  name: string;
+  category: MaterialCategory;
+  parentCategory: string; // "Металопрокат"
+  subcategory: string; // "Чорний металопрокат"
+  groupHeader: string; // "Арматура мірної довжини"
+  unit: string; // "м.п." або "м²"
+  basePrice: number; // Ціна роздрібна з ПДВ за 1 м / лист
+  cuttingPrice?: number; // Вартість різки (грн)
+  sourceArticle?: string;
+  tonPrice?: number;
+  isExisting?: boolean;
+  existingId?: string;
+  oldPrice?: number;
+}
+
+export interface PriceParseResult {
+  fileName: string;
+  supplier: string;
+  mainCategory: string;
+  totalRowsRead: number;
+  recognizedItems: ParsedPriceItem[];
+  groupHeadersFound: string[];
+  newItemsCount: number;
+  updatedItemsCount: number;
+  errors: string[];
 }
 
 export interface CalculatorCoefficients {
