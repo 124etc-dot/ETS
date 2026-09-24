@@ -28,6 +28,19 @@ import {
 } from '../services/googleSheets';
 import { generateWeekOptions } from '../utils/weekUtils';
 
+export interface AddProjectInitialData {
+  projectNumber?: string;
+  projectName?: string;
+  manager?: string;
+  contractAmount?: string | number;
+  startDate?: string;
+  invoiceNumber?: string;
+  client?: string;
+  department?: 'ЕТС' | 'МК';
+  tranches?: Array<{ amount: string; week: string }>;
+  sourceNote?: string;
+}
+
 interface AddProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -45,6 +58,7 @@ interface AddProjectModalProps {
   spreadsheetId?: string;
   onProjectAdded?: (targetRow: number, projectNumber: string) => void;
   canWriteToSheets?: boolean;
+  initialData?: AddProjectInitialData | null;
 }
 
 export const PLAN_SPREADSHEET_STORAGE_KEY = 'plan_shipments_spreadsheet_config';
@@ -171,6 +185,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
   spreadsheetId,
   onProjectAdded,
   canWriteToSheets = true,
+  initialData = null,
 }) => {
   // Current date formatted YYYY-MM-DD for standard HTML date input
   const getTodayString = () => {
@@ -478,7 +493,26 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
     setSuccessInfo(null);
     setValidationErrors({});
     setIsEditingPlanSheet(false);
-    if (!startDate) {
+
+    // Apply pre-filled data if modal was invoked with initialData (e.g. from Order Calculator)
+    if (initialData) {
+      if (initialData.projectName !== undefined) setProjectName(initialData.projectName);
+      if (initialData.manager !== undefined) setManager(initialData.manager);
+      if (initialData.projectNumber) setProjectNumber(initialData.projectNumber);
+      if (initialData.contractAmount !== undefined) setContractAmount(String(initialData.contractAmount));
+      if (initialData.startDate) setStartDate(initialData.startDate);
+      if (initialData.invoiceNumber) {
+        setInvoiceNumber(initialData.invoiceNumber);
+      } else if (initialData.projectNumber) {
+        setInvoiceNumber(initialData.projectNumber);
+      }
+      setInvoiceDate(initialData.startDate || getTodayString());
+      if (initialData.department) setDepartment(initialData.department);
+      if (initialData.tranches && initialData.tranches.length > 0) {
+        setTranches(initialData.tranches);
+        setShowTranches(true);
+      }
+    } else if (!startDate) {
       setStartDate(getTodayString());
     }
 
@@ -509,7 +543,7 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
     if (accessToken) {
       refreshProjectNumbersFromSheets();
     }
-  }, [isOpen, accessToken, refreshProjectNumbersFromSheets]);
+  }, [isOpen, accessToken, refreshProjectNumbersFromSheets, initialData]);
 
   // Load saved managers from localStorage and merge with existingManagers
   useEffect(() => {
@@ -976,6 +1010,30 @@ export const AddProjectModal: React.FC<AddProjectModalProps> = ({
             </span>
           </div>
         </div>
+
+        {/* Banner when opened with initial data from Order Calculator */}
+        {initialData && (
+          <div className="mx-6 mt-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl flex items-center justify-between gap-3 text-xs text-blue-950 shrink-0 shadow-2xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div className="truncate">
+                <span className="font-bold text-blue-900 block truncate">
+                  {initialData.sourceNote || 'Дані погодженого замовлення автоматично витягнуто з Калькулятора:'}
+                </span>
+                <div className="text-[11px] text-blue-700 font-medium truncate mt-0.5">
+                  Назва: <b>{initialData.projectName || '—'}</b> • Менеджер: <b>{initialData.manager || '—'}</b>
+                  {initialData.contractAmount ? ` • Сума: ${Number(initialData.contractAmount).toLocaleString('uk-UA')} ₴` : ''}
+                  {initialData.client ? ` • Замовник: ${initialData.client}` : ''}
+                </div>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md shrink-0 border border-blue-200">
+              Погоджено
+            </span>
+          </div>
+        )}
 
         {/* Notifications & Feedback */}
         {errorMessage && (

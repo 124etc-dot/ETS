@@ -15,7 +15,8 @@ import {
   Factory,
   BarChart3,
   TrendingUp,
-  Eye
+  Eye,
+  Calculator
 } from 'lucide-react';
 import { AuthState } from '../services/googleAuth';
 import { getUserPermissions } from '../services/permissions';
@@ -27,8 +28,8 @@ import { ServerStatusModal } from './ServerStatusModal';
 interface Props {
   authState: AuthState;
   sheetConfig: SheetConfig | null;
-  activeTab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead' | 'cashflow';
-  onSelectTab: (tab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead' | 'cashflow') => void;
+  activeTab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'calculator' | 'overhead' | 'cashflow';
+  onSelectTab: (tab: 'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'calculator' | 'overhead' | 'cashflow') => void;
   onOpenAuthModal: () => void;
   onLogout: () => void;
   totalPendingCount: number;
@@ -138,6 +139,18 @@ export const Header: React.FC<Props> = ({
               >
                 <Briefcase className="w-3.5 h-3.5 text-blue-600" />
                 <span>Проекти</span>
+              </button>
+
+              <button
+                onClick={() => onSelectTab('calculator')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  activeTab === 'calculator'
+                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-indigo-100/60'
+                }`}
+              >
+                <Calculator className={`w-3.5 h-3.5 ${activeTab === 'calculator' ? 'text-white' : 'text-indigo-600'}`} />
+                <span>Калькулятор</span>
               </button>
 
               <button
@@ -314,6 +327,18 @@ export const Header: React.FC<Props> = ({
             >
               <Briefcase className="w-3.5 h-3.5 text-blue-600 shrink-0" />
               <span>Проекти</span>
+            </button>
+
+            <button
+              onClick={() => onSelectTab('calculator')}
+              className={`flex-1 min-w-max px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all cursor-pointer ${
+                activeTab === 'calculator'
+                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
+              }`}
+            >
+              <Calculator className={`w-3.5 h-3.5 shrink-0 ${activeTab === 'calculator' ? 'text-white' : 'text-indigo-600'}`} />
+              <span>Калькулятор</span>
             </button>
 
             <button

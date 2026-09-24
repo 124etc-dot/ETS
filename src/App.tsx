@@ -47,6 +47,7 @@ import { ProjectsTab } from './components/ProjectsTab';
 import { OverheadTab } from './components/OverheadTab';
 import { DashboardTab } from './components/DashboardTab';
 import { CashFlowTab } from './components/CashFlowTab';
+import { CalculatorTab } from './components/calculator/CalculatorTab';
 import { GoogleConnectModal } from './components/GoogleConnectModal';
 import { NewCompanyConfirmModal } from './components/NewCompanyConfirmModal';
 import { PLAN_SPREADSHEET_STORAGE_KEY } from './components/AddProjectModal';
@@ -99,7 +100,7 @@ export default function App() {
   const canApproveInvoices = userPermissions.canApproveInvoices;
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'overhead' | 'cashflow'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'process' | 'sheet' | 'companies' | 'history' | 'projects' | 'calculator' | 'overhead' | 'cashflow'>('dashboard');
 
   // Google Drive & Sheets state with local persistence
   const [driveFolderId, setDriveFolderId] = useState<string>(() => {
@@ -4233,6 +4234,22 @@ export default function App() {
                 window.open(sheetConfig.spreadsheetUrl, '_blank');
               }
             }}
+          />
+        )}
+
+        {/* View Mode: Order Calculator & Specification Generator (Калькулятор замовлень) */}
+        {activeTab === 'calculator' && (
+          <CalculatorTab
+            projects={projects}
+            onProjectsChange={handleProjectsChange}
+            sheetConfig={sheetConfig}
+            authState={authState}
+            driveFolderId={driveFolderId}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onNavigateToCashFlow={() => setActiveTab('cashflow')}
+            onNavigateToProjects={() => setActiveTab('projects')}
+            onRefreshProjects={refreshProjectsData}
+            canWriteToSheets={canWriteToSheets}
           />
         )}
 
