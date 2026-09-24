@@ -245,11 +245,20 @@ export function aggregateCashFlow(
     const budgetM = parseCashFlowAmount(project.effectiveProjectSum || project.colM);
     const remainingN = parseCashFlowAmount(project.colN);
     const hasRemainingN = project.colN !== undefined && String(project.colN).trim() !== '' && !isNaN(remainingN);
-    const clientPaidToDate = hasRemainingN ? Math.max(0, budgetM - remainingN) : 0;
     const isProjectCompleted =
       project.colF?.toLowerCase().includes('здан') ||
       project.colF?.toLowerCase().includes('заверш') ||
       (hasRemainingN && remainingN === 0 && budgetM > 0);
+
+    let clientPaidToDate = 0;
+    if (isProjectCompleted) {
+      clientPaidToDate = budgetM;
+    } else if (hasRemainingN) {
+      clientPaidToDate = Math.max(0, budgetM - remainingN);
+    } else if (budgetM > 0 && (project.colN === undefined || String(project.colN).trim() === '' || String(project.colN).trim() === '-' || String(project.colN).trim() === '—')) {
+      // If remainder is empty or dash and project has budget, client paid to date
+      clientPaidToDate = budgetM;
+    }
 
     const tranches: Array<{
       num: 1 | 2 | 3 | 4;
@@ -276,15 +285,19 @@ export function aggregateCashFlow(
         continue;
       }
 
+      const matchingOpt = standardWeekOptions.find(
+        (opt) => opt.weekNumber === weekInfo.weekNumber && opt.year === weekInfo.year
+      );
+
       const weekEntry = getOrCreateWeek(
         weekInfo.weekKey,
         weekInfo.weekNumber,
         weekInfo.year,
         weekInfo.fullLabel,
         weekInfo.shortLabel,
-        '',
-        '',
-        false
+        matchingOpt?.startDate || '',
+        matchingOpt?.endDate || '',
+        matchingOpt?.isCurrentWeek || false
       );
 
       const compEntry = getOrCreateCompanyWeek(weekEntry, company);
@@ -295,21 +308,21 @@ export function aggregateCashFlow(
       // Check if this tranche is received (Fact) or scheduled (Plan):
       // 1. Explicitly toggled off by user -> Plan
       // 2. Explicitly toggled on by user -> Fact
-      // 3. Client payments to date (colM - colN) cover this tranche -> Fact
-      // 4. Project is completed / fully paid -> Fact
-      // 5. Tranche week is in the past and project has client payments -> Fact
+      // 3. Project is completed / fully paid -> Fact
+      // 4. Client payments to date (colM - colN) cover this tranche -> Fact
+      // 5. Tranche week is in the past or current week -> Fact (realized historical cash flow)
       let isMarkedFact = false;
       if (unreceivedTrancheKeysSet.has(trancheUniqueKey)) {
         isMarkedFact = false;
       } else if (receivedTrancheKeysSet.has(trancheUniqueKey)) {
         isMarkedFact = true;
-      } else if (clientPaidToDate > 0 && cumulativeTranchesSoFar <= (clientPaidToDate + 1.0)) {
-        isMarkedFact = true;
       } else if (isProjectCompleted) {
         isMarkedFact = true;
+      } else if (clientPaidToDate > 0 && cumulativeTranchesSoFar <= (clientPaidToDate + 1.0)) {
+        isMarkedFact = true;
       } else if (
-        (weekInfo.year < currentIsoYear || (weekInfo.year === currentIsoYear && weekInfo.weekNumber < currentIsoWeekNum)) &&
-        clientPaidToDate > 0
+        weekInfo.year < currentIsoYear ||
+        (weekInfo.year === currentIsoYear && weekInfo.weekNumber <= currentIsoWeekNum)
       ) {
         isMarkedFact = true;
       }
@@ -340,6 +353,65 @@ export function aggregateCashFlow(
       } else {
         compEntry.inflowPlan += amount;
         weekEntry.inflowPlan += amount;
+      }
+    }
+
+    // Account for untranched client payments (colM - colN) where columns Z..AG were not filled
+    const untranchedReceivedAmount = Math.max(0, clientPaidToDate - cumulativeTranchesSoFar);
+    if (untranchedReceivedAmount > 0) {
+      const trancheDate =
+        parseDateStringToDate(project.colH) ||
+        parseDateStringToDate(project.colD) ||
+        parseDateStringToDate(project.colE) ||
+        new Date();
+      const weekDetails = getIsoWeekDetails(trancheDate);
+
+      if (weekDetails) {
+        const weekEntry = getOrCreateWeek(
+          weekDetails.weekKey,
+          weekDetails.weekNumber,
+          weekDetails.year,
+          weekDetails.fullLabel,
+          weekDetails.shortLabel,
+          weekDetails.startDate,
+          weekDetails.endDate,
+          false
+        );
+
+        const compEntry = getOrCreateCompanyWeek(weekEntry, company);
+        const untranchedUniqueKey = `${project.rowNumber}_untranched`;
+        const isMarkedFact = !unreceivedTrancheKeysSet.has(untranchedUniqueKey);
+
+        const filledTranchesCount = tranches.filter((t) => parseCashFlowAmount(t.amountRaw) > 0).length;
+        const trancheNum = (Math.min(4, filledTranchesCount + 1) || 1) as 1 | 2 | 3 | 4;
+
+        const item: CashFlowInflowItem = {
+          projectRowNumber: project.rowNumber,
+          projectCode,
+          client,
+          projectName,
+          colG,
+          company,
+          trancheNumber: trancheNum,
+          amount: untranchedReceivedAmount,
+          rawAmount: String(untranchedReceivedAmount),
+          rawWeek: weekDetails.fullLabel,
+          weekKey: weekDetails.weekKey,
+          weekNumber: weekDetails.weekNumber,
+          year: weekDetails.year,
+          weekLabel: weekDetails.fullLabel,
+          status: isMarkedFact ? 'fact' : 'plan',
+          isFact: isMarkedFact,
+        };
+
+        compEntry.inflowItems.push(item);
+        if (isMarkedFact) {
+          compEntry.inflowFact += untranchedReceivedAmount;
+          weekEntry.inflowFact += untranchedReceivedAmount;
+        } else {
+          compEntry.inflowPlan += untranchedReceivedAmount;
+          weekEntry.inflowPlan += untranchedReceivedAmount;
+        }
       }
     }
   }

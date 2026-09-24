@@ -567,25 +567,25 @@ export const CashFlowTab: React.FC<Props> = ({
     });
   }, [cashFlowSummary.weeks, selectedCompany, showOnlyActiveWeeks, statusFilter, searchQuery]);
 
-  // Overall totals across filtered weeks
+  // Overall totals across the period
   const aggregatedTotals = useMemo(() => {
-    let totalInflowFact = 0;
-    let totalInflowPlan = 0;
-    let totalInflow = 0;
-    let totalOutflowFact = 0;
-    let totalOutflowPlan = 0;
-    let totalOutflow = 0;
+    let weekSumInflowFact = 0;
+    let weekSumInflowPlan = 0;
+    let weekSumInflow = 0;
+    let weekSumOutflowFact = 0;
+    let weekSumOutflowPlan = 0;
+    let weekSumOutflow = 0;
     let cashGapWeeksCount = 0;
     let normalWeeksCount = 0;
 
     for (const week of filteredWeeks) {
       const data = getWeekDataForSelectedCompany(week);
-      totalInflowFact += data.inflowFact;
-      totalInflowPlan += data.inflowPlan;
-      totalInflow += data.inflow;
-      totalOutflowFact += data.outflowFact;
-      totalOutflowPlan += data.outflowPlan;
-      totalOutflow += data.outflow;
+      weekSumInflowFact += data.inflowFact;
+      weekSumInflowPlan += data.inflowPlan;
+      weekSumInflow += data.inflow;
+      weekSumOutflowFact += data.outflowFact;
+      weekSumOutflowPlan += data.outflowPlan;
+      weekSumOutflow += data.outflow;
 
       if (data.isCashGap) {
         cashGapWeeksCount++;
@@ -594,22 +594,47 @@ export const CashFlowTab: React.FC<Props> = ({
       }
     }
 
-    const netBalance = Math.round((totalInflow - totalOutflow) * 100) / 100;
+    // Determine overall actual inflows and actual expenses for the selected entity (or all entities):
+    let allActualInflowFact = cashFlowSummary.grandTotalInflowFact;
+    let allActualOutflowFact = cashFlowSummary.grandTotalOutflowFact;
+    let allActualInflowPlan = cashFlowSummary.grandTotalInflowPlan;
+    let allActualOutflowPlan = cashFlowSummary.grandTotalOutflowPlan;
+
+    if (selectedCompany !== 'all') {
+      const compKey = getCompanyCoreKey(selectedCompany);
+      let foundComp = cashFlowSummary.companyTotals[selectedCompany];
+      if (!foundComp) {
+        for (const [key, val] of Object.entries(cashFlowSummary.companyTotals)) {
+          if (getCompanyCoreKey(key) === compKey || key.includes(selectedCompany) || selectedCompany.includes(key)) {
+            foundComp = val;
+            break;
+          }
+        }
+      }
+      allActualInflowFact = foundComp ? foundComp.inflowFact : weekSumInflowFact;
+      allActualOutflowFact = foundComp ? foundComp.outflowFact : weekSumOutflowFact;
+      allActualInflowPlan = foundComp ? foundComp.inflowPlan : weekSumInflowPlan;
+      allActualOutflowPlan = foundComp ? foundComp.outflowPlan : weekSumOutflowPlan;
+    }
+
+    const netBalance = Math.round(((allActualInflowFact + allActualInflowPlan) - (allActualOutflowFact + allActualOutflowPlan)) * 100) / 100;
     const projectedBalance =
       filteredWeeks.length > 0
         ? getWeekDataForSelectedCompany(filteredWeeks[filteredWeeks.length - 1]).endBalance
         : startingBalance;
 
-    // 🏦 Формула: Початковий залишок + Всі фактичні надходження - Всі фактичні витрати
-    const liveMoney = Math.round((startingBalance + totalInflowFact - totalOutflowFact) * 100) / 100;
+    // 🏦 Формула ТЗ: Початковий залишок + Всі фактичні надходження - Всі фактичні витрати
+    const liveMoney = Math.round((startingBalance + allActualInflowFact - allActualOutflowFact) * 100) / 100;
 
     return {
-      totalInflowFact: Math.round(totalInflowFact * 100) / 100,
-      totalInflowPlan: Math.round(totalInflowPlan * 100) / 100,
-      totalInflow: Math.round(totalInflow * 100) / 100,
-      totalOutflowFact: Math.round(totalOutflowFact * 100) / 100,
-      totalOutflowPlan: Math.round(totalOutflowPlan * 100) / 100,
-      totalOutflow: Math.round(totalOutflow * 100) / 100,
+      totalInflowFact: Math.round(allActualInflowFact * 100) / 100,
+      totalInflowPlan: Math.round(allActualInflowPlan * 100) / 100,
+      totalInflow: Math.round((allActualInflowFact + allActualInflowPlan) * 100) / 100,
+      totalOutflowFact: Math.round(allActualOutflowFact * 100) / 100,
+      totalOutflowPlan: Math.round(allActualOutflowPlan * 100) / 100,
+      totalOutflow: Math.round((allActualOutflowFact + allActualOutflowPlan) * 100) / 100,
+      tableInflow: Math.round(weekSumInflow * 100) / 100,
+      tableOutflow: Math.round(weekSumOutflow * 100) / 100,
       netBalance,
       liveMoney,
       projectedBalance,
@@ -617,7 +642,7 @@ export const CashFlowTab: React.FC<Props> = ({
       normalWeeksCount,
       totalWeeks: filteredWeeks.length,
     };
-  }, [filteredWeeks, selectedCompany, startingBalance]);
+  }, [filteredWeeks, selectedCompany, startingBalance, cashFlowSummary]);
 
   // Render two-column details (left: Inflows, right: Outflows)
   const renderTwoColumnDetails = (week: WeeklyCashFlow, isInline = false) => {
