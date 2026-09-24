@@ -70,10 +70,10 @@ export function generateMetalHoldingSamplePdf(): Buffer {
   const rows: SampleRow[] = [
     // Group 1
     { isGroup: true, name: 'Арматура мірної довжини' },
-    { art: 'ARM-006', name: 'Арматура 6 міра', unit: 'т', tonPrice: 58785, len: 6, meterPrice: 14.05, cutPrice: 10.80 },
-    { art: 'ARM-008', name: 'Арматура 8 міра', unit: 'т', tonPrice: 51180, len: 6, meterPrice: 22.98, cutPrice: 12.00 },
-    { art: 'ARM-010', name: 'Арматура 10 міра', unit: 'т', tonPrice: 49500, len: 6, meterPrice: 33.10, cutPrice: 13.20 },
-    { art: 'ARM-012', name: 'Арматура 12 міра', unit: 'т', tonPrice: 48900, len: 6, meterPrice: 47.02, cutPrice: 14.40 },
+    { art: 'ARM-006', name: 'Арматура мірної довжини 6 міра', unit: 'т', tonPrice: 58785, len: 6, meterPrice: 14.05, cutPrice: 10.80 },
+    { art: 'ARM-008', name: 'Арматура мірної довжини 8 міра', unit: 'т', tonPrice: 51180, len: 6, meterPrice: 22.98, cutPrice: 12.00 },
+    { art: 'ARM-010', name: 'Арматура мірної довжини 10 міра', unit: 'т', tonPrice: 49500, len: 6, meterPrice: 33.10, cutPrice: 13.20 },
+    { art: 'ARM-012', name: 'Арматура мірної довжини 12 міра', unit: 'т', tonPrice: 48900, len: 6, meterPrice: 47.02, cutPrice: 14.40 },
 
     // Group 2
     { isGroup: true, name: 'Труба профільна квадратна (ГОСТ 8639-82, ст. 3)' },

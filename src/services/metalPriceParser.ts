@@ -6,6 +6,145 @@ import {
   PriceParseResult,
 } from '../types/calculator';
 
+export const UNIT_ONLY_REGEX = /^(т|т\.|од|од\.|м|м\.п\.|м2|м²|шт|шт\.|кг|кг\.)$/i;
+
+/**
+ * Forms the complete product name according to the business rule:
+ * [Підкатегорія] + [Специфікація/Розмір]
+ * - Strictly ignores standalone units ('т', 'м.п.', 'шт', 'кг')
+ * - Example: group 'Арматура мірної довжини' + '6 міра' -> 'Арматура мірної довжини 6 міра'
+ */
+export function formatFullMaterialName(
+  rawName: string,
+  subcategoryOrGroup: string,
+  article?: string
+): string {
+  const cleanGroup = (subcategoryOrGroup || '')
+    .replace(/^[📁📂\s\-_:;]+/, '')
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/[:;\.]$/, '')
+    .trim();
+
+  let name = (rawName || '').trim();
+
+  // 1. Column shift check: if name is just a unit or empty or 1-2 unit chars
+  if (!name || UNIT_ONLY_REGEX.test(name) || (name.length <= 2 && /^(т|м|од|кг|шт)$/i.test(name))) {
+    // If we have an article (e.g. ARM-006, TR-40402), extract dimension/spec
+    let specFromArticle = '';
+    if (article) {
+      const artMatch = article.match(/(?:ARM|АРМ)[-_]0*([0-9]+)/i);
+      if (artMatch) {
+        specFromArticle = `${artMatch[1]} міра`;
+      } else {
+        const genMatch = article.match(/[-_]([A-Za-z0-9]+)$/);
+        if (genMatch) {
+          specFromArticle = genMatch[1];
+        }
+      }
+    }
+    if (specFromArticle && cleanGroup) {
+      return `${cleanGroup} ${specFromArticle}`;
+    }
+    return cleanGroup || 'Металопрокат';
+  }
+
+  // 2. Remove accidental unit suffixes or prefixes: "6 міра т" -> "6 міра", "т 6 міра" -> "6 міра"
+  name = name.replace(/\s+(т|т\.|од|од\.|м|м\.п\.|шт|кг)$/i, '').trim();
+  name = name.replace(/^(т|т\.|од|од\.|м|м\.п\.|шт|кг)\s+/i, '').trim();
+
+  // 3. Concatenate [Підкатегорія] + [Специфікація/Розмір]
+  // Case A: Name is just "6 міра", "8 міра", "10 міра", "12 міра"
+  if (/^[0-9]+(\.[0-9]+)?\s*міра$/i.test(name)) {
+    if (cleanGroup) {
+      return `${cleanGroup} ${name}`;
+    }
+    return `Арматура ${name}`;
+  }
+
+  // Case B: Name is "Арматура 6 міра" and cleanGroup is "Арматура мірної довжини"
+  if (/^арматура\s+[0-9]+(\.[0-9]+)?\s*міра$/i.test(name) && cleanGroup.toLowerCase().includes('арматура мірної довжини')) {
+    const sizePart = name.replace(/^арматура\s+/i, '');
+    return `${cleanGroup} ${sizePart}`;
+  }
+
+  // Case C: Name is just dimensions like "20х20х2", "40х40х2 мм" and cleanGroup is "Труба профільна квадратна"
+  if (/^[0-9]+х[0-9]+/i.test(name) && cleanGroup) {
+    if (!name.toLowerCase().includes(cleanGroup.toLowerCase().split(' ')[0])) {
+      return `${cleanGroup} ${name}`;
+    }
+  }
+
+  return name;
+}
+
+/**
+ * Normalizes parsed items table to fix column shifts and price inversions:
+ * - If name === 'т' or 'м.п.', recovers name from group / context
+ * - If basePrice > 3000 for profiles/rebar, swaps with tonPrice or neighboring price
+ */
+export function normalizeParsedItems(items: ParsedPriceItem[]): ParsedPriceItem[] {
+  return items.map((row) => {
+    let name = row.name;
+    const group = row.groupHeader || 'Загальний прокат';
+    let basePrice = Number(row.basePrice) || 0;
+    let tonPrice = row.tonPrice !== undefined ? Number(row.tonPrice) : undefined;
+    let cuttingPrice = row.cuttingPrice !== undefined ? Number(row.cuttingPrice) : undefined;
+
+    // 1. Column Shift Normalization:
+    // If unit was saved as name ('т' or 'м.п.' or 'од' or empty)
+    if (!name || UNIT_ONLY_REGEX.test(name) || name === 'т' || name === 'м.п.' || name.length <= 2) {
+      name = formatFullMaterialName('', group, row.sourceArticle);
+    } else {
+      name = formatFullMaterialName(name, group, row.sourceArticle);
+    }
+
+    const isSheet =
+      name.toLowerCase().includes('лист') ||
+      name.toLowerCase().includes('бляха') ||
+      name.toLowerCase().includes('плита') ||
+      group.toLowerCase().includes('лист');
+
+    // 2. Strict Price Column Validation:
+    // For armature, tubes, profiles: price per meter must NOT be ton price (e.g. 58 785 грн)!
+    // If price > 3000 грн/м.п. for non-sheet:
+    if (!isSheet && basePrice > 3000) {
+      if (tonPrice && tonPrice > 0 && tonPrice <= 3000) {
+        // Swap tonPrice and basePrice
+        const temp = basePrice;
+        basePrice = tonPrice;
+        tonPrice = temp;
+      } else if (cuttingPrice && cuttingPrice > 0 && cuttingPrice <= 3000) {
+        // Shift from cuttingPrice column
+        tonPrice = basePrice;
+        basePrice = cuttingPrice;
+        cuttingPrice = undefined;
+      } else if (!tonPrice || tonPrice <= 0) {
+        tonPrice = basePrice;
+      }
+    }
+
+    // Safeguard for sheet metal:
+    if (isSheet && basePrice > 10000 && tonPrice && tonPrice <= 5000 && tonPrice > 0) {
+      const temp = basePrice;
+      basePrice = tonPrice;
+      tonPrice = temp;
+    }
+
+    const unit = isSheet ? 'м²' : 'м.п.';
+    const category: MaterialCategory = isSheet ? 'sheet_metal' : 'metal_profile';
+
+    return {
+      ...row,
+      name,
+      category,
+      unit,
+      basePrice: Math.round(basePrice * 100) / 100,
+      tonPrice: tonPrice ? Math.round(tonPrice * 100) / 100 : undefined,
+      cuttingPrice: cuttingPrice ? Math.round(cuttingPrice * 100) / 100 : undefined,
+    };
+  });
+}
+
 export class MetalPriceParserService {
   /**
    * Helper to normalize text for string comparisons
@@ -463,7 +602,7 @@ export class MetalPriceParserService {
       let unitCellIdx = -1;
       for (let c = 0; c < row.length; c++) {
         const cell = String(row[c] || '').trim().toLowerCase();
-        if (/^(т|т\.|од|од\.|м|м\.п\.|м²|шт|кг)$/i.test(cell)) {
+        if (UNIT_ONLY_REGEX.test(cell)) {
           unitCellIdx = c;
           break;
         }
@@ -493,23 +632,34 @@ export class MetalPriceParserService {
 
       // Fallback if name was in nameColIdx
       if (!itemName && nameColIdx !== -1 && row[nameColIdx]) {
-        itemName = String(row[nameColIdx]).trim();
+        const fallbackCell = String(row[nameColIdx]).trim();
+        if (!UNIT_ONLY_REGEX.test(fallbackCell)) {
+          itemName = fallbackCell;
+        }
       }
 
-      // Clean up name: remove unit if caught
-      itemName = itemName.replace(/\s+(т|т\.|од|од\.|м|м\.п\.)$/i, '').trim();
+      // Check for column shift: if itemName is empty or matches a unit ('т', 'м.п.', 'од', etc.)
+      if (!itemName || UNIT_ONLY_REGEX.test(itemName) || itemName === 'т' || itemName === 'м.п.') {
+        // Search other cells for specification/size (e.g. '6 міра', '20х20х2')
+        let specFound = '';
+        for (let c = 0; c < row.length; c++) {
+          const val = String(row[c] || '').trim();
+          if (/^[0-9]+(\.[0-9]+)?\s*міра$/i.test(val) || /^[0-9]+х[0-9]+/i.test(val)) {
+            specFound = val;
+            break;
+          }
+          if (c === 0 && /^[A-Z0-9]{2,10}[-_][A-Z0-9]+$/i.test(val)) {
+            article = val;
+          }
+        }
+        itemName = formatFullMaterialName(specFound, currentGroupHeader, article);
+      } else {
+        itemName = formatFullMaterialName(itemName, currentGroupHeader, article);
+      }
 
-      // Rule: Do NOT take unit as name!
-      if (!itemName || /^(т|т\.|од|од\.|м|м\.п\.|шт|кг)$/i.test(itemName)) {
+      // Strict Taboo: Never allow a unit or blank to be an item name!
+      if (!itemName || UNIT_ONLY_REGEX.test(itemName) || itemName === 'т' || itemName === 'м.п.') {
         continue;
-      }
-
-      // Rule: Do NOT truncate to "6 міра", "8 міра"!
-      // If itemName is just "6 міра" / "8 міра" and current group is "Арматура мірної довжини"
-      if (/^[0-9]+(\.[0-9]+)?\s*міра$/i.test(itemName) && currentGroupHeader.toLowerCase().includes('арматура')) {
-        itemName = `Арматура ${itemName}`;
-      } else if (/^[0-9]+(\.[0-9]+)?\s*міра$/i.test(itemName)) {
-        itemName = `Арматура ${itemName}`;
       }
 
       // 3. Extract Price:
@@ -533,8 +683,9 @@ export class MetalPriceParserService {
       // Separate length (often integer 6 or 12 between ton and meter price)
       const nonLengthPrices: number[] = [];
       for (const pc of priceCandidates) {
-        if (pc.val === 6 || pc.val === 12) {
-          if (priceCandidates.length >= 3 && priceCandidates.indexOf(pc) === 1) {
+        if ((pc.val === 6 || pc.val === 12) && priceCandidates.length >= 3) {
+          const pos = priceCandidates.indexOf(pc);
+          if (pos > 0 && pos < priceCandidates.length - 1) {
             continue; // Skip length column
           }
         }
@@ -545,7 +696,7 @@ export class MetalPriceParserService {
         // First price is Ton Price (e.g. 58 785 грн / 51 180 грн) -> ❌ DO NOT USE AS BASE PRICE
         tonPrice = nonLengthPrices[0];
         // Second price is Meter / Sheet Price (e.g. 14.05 грн, 22.98 грн) -> ✅ STRICTLY USE AS BASE PRICE
-        if (baseMeterPrice === null) {
+        if (baseMeterPrice === null || baseMeterPrice > 3000) {
           baseMeterPrice = nonLengthPrices[1];
         }
         if (nonLengthPrices.length >= 3) {
@@ -557,6 +708,25 @@ export class MetalPriceParserService {
           tonPrice = singleVal;
         } else {
           baseMeterPrice = singleVal;
+        }
+      }
+
+      const isSheet =
+        itemName.toLowerCase().includes('лист') ||
+        itemName.toLowerCase().includes('бляха') ||
+        itemName.toLowerCase().includes('плита') ||
+        currentGroupHeader.toLowerCase().includes('лист');
+
+      // Validation check: if baseMeterPrice > 3000 грн/м.п. for rebar or profiles, this is ton price!
+      if (!isSheet && baseMeterPrice !== null && baseMeterPrice > 3000) {
+        tonPrice = baseMeterPrice;
+        // Search rightward in nonLengthPrices for the genuine meter price
+        const meterCandidate = nonLengthPrices.find((p) => p > 0 && p <= 3000);
+        if (meterCandidate) {
+          baseMeterPrice = meterCandidate;
+        } else if (cuttingPrice && cuttingPrice > 0 && cuttingPrice <= 3000) {
+          baseMeterPrice = cuttingPrice;
+          cuttingPrice = undefined;
         }
       }
 
@@ -590,15 +760,17 @@ export class MetalPriceParserService {
       });
     }
 
-    const newItemsCount = recognizedItems.filter((i) => !i.isExisting).length;
-    const updatedItemsCount = recognizedItems.filter((i) => i.isExisting).length;
+    const normalizedList = normalizeParsedItems(recognizedItems);
+
+    const newItemsCount = normalizedList.filter((i) => !i.isExisting).length;
+    const updatedItemsCount = normalizedList.filter((i) => i.isExisting).length;
 
     return {
       fileName,
       supplier,
       mainCategory,
       totalRowsRead: rows.length,
-      recognizedItems,
+      recognizedItems: normalizedList,
       groupHeadersFound,
       newItemsCount,
       updatedItemsCount,
@@ -710,10 +882,10 @@ export class MetalPriceParserService {
       ],
       // Group 1: Арматура мірної довжини
       ['', 'Арматура мірної довжини', '', '', '', '', ''],
-      ['ARM-006', 'Арматура 6 міра', 'Т', 32500, 6, 14.05, 10.80],
-      ['ARM-008', 'Арматура 8 міра', 'Т', 32500, 6, 22.98, 12.00],
-      ['ARM-010', 'Арматура 10 міра', 'Т', 32000, 6, 33.10, 13.20],
-      ['ARM-012', 'Арматура 12 міра', 'Т', 31800, 6, 47.02, 14.40],
+      ['ARM-006', 'Арматура мірної довжини 6 міра', 'Т', 58785, 6, 14.05, 10.80],
+      ['ARM-008', 'Арматура мірної довжини 8 міра', 'Т', 51180, 6, 22.98, 12.00],
+      ['ARM-010', 'Арматура мірної довжини 10 міра', 'Т', 49500, 6, 33.10, 13.20],
+      ['ARM-012', 'Арматура мірної довжини 12 міра', 'Т', 48900, 6, 47.02, 14.40],
       [],
       // Group 2: Труба профільна квадратна
       ['', 'Труба профільна квадратна', '', '', '', '', ''],
@@ -764,7 +936,7 @@ export class MetalPriceParserService {
   public static getDemoItems(): ParsedPriceItem[] {
     return [
       {
-        name: 'Арматура 6 міра',
+        name: 'Арматура мірної довжини 6 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -773,10 +945,10 @@ export class MetalPriceParserService {
         basePrice: 14.05,
         cuttingPrice: 10.80,
         sourceArticle: 'ARM-006',
-        tonPrice: 32500,
+        tonPrice: 58785,
       },
       {
-        name: 'Арматура 8 міра',
+        name: 'Арматура мірної довжини 8 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -785,10 +957,10 @@ export class MetalPriceParserService {
         basePrice: 22.98,
         cuttingPrice: 12.00,
         sourceArticle: 'ARM-008',
-        tonPrice: 32500,
+        tonPrice: 51180,
       },
       {
-        name: 'Арматура 10 міра',
+        name: 'Арматура мірної довжини 10 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -797,10 +969,10 @@ export class MetalPriceParserService {
         basePrice: 33.10,
         cuttingPrice: 13.20,
         sourceArticle: 'ARM-010',
-        tonPrice: 32000,
+        tonPrice: 49500,
       },
       {
-        name: 'Арматура 12 міра',
+        name: 'Арматура мірної довжини 12 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -809,7 +981,7 @@ export class MetalPriceParserService {
         basePrice: 47.02,
         cuttingPrice: 14.40,
         sourceArticle: 'ARM-012',
-        tonPrice: 31800,
+        tonPrice: 48900,
       },
       {
         name: 'Труба профільна 40х40х2 мм ст.3',
@@ -857,7 +1029,7 @@ export class MetalPriceParserService {
     return [
       // 1. Арматура мірної довжини
       {
-        name: 'Арматура 6 міра',
+        name: 'Арматура мірної довжини 6 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -866,10 +1038,10 @@ export class MetalPriceParserService {
         basePrice: 14.05,
         cuttingPrice: 10.80,
         sourceArticle: 'ARM-006',
-        tonPrice: 32500,
+        tonPrice: 58785,
       },
       {
-        name: 'Арматура 8 міра',
+        name: 'Арматура мірної довжини 8 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -878,10 +1050,10 @@ export class MetalPriceParserService {
         basePrice: 22.98,
         cuttingPrice: 12.00,
         sourceArticle: 'ARM-008',
-        tonPrice: 32500,
+        tonPrice: 51180,
       },
       {
-        name: 'Арматура 10 міра',
+        name: 'Арматура мірної довжини 10 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -890,10 +1062,10 @@ export class MetalPriceParserService {
         basePrice: 33.10,
         cuttingPrice: 13.20,
         sourceArticle: 'ARM-010',
-        tonPrice: 32000,
+        tonPrice: 49500,
       },
       {
-        name: 'Арматура 12 міра',
+        name: 'Арматура мірної довжини 12 міра',
         category: 'metal_profile',
         parentCategory: 'Металопрокат',
         subcategory: 'Чорний металопрокат',
@@ -902,7 +1074,7 @@ export class MetalPriceParserService {
         basePrice: 47.02,
         cuttingPrice: 14.40,
         sourceArticle: 'ARM-012',
-        tonPrice: 31800,
+        tonPrice: 48900,
       },
 
       // 2. Труба профільна квадратна

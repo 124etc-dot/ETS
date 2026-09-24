@@ -1,5 +1,10 @@
 import { GoogleGenAI, Type, Schema } from '@google/genai';
 import { MaterialItem, MaterialCategory, ParsedPriceItem, PriceParseResult } from '../../src/types/calculator';
+import {
+  formatFullMaterialName,
+  normalizeParsedItems,
+  UNIT_ONLY_REGEX,
+} from '../../src/services/metalPriceParser';
 
 // Lazy initializer for Gemini client
 let geminiClient: GoogleGenAI | null = null;
@@ -103,21 +108,24 @@ export async function processMetalPricePdf(params: {
 СТРОГІ ПРАВИЛА ЗЧИТУВАННЯ КОЛОНОК (читати ТІЛЬКИ 3 колонки, все інше ігнорувати):
 1. Група (Підкатегорія / groupHeader):
    Рядок із заголовком групи (наприклад: «Арматура мірної довжини», «Труба профільна квадратна», «Кутник сталевий», «Листовий прокат»). Очистити від приміток (без сталь..., без ГОСТ).
-2. Назва товару (name):
-   Колонка "Назва товара" / "Найменування товару". Беруться ВСІ слова повністю: «Арматура 6 міра», «Арматура 8 міра», «Арматура 10 міра», «Труба профільна 40х40х2 мм ст.3» тощо.
-   ❌ КАТЕГОРИЧНО ЗАБОРОНЕНО обрізати назву (не робити "6 міра" або "8 міра")!
-   ❌ НЕ зчитувати дані з колонки «Одиниця виміру» («т», «од.») як назву!
+2. Повна назва матеріалу (name):
+   Повна назва матеріалу формується конкатенацією: [Підкатегорія] + [Специфікація/Розмір].
+   Наприклад: якщо підкатегорія «Арматура мірної довжини», а в таблиці «6 міра», назва повинна бути: «Арматура мірної довжини 6 міра»!
+   Аналогічно: «Арматура мірної довжини 8 міра», «Арматура мірної довжини 10 міра», «Арматура мірної довжини 12 міра», «Труба профільна 40х40х2 мм ст.3» тощо.
+   ❌ КАТЕГОРИЧНО ЗАБОРОНЕНО обрізати назву до просто «6 міра» чи «8 міра»!
+   ❌ СУВОРЕ ТАБУ: Ігнорувати букви «т», «м.п.», «шт», «кг» при формуванні назви! Якщо осередки містять лише 1-2 букви одиниці виміру — це НЕ назва товару!
 3. Ціна за метр / лист (pricePerMeterOrSheet):
    Колонка "за 1 м/ лист" (підзаголовок колонки «Ціна роздрібна з ПДВ»).
-   ❌ НЕ брати першу колонку ціни (за од., де вказано 58 785 грн / 51 180 грн / 32 500 грн).
+   ❌ ПОВНІСТЮ ІГНОРУВАТИ першу колонку ціни (Ціна за тонну/од., де вказано 58 785 грн / 51 180 грн / 32 500 грн)!
    ✅ Брати СТРOГО другу колонку ціни (за 1 м/ лист, де вказано роздрібну ціну: 14.05 грн, 22.98 грн, 33.10 грн, 47.02 грн тощо).
+   ❌ Якщо ціна за метр перевищує 3000 грн/м.п. для арматури — це помилка парсингу (підхопилася ціна тонни)! Запиши її в tonPrice, а в pricePerMeterOrSheet візьми ціну за метр з наступної колонки.
 
 Поверни структурований JSON згідно зі схемою.`;
 
   const candidateModels = [
-    'gemini-2.5-flash',
     'gemini-3.8-flash',
     'gemini-3.7-flash',
+    'gemini-2.0-flash',
   ];
 
   let rawJson: any = null;
@@ -165,7 +173,7 @@ export async function processMetalPricePdf(params: {
   }
 
   // Normalize and transform to ParsedPriceItem[]
-  const recognizedItems: ParsedPriceItem[] = [];
+  const rawRecognizedItems: ParsedPriceItem[] = [];
   const groupHeadersFound: string[] = [];
 
   const supplier = customSupplier?.trim() || rawJson.supplier || 'ТОВ «Метал Холдінг»';
@@ -202,17 +210,13 @@ export async function processMetalPricePdf(params: {
 
     const items = Array.isArray(sec.items) ? sec.items : [];
     for (const it of items) {
-      let name = String(it.name || '').trim();
-      if (!name) continue;
+      const rawItemName = String(it.name || '').trim();
+      const article = it.article ? String(it.article).trim() : undefined;
 
-      // Filter out unit accidentally captured as name
-      if (/^(т|т\.|од|од\.|м|м\.п\.|шт|кг)$/i.test(name)) {
+      // Handle column shift and full name formation
+      let name = formatFullMaterialName(rawItemName, groupName, article);
+      if (!name || UNIT_ONLY_REGEX.test(name) || name === 'т' || name === 'м.п.') {
         continue;
-      }
-
-      // If name is just "6 міра", "8 міра" etc., prefix with group base name (e.g. "Арматура")
-      if (/^[0-9]+\s*міра$/i.test(name) && groupName.toLowerCase().includes('арматура')) {
-        name = `Арматура ${name}`;
       }
 
       const norm = normalizeName(name);
@@ -221,25 +225,29 @@ export async function processMetalPricePdf(params: {
       let price = Number(it.pricePerMeterOrSheet) || 0;
       let tonPrice = Number(it.tonPrice) > 0 ? Number(it.tonPrice) : undefined;
 
-      // Safeguard: if price is > 10,000 (ton price) and tonPrice was put as the smaller number, swap
-      if (price > 10000 && tonPrice && tonPrice < 2000) {
-        const swap = price;
-        price = tonPrice;
-        tonPrice = swap;
-      }
-
-      if (price <= 0) continue;
-
+      // Safeguard: if price is > 3,000 for rebar/pipe (ton price) and tonPrice was put as the smaller number, swap
       const isSheet =
         name.toLowerCase().includes('лист') ||
         name.toLowerCase().includes('бляха') ||
-        name.toLowerCase().includes('плита');
+        name.toLowerCase().includes('плита') ||
+        groupName.toLowerCase().includes('лист');
+
+      if (!isSheet && price > 3000) {
+        if (tonPrice && tonPrice <= 3000 && tonPrice > 0) {
+          const swap = price;
+          price = tonPrice;
+          tonPrice = swap;
+        } else if (!tonPrice) {
+          tonPrice = price;
+        }
+      }
+
+      if (price <= 0) continue;
 
       const unit = isSheet ? 'м²' : (it.unit === 'м²' ? 'м²' : 'м.п.');
       const category: MaterialCategory = isSheet ? 'sheet_metal' : 'metal_profile';
 
       const cuttingPrice = Number(it.cuttingPrice) > 0 ? Number(it.cuttingPrice) : undefined;
-      const article = it.article ? String(it.article).trim() : undefined;
 
       let subcategory = mainCategory || 'Чорний метал';
       if (mainCategory.toLowerCase().includes('чорн') || mainCategory.toLowerCase().includes('метал')) {
@@ -248,7 +256,7 @@ export async function processMetalPricePdf(params: {
         }
       }
 
-      recognizedItems.push({
+      rawRecognizedItems.push({
         name,
         category,
         parentCategory: 'Металопрокат',
@@ -265,6 +273,8 @@ export async function processMetalPricePdf(params: {
       });
     }
   }
+
+  const recognizedItems = normalizeParsedItems(rawRecognizedItems);
 
   return {
     fileName,
