@@ -40,7 +40,7 @@ export function generateMetalHoldingSamplePdf(): Buffer {
   const startY = 43;
   const colX = [12, 32, 102, 114, 134, 154, 184];
   const colWidths = [20, 70, 12, 20, 20, 30, 18];
-  const headers = ['Артикул', 'Найменування товару', 'Од.', 'Ціна за т', 'Довжина', 'Ціна за 1 м/лист', 'Порізка'];
+  const headers = ['Артикул', 'Назва товару', 'Од.', 'Ціна за од.', 'Довжина', 'за 1 м/ лист', 'Порізка'];
 
   // Draw Table Header
   doc.setFillColor(241, 245, 249);
@@ -69,11 +69,11 @@ export function generateMetalHoldingSamplePdf(): Buffer {
 
   const rows: SampleRow[] = [
     // Group 1
-    { isGroup: true, name: 'Арматура мірної довжини (сталь 25Г2С / А500С)' },
-    { art: 'ARM-006', name: 'Арматура 6 міра', unit: 'Т', tonPrice: 32500, len: 6, meterPrice: 14.05, cutPrice: 10.80 },
-    { art: 'ARM-008', name: 'Арматура 8 міра', unit: 'Т', tonPrice: 32500, len: 6, meterPrice: 22.98, cutPrice: 12.00 },
-    { art: 'ARM-010', name: 'Арматура 10 міра', unit: 'Т', tonPrice: 32000, len: 6, meterPrice: 33.10, cutPrice: 13.20 },
-    { art: 'ARM-012', name: 'Арматура 12 міра', unit: 'Т', tonPrice: 31800, len: 6, meterPrice: 47.02, cutPrice: 14.40 },
+    { isGroup: true, name: 'Арматура мірної довжини' },
+    { art: 'ARM-006', name: 'Арматура 6 міра', unit: 'т', tonPrice: 58785, len: 6, meterPrice: 14.05, cutPrice: 10.80 },
+    { art: 'ARM-008', name: 'Арматура 8 міра', unit: 'т', tonPrice: 51180, len: 6, meterPrice: 22.98, cutPrice: 12.00 },
+    { art: 'ARM-010', name: 'Арматура 10 міра', unit: 'т', tonPrice: 49500, len: 6, meterPrice: 33.10, cutPrice: 13.20 },
+    { art: 'ARM-012', name: 'Арматура 12 міра', unit: 'т', tonPrice: 48900, len: 6, meterPrice: 47.02, cutPrice: 14.40 },
 
     // Group 2
     { isGroup: true, name: 'Труба профільна квадратна (ГОСТ 8639-82, ст. 3)' },

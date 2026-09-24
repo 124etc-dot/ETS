@@ -141,6 +141,18 @@ export const ProjectsTab: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [selectedProject, setSelectedProject] = useState<ProjectSheetRow | null>(null);
+
+  // Close project detail modal on Escape key press
+  useEffect(() => {
+    if (!selectedProject) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedProject(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedProject]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [sortBy, setSortBy] = useState<'row' | 'order' | 'expenses' | 'margin'>('row');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -1799,8 +1811,20 @@ export const ProjectsTab: React.FC<Props> = ({
 
       {/* Project Detail Modal */}
       {selectedProject && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setSelectedProject(null);
+            }
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Modal Header */}
             <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
               <div className="flex items-center space-x-3">

@@ -89,7 +89,19 @@ export class MetalPriceParserService {
    */
   public static async extractLinesFromPdf(buffer: ArrayBuffer): Promise<string[][]> {
     try {
-      const pdfjsLib = await import('pdfjs-dist');
+      if (typeof (Promise as any).try !== 'function') {
+        (Promise as any).try = function<T>(fn: () => T | PromiseLike<T>): Promise<T> {
+          return new Promise((resolve) => resolve(fn()));
+        };
+      }
+
+      let pdfjsLib: any;
+      try {
+        pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      } catch {
+        pdfjsLib = await import('pdfjs-dist');
+      }
+
       try {
         if (!pdfjsLib.GlobalWorkerOptions?.workerSrc) {
           pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
@@ -111,26 +123,64 @@ export class MetalPriceParserService {
         const page = await pdfDoc.getPage(pageNum);
         const textContent = await page.getTextContent();
 
-        // Group text items by vertical Y position (row bucketing ~ 4px tolerance)
-        const lineBuckets = new Map<number, { x: number; text: string }[]>();
+        // Group text items by vertical Y position (row bucketing ~ 3.5px tolerance)
+        const lineBuckets = new Map<number, { x: number; text: string; width: number }[]>();
         for (const item of textContent.items as any[]) {
           if (!item.str || !item.str.trim()) continue;
-          const y = Math.round((item.transform?.[5] || 0) / 4) * 4;
+          const y = Math.round((item.transform?.[5] || 0) / 3.5) * 3.5;
           const x = item.transform?.[4] || 0;
+          const width = item.width || 0;
           if (!lineBuckets.has(y)) {
             lineBuckets.set(y, []);
           }
-          lineBuckets.get(y)!.push({ x, text: item.str });
+          lineBuckets.get(y)!.push({ x, text: item.str, width });
         }
 
         // Sort rows by Y descending (PDF coordinates origin is bottom-left)
         const sortedYs = Array.from(lineBuckets.keys()).sort((a, b) => b - a);
         for (const y of sortedYs) {
-          const cells = lineBuckets.get(y)!;
-          cells.sort((a, b) => a.x - b.x);
-          const rowTextArray = cells.map((c) => c.text.trim());
-          if (rowTextArray.length > 0) {
-            allRows.push(rowTextArray);
+          const rawItems = lineBuckets.get(y)!;
+          rawItems.sort((a, b) => a.x - b.x);
+
+          // Group adjacent items that belong to the same cell/column
+          const cells: string[] = [];
+          let currentCell = '';
+          let lastRight = -1;
+
+          for (let i = 0; i < rawItems.length; i++) {
+            const item = rawItems[i];
+            const text = item.text.trim();
+            if (!text) continue;
+
+            const isUnit = /^(т|т\.|од|од\.|м|м\.п\.|м²|шт|кг)$/i.test(text);
+            const isPureNumber = /^[0-9]+([.,][0-9]+)?$/.test(text.replace(/\s+/g, ''));
+            const prevHadCyrillic = currentCell && /[а-яіїєґ]/i.test(currentCell);
+
+            // A new column starts if:
+            // 1. Significant horizontal gap (> 14 pt)
+            // 2. The item is an explicit unit indicator ("т", "од.")
+            // 3. The item is a pure price number appearing after words
+            const isNewCol =
+              lastRight !== -1 &&
+              (item.x - lastRight > 14 ||
+               isUnit ||
+               (isPureNumber && prevHadCyrillic));
+
+            if (isNewCol && currentCell) {
+              cells.push(currentCell.trim());
+              currentCell = text;
+            } else {
+              currentCell = currentCell ? `${currentCell} ${text}` : text;
+            }
+
+            lastRight = item.x + (item.width || (text.length * 5.5));
+          }
+          if (currentCell) {
+            cells.push(currentCell.trim());
+          }
+
+          if (cells.length > 0) {
+            allRows.push(cells);
           }
         }
       }
@@ -237,6 +287,10 @@ export class MetalPriceParserService {
 
   /**
    * Core parser on 2D table array
+   * СТРОГО дотримується правила 3 колонок:
+   * 1. Група (Підкатегорія) - рядок заголовка без цін
+   * 2. Назва товару - всі слова повністю («Арматура 6 міра»), не обрізати і не брати одиницю «т»
+   * 3. Ціна за метр/лист - друга колонка ціни («за 1 м/ лист»), ігноруючи ціну за тонну («за од.»)
    */
   public static parse2DArray(
     rows: any[][],
@@ -250,251 +304,270 @@ export class MetalPriceParserService {
 
     let mainCategory = 'Чорний металопрокат';
     let currentSubcategory = 'Чорний металопрокат';
-    let currentGroupHeader = 'Загальний прокат';
-    let supplier = customSupplier?.trim() || 'Постачальник металопрокату';
+    let currentGroupHeader = 'Арматура мірної довжини';
+    let supplier = customSupplier?.trim() || 'ТОВ «Метал Холдінг»';
 
-    // 1. Scan early rows (0..7) to locate table header row and detect top banner
+    // 1. Scan early rows to identify table column indices if header exists
     let headerRowIdx = -1;
     let nameColIdx = -1;
     let unitColIdx = -1;
+    let priceTonColIdx = -1;
     let priceMeterColIdx = -1;
     let cuttingColIdx = -1;
     let articleColIdx = -1;
-    let tonPriceColIdx = -1;
 
     for (let r = 0; r < Math.min(rows.length, 12); r++) {
       const row = rows[r] || [];
-      const rowTextJoined = row.map((c) => String(c).trim()).filter(Boolean).join(' ');
+      const rowTextJoined = row.map((c) => String(c || '').trim()).filter(Boolean).join(' ').toLowerCase();
 
-      // Check for main category in top rows
-      if (headerRowIdx === -1 && this.isMainCategoryText(rowTextJoined)) {
-        if (rowTextJoined.toLowerCase().includes('нержав')) {
+      // Check for main category
+      if (this.isMainCategoryText(rowTextJoined)) {
+        if (rowTextJoined.includes('нержав')) {
           mainCategory = 'Нержавіючий металопрокат';
           currentSubcategory = 'Нержавіючий металопрокат';
-        } else if (rowTextJoined.toLowerCase().includes('алюмін')) {
+        } else if (rowTextJoined.includes('алюмін')) {
           mainCategory = 'Алюмінієвий прокат';
           currentSubcategory = 'Алюмінієвий прокат';
-        } else if (rowTextJoined.toLowerCase().includes('чорн')) {
+        } else if (rowTextJoined.includes('чорн')) {
           mainCategory = 'Чорний металопрокат';
           currentSubcategory = 'Чорний металопрокат';
         }
       }
 
-      // Check if this row looks like the column headers row
-      let potentialNameIdx = -1;
-      let potentialPriceIdx = -1;
+      let hasNameHeader = false;
+      let hasPriceHeader = false;
 
       for (let c = 0; c < row.length; c++) {
         const val = String(row[c] || '').toLowerCase().trim();
         if (!val) continue;
 
-        if (
-          val.includes('назва') ||
-          val.includes('найменування') ||
-          val.includes('номенклатура') ||
-          val.includes('товар') ||
-          val === 'найменування товару' ||
-          val === 'назва товару' ||
-          val === 'продукція'
-        ) {
-          potentialNameIdx = c;
-        }
-
-        if (
-          val.includes('за 1 м') ||
-          val.includes('за м.п.') ||
-          val.includes('за 1 м.п.') ||
-          val.includes('за 1 лист') ||
-          val.includes('за лист') ||
-          val.includes('роздрібна з пдв') ||
-          val.includes('ціна за м') ||
-          val.includes('ціна м.п.') ||
-          val.includes('роздрібна') ||
-          (val.includes('ціна') && (val.includes('1м') || val.includes('лист') || val.includes('м.п.')))
-        ) {
-          potentialPriceIdx = c;
-        }
-      }
-
-      if (potentialNameIdx !== -1 && potentialPriceIdx !== -1) {
-        headerRowIdx = r;
-        break;
-      }
-    }
-
-    // If no explicit header row found, attempt fallback matching
-    if (headerRowIdx === -1) {
-      for (let r = 0; r < Math.min(rows.length, 8); r++) {
-        const row = rows[r] || [];
-        for (let c = 0; c < row.length; c++) {
-          const val = String(row[c] || '').toLowerCase().trim();
-          if (
-            val.includes('назва') ||
-            val.includes('найменування') ||
-            val.includes('товар')
-          ) {
-            headerRowIdx = r;
-            break;
-          }
-        }
-        if (headerRowIdx !== -1) break;
-      }
-    }
-
-    // Map columns from the identified header row
-    if (headerRowIdx !== -1) {
-      const hRow = rows[headerRowIdx];
-      for (let c = 0; c < hRow.length; c++) {
-        const val = String(hRow[c] || '').toLowerCase().trim();
-        if (!val) continue;
-
-        // Article / Code
-        if (val.includes('артикул') || val === 'код' || val === 'код товару') {
+        if (val.includes('назва') || val.includes('найменування') || val.includes('товар') || val.includes('номенклатура')) {
+          nameColIdx = c;
+          hasNameHeader = true;
+        } else if (val === 'од.' || val === 'од' || val.includes('одиниця')) {
+          unitColIdx = c;
+        } else if (val.includes('за од') || val.includes('за т') || val.includes('ціна за т') || val.includes('ціна за од')) {
+          priceTonColIdx = c;
+          hasPriceHeader = true;
+        } else if (val.includes('1 м') || val.includes('1м') || val.includes('м.п.') || val.includes('за лист') || val.includes('1 лист')) {
+          // Strictly the meter / sheet price column
+          priceMeterColIdx = c;
+          hasPriceHeader = true;
+        } else if (val.includes('різка') || val.includes('порізка')) {
+          cuttingColIdx = c;
+        } else if (val.includes('артикул') || val === 'код') {
           articleColIdx = c;
         }
-        // Name column
-        else if (
-          nameColIdx === -1 &&
-          (val.includes('назва') ||
-            val.includes('найменування') ||
-            val.includes('номенклатура') ||
-            val.includes('товар') ||
-            val === 'найменування товару' ||
-            val === 'назва товару')
-        ) {
-          nameColIdx = c;
-        }
-        // Unit column
-        else if (
-          unitColIdx === -1 &&
-          (val === 'од.' ||
-            val === 'од' ||
-            val.includes('од. вим') ||
-            val.includes('одиниця') ||
-            val.includes('од.вим'))
-        ) {
-          unitColIdx = c;
-        }
-        // Price per 1 m / sheet (PRIMARY TARGET)
-        else if (
-          val.includes('за 1 м') ||
-          val.includes('за м.п.') ||
-          val.includes('за 1 м.п.') ||
-          val.includes('за 1 лист') ||
-          val.includes('за лист') ||
-          val.includes('роздрібна з пдв') ||
-          val.includes('роздрібна / 1 м') ||
-          val.includes('ціна за 1 м') ||
-          val.includes('ціна роздрібна') ||
-          (val.includes('ціна') && val.includes('м.п.'))
-        ) {
-          priceMeterColIdx = c;
-        }
-        // Cutting price
-        else if (
-          cuttingColIdx === -1 &&
-          (val.includes('різка') ||
-            val.includes('порізка') ||
-            val.includes('вартість різу') ||
-            val.includes('ціна різки') ||
-            val.includes('порізка грн'))
-        ) {
-          cuttingColIdx = c;
-        }
-        // Price per ton (to ignore for base calculation, keep for info)
-        else if (
-          tonPriceColIdx === -1 &&
-          (val.includes('тонн') || val.includes('за т') || val.includes('ціна за од.'))
-        ) {
-          tonPriceColIdx = c;
-        }
+      }
+
+      if (hasNameHeader || hasPriceHeader) {
+        headerRowIdx = r;
       }
     }
 
-    // Default indices if header detection was partial
-    if (nameColIdx === -1) nameColIdx = 1; // standard col B or 1
-    if (priceMeterColIdx === -1) {
-      // Find the first column having numeric values in sample rows
-      priceMeterColIdx = 4; // standard 4 or 5
-    }
-
-    const startDataRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 1;
+    const startRow = headerRowIdx !== -1 ? headerRowIdx + 1 : 0;
 
     // 2. Process data rows
-    for (let r = startDataRow; r < rows.length; r++) {
+    for (let r = startRow; r < rows.length; r++) {
       const row = rows[r];
       if (!row || row.length === 0) continue;
 
-      const rawNameCell = String(row[nameColIdx] !== undefined ? row[nameColIdx] : '').trim();
-      if (!rawNameCell) {
-        // Maybe name is in column 0 or 1 if layout is shifted
-        const altName = String(row[0] || '').trim();
-        if (!altName) continue;
+      const cleanCells = row.map((c) => (c !== undefined && c !== null ? String(c).trim() : '')).filter(Boolean);
+      if (cleanCells.length === 0) continue;
+
+      const rowJoined = cleanCells.join(' ');
+      const rowLow = rowJoined.toLowerCase();
+
+      // Skip table headers and document banners
+      if (
+        rowLow.includes('найменування товару') ||
+        rowLow.includes('назва товару') ||
+        (rowLow.includes('артикул') && rowLow.includes('ціна')) ||
+        (rowLow.includes('од.') && rowLow.includes('ціна')) ||
+        rowLow.includes('metal-holding') ||
+        rowLow.includes('офіційний прайс') ||
+        rowLow.includes('діє з:') ||
+        rowLow.includes('товариство з обмеженою') ||
+        rowLow.includes('всі ціни вказані в гривнях')
+      ) {
+        if (rowLow.includes('нержав')) {
+          mainCategory = 'Нержавіючий металопрокат';
+          currentSubcategory = 'Нержавіючий металопрокат';
+        } else if (rowLow.includes('алюмін')) {
+          mainCategory = 'Алюмінієвий прокат';
+          currentSubcategory = 'Алюмінієвий прокат';
+        } else if (rowLow.includes('чорн')) {
+          mainCategory = 'Чорний металопрокат';
+          currentSubcategory = 'Чорний металопрокат';
+        }
+        continue;
       }
 
-      const itemName = rawNameCell || String(row[0] || '').trim();
-      if (!itemName) continue;
-
-      // Extract price values
-      const rawPriceVal = priceMeterColIdx !== -1 ? row[priceMeterColIdx] : undefined;
-      const parsedPrice = this.parseNumeric(rawPriceVal);
-
-      // Check cutting price
-      let cuttingPrice: number | undefined = undefined;
-      if (cuttingColIdx !== -1 && row[cuttingColIdx] !== undefined) {
-        const cp = this.parseNumeric(row[cuttingColIdx]);
-        if (cp !== null && cp > 0) {
-          cuttingPrice = cp;
+      // Collect all numeric values in row with their cell index
+      const numCells: { idx: number; val: number; raw: string }[] = [];
+      for (let c = 0; c < row.length; c++) {
+        const val = row[c];
+        if (val === undefined || val === null || val === '') continue;
+        const num = this.parseNumeric(val);
+        if (num !== null && num > 0) {
+          numCells.push({ idx: c, val: num, raw: String(val).trim() });
         }
       }
 
-      // Check ton price
-      let tonPrice: number | undefined = undefined;
-      if (tonPriceColIdx !== -1 && row[tonPriceColIdx] !== undefined) {
-        const tp = this.parseNumeric(row[tonPriceColIdx]);
-        if (tp !== null && tp > 0) {
-          tonPrice = tp;
+      // Check if row is a GROUP HEADER (Folder)
+      // Condition: No prices in price columns or no numeric cells at all
+      const isHeaderRow = numCells.length === 0;
+
+      if (isHeaderRow) {
+        let groupTitle = cleanCells.join(' ')
+          .replace(/^[📁📂\s\-_:;]+/, '')
+          .replace(/\s*\([^)]*\)/g, '') // remove (сталь 25Г2С...), (ГОСТ...)
+          .replace(/[:;\.]$/, '')
+          .trim();
+
+        if (!groupTitle || groupTitle.length < 3) continue;
+
+        // Skip footnotes or disclaimer lines
+        const groupTitleLow = groupTitle.toLowerCase();
+        if (
+          groupTitle.startsWith('*') ||
+          groupTitleLow.startsWith('примітка') ||
+          groupTitleLow.startsWith('послуги') ||
+          groupTitleLow.includes('враховуються додатково')
+        ) {
+          continue;
         }
-      }
 
-      // Check article
-      const article = articleColIdx !== -1 && row[articleColIdx] ? String(row[articleColIdx]).trim() : undefined;
-
-      // Check other cells in this row to see if this is a Group Header
-      // Rule 3: "Якщо в рядку заповнена тільки колонка Назва товара, а колонки цін порожні — вважати цей рядок новою папкою-підкатегорією."
-      const hasValidPrice = parsedPrice !== null && parsedPrice > 0;
-
-      if (!hasValidPrice) {
-        // This is a GROUP HEADER (Folder) or Section Header!
-        // Clean group name: remove trailing colons, semicolons
-        const cleanGroupName = itemName.replace(/[:;\.]$/, '').trim();
-
-        // Check if it represents a main section category
-        if (this.isMainCategoryText(cleanGroupName)) {
-          if (cleanGroupName.toLowerCase().includes('нержав')) {
+        if (this.isMainCategoryText(groupTitle)) {
+          if (groupTitle.toLowerCase().includes('нержав')) {
             mainCategory = 'Нержавіючий металопрокат';
             currentSubcategory = 'Нержавіючий металопрокат';
-          } else if (cleanGroupName.toLowerCase().includes('алюмін')) {
+          } else if (groupTitle.toLowerCase().includes('алюмін')) {
             mainCategory = 'Алюмінієвий прокат';
             currentSubcategory = 'Алюмінієвий прокат';
-          } else if (cleanGroupName.toLowerCase().includes('чорн')) {
+          } else if (groupTitle.toLowerCase().includes('чорн')) {
             mainCategory = 'Чорний металопрокат';
             currentSubcategory = 'Чорний металопрокат';
           }
         } else {
-          // It's a subcategory folder! (e.g. "Арматура мірної довжини", "Труба профільна", "Кутник сталевий")
-          currentGroupHeader = cleanGroupName;
-          if (!groupHeadersFound.includes(cleanGroupName)) {
-            groupHeadersFound.push(cleanGroupName);
+          currentGroupHeader = groupTitle;
+          if (!groupHeadersFound.includes(groupTitle)) {
+            groupHeadersFound.push(groupTitle);
           }
         }
         continue;
       }
 
-      // Item row with valid price!
+      // PRODUCT ROW
+      // 1. Locate Unit cell if present ("т", "м", "од")
+      let unitCellIdx = -1;
+      for (let c = 0; c < row.length; c++) {
+        const cell = String(row[c] || '').trim().toLowerCase();
+        if (/^(т|т\.|од|од\.|м|м\.п\.|м²|шт|кг)$/i.test(cell)) {
+          unitCellIdx = c;
+          break;
+        }
+      }
+
+      // 2. Extract Product Name (ВСІ слова повністю!)
+      let nameParts: string[] = [];
+      let article: string | undefined = undefined;
+
+      // Determine where the name cells are
+      let endNameIdx = unitCellIdx !== -1 ? unitCellIdx : (numCells[0]?.idx ?? row.length);
+
+      for (let c = 0; c < endNameIdx; c++) {
+        const cell = String(row[c] || '').trim();
+        if (!cell) continue;
+
+        // Check for article code in first cell
+        if (c === 0 && (/^[A-Z0-9]{2,10}[-_][A-Z0-9]+$/i.test(cell) || /^(ARM|TR|LST|KUT|SHV|АРМ|ТР|КУТ|ЛСТ|ШВ)-/i.test(cell))) {
+          article = cell;
+          continue;
+        }
+
+        nameParts.push(cell);
+      }
+
+      let itemName = nameParts.join(' ').trim();
+
+      // Fallback if name was in nameColIdx
+      if (!itemName && nameColIdx !== -1 && row[nameColIdx]) {
+        itemName = String(row[nameColIdx]).trim();
+      }
+
+      // Clean up name: remove unit if caught
+      itemName = itemName.replace(/\s+(т|т\.|од|од\.|м|м\.п\.)$/i, '').trim();
+
+      // Rule: Do NOT take unit as name!
+      if (!itemName || /^(т|т\.|од|од\.|м|м\.п\.|шт|кг)$/i.test(itemName)) {
+        continue;
+      }
+
+      // Rule: Do NOT truncate to "6 міра", "8 міра"!
+      // If itemName is just "6 міра" / "8 міра" and current group is "Арматура мірної довжини"
+      if (/^[0-9]+(\.[0-9]+)?\s*міра$/i.test(itemName) && currentGroupHeader.toLowerCase().includes('арматура')) {
+        itemName = `Арматура ${itemName}`;
+      } else if (/^[0-9]+(\.[0-9]+)?\s*міра$/i.test(itemName)) {
+        itemName = `Арматура ${itemName}`;
+      }
+
+      // 3. Extract Price:
+      // ❌ НЕ брати першу колонку ціни (за од., де вказано 58 785 грн / 51 180 грн).
+      // ✅ Брати СТРOГО другу колонку ціни (за 1 м/ лист, де вказано 14.05 грн, 22.98 грн, 33.10 грн, 47.02 грн).
+      let baseMeterPrice: number | null = null;
+      let tonPrice: number | undefined = undefined;
+      let cuttingPrice: number | undefined = undefined;
+
+      // Case A: If explicit priceMeterColIdx matched
+      if (priceMeterColIdx !== -1 && row[priceMeterColIdx] !== undefined) {
+        const val = this.parseNumeric(row[priceMeterColIdx]);
+        if (val !== null && val > 0) {
+          baseMeterPrice = val;
+        }
+      }
+
+      // Case B: Filter numeric values that are at or after unitCellIdx (or after name)
+      const priceCandidates = numCells.filter((nc) => nc.idx >= (unitCellIdx !== -1 ? unitCellIdx : endNameIdx));
+
+      // Separate length (often integer 6 or 12 between ton and meter price)
+      const nonLengthPrices: number[] = [];
+      for (const pc of priceCandidates) {
+        if (pc.val === 6 || pc.val === 12) {
+          if (priceCandidates.length >= 3 && priceCandidates.indexOf(pc) === 1) {
+            continue; // Skip length column
+          }
+        }
+        nonLengthPrices.push(pc.val);
+      }
+
+      if (nonLengthPrices.length >= 2) {
+        // First price is Ton Price (e.g. 58 785 грн / 51 180 грн) -> ❌ DO NOT USE AS BASE PRICE
+        tonPrice = nonLengthPrices[0];
+        // Second price is Meter / Sheet Price (e.g. 14.05 грн, 22.98 грн) -> ✅ STRICTLY USE AS BASE PRICE
+        if (baseMeterPrice === null) {
+          baseMeterPrice = nonLengthPrices[1];
+        }
+        if (nonLengthPrices.length >= 3) {
+          cuttingPrice = nonLengthPrices[2];
+        }
+      } else if (nonLengthPrices.length === 1 && baseMeterPrice === null) {
+        const singleVal = nonLengthPrices[0];
+        if (singleVal > 10000) {
+          tonPrice = singleVal;
+        } else {
+          baseMeterPrice = singleVal;
+        }
+      }
+
+      if (baseMeterPrice === null || baseMeterPrice <= 0) {
+        continue;
+      }
+
+      // 4. Determine category and unit
       const { category, unit } = this.determineCategoryAndUnit(itemName);
 
-      // Check if item already exists in the catalog (Upsert logic)
+      // 5. Match with existing
       const normName = this.normalizeName(itemName);
       const existingMatch = existingMaterials.find(
         (em) => this.normalizeName(em.name) === normName
@@ -507,7 +580,7 @@ export class MetalPriceParserService {
         subcategory: currentSubcategory,
         groupHeader: currentGroupHeader,
         unit,
-        basePrice: Math.round(parsedPrice * 100) / 100,
+        basePrice: Math.round(baseMeterPrice * 100) / 100,
         cuttingPrice: cuttingPrice ? Math.round(cuttingPrice * 100) / 100 : undefined,
         sourceArticle: article,
         tonPrice: tonPrice ? Math.round(tonPrice * 100) / 100 : undefined,

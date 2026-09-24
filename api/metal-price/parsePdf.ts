@@ -100,26 +100,24 @@ export async function processMetalPricePdf(params: {
   const prompt = `Ти спеціалізований парсер прайс-листів металопрокату українських металотрейдерів (зокрема ТОВ «Метал Холдінг», «Метінвест-СМЦ», «АВ метал груп», «Вікант»).
 Перед тобою PDF-файл прайс-листа металопрокату з назвою "${fileName}".
 
-ТВОЄ ЗАВДАННЯ:
-1. Визначити постачальника (за замовчуванням "ТОВ «Метал Холдінг»", або з шапки документа).
-2. Визначити головну категорію (зазвичай "Чорний металопрокат", або "Нержавіючий металопрокат", "Алюмінієвий прокат").
-3. Побудувати чітке ієрархічне дерево папок-підкатегорій (groupHeader):
-   - Кожен підзаголовок у прайсі (наприклад: «Арматура мірної довжини», «Труба профільна квадратна», «Труба профільна прямокутна», «Кутник сталевий гарячекатаний», «Швелер сталевий», «Листовий прокат г/к», «Круг сталевий» тощо) — це ОДНА ПАПКА (groupHeader).
-4. Зчитати товари всередині кожної папки:
-   - "name": повна, точна комерційна назва матеріалу (наприклад: «Арматура 12 міра», «Труба профільна 40х40х2 мм ст.3», «Кутник 32х32х3 мм ст.3», «Лист г/к 2.0 мм ст.3 (1250х2500)»).
-   - "unit": автоматично встанови "м.п." для будь-яких профільних труб, кутників, швелерів, арматури, балок, смуг, кругів; та "м²" для листів або плит.
-   - "pricePerMeterOrSheet": роздрібна ціна закупівлі за 1 м.п. (або за 1 лист для листового прокату) з ПДВ. УВАЖНО: бери ціну саме за метр/лист, а НЕ за тонну! (Наприклад, 47.02 грн за 1 м, а не 31800 грн за тонну).
-   - "cuttingPrice": вартість різки за 1 різ (якщо колонка є в таблиці, наприклад 14.40 грн), або 0 якщо послуга різки не вказана.
-   - "tonPrice": ціна за тонну (якщо є в таблиці, наприклад 31800 грн), або 0.
-   - "article": артикул або код товару (якщо є в прайсі), або "".
+СТРОГІ ПРАВИЛА ЗЧИТУВАННЯ КОЛОНОК (читати ТІЛЬКИ 3 колонки, все інше ігнорувати):
+1. Група (Підкатегорія / groupHeader):
+   Рядок із заголовком групи (наприклад: «Арматура мірної довжини», «Труба профільна квадратна», «Кутник сталевий», «Листовий прокат»). Очистити від приміток (без сталь..., без ГОСТ).
+2. Назва товару (name):
+   Колонка "Назва товара" / "Найменування товару". Беруться ВСІ слова повністю: «Арматура 6 міра», «Арматура 8 міра», «Арматура 10 міра», «Труба профільна 40х40х2 мм ст.3» тощо.
+   ❌ КАТЕГОРИЧНО ЗАБОРОНЕНО обрізати назву (не робити "6 міра" або "8 міра")!
+   ❌ НЕ зчитувати дані з колонки «Одиниця виміру» («т», «од.») як назву!
+3. Ціна за метр / лист (pricePerMeterOrSheet):
+   Колонка "за 1 м/ лист" (підзаголовок колонки «Ціна роздрібна з ПДВ»).
+   ❌ НЕ брати першу колонку ціни (за од., де вказано 58 785 грн / 51 180 грн / 32 500 грн).
+   ✅ Брати СТРOГО другу колонку ціни (за 1 м/ лист, де вказано роздрібну ціну: 14.05 грн, 22.98 грн, 33.10 грн, 47.02 грн тощо).
 
-Проаналізуй усі сторінки прайс-листа ретельно і поверни структурований JSON згідно зі схемою.`;
+Поверни структурований JSON згідно зі схемою.`;
 
   const candidateModels = [
-    'gemini-flash-latest',
+    'gemini-2.5-flash',
     'gemini-3.8-flash',
     'gemini-3.7-flash',
-    'gemini-3.1-flash-lite',
   ];
 
   let rawJson: any = null;
@@ -191,20 +189,45 @@ export async function processMetalPricePdf(params: {
   const sections = Array.isArray(rawJson.sections) ? rawJson.sections : [];
 
   for (const sec of sections) {
-    const groupName = String(sec.groupHeader || 'Загальний прокат').trim();
+    let groupName = String(sec.groupHeader || 'Загальний прокат')
+      .replace(/^[📁📂\s\-_:;]+/, '')
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/[:;\.]$/, '')
+      .trim();
+
+    if (!groupName) groupName = 'Загальний прокат';
     if (!groupHeadersFound.includes(groupName)) {
       groupHeadersFound.push(groupName);
     }
 
     const items = Array.isArray(sec.items) ? sec.items : [];
     for (const it of items) {
-      const name = String(it.name || '').trim();
+      let name = String(it.name || '').trim();
       if (!name) continue;
+
+      // Filter out unit accidentally captured as name
+      if (/^(т|т\.|од|од\.|м|м\.п\.|шт|кг)$/i.test(name)) {
+        continue;
+      }
+
+      // If name is just "6 міра", "8 міра" etc., prefix with group base name (e.g. "Арматура")
+      if (/^[0-9]+\s*міра$/i.test(name) && groupName.toLowerCase().includes('арматура')) {
+        name = `Арматура ${name}`;
+      }
 
       const norm = normalizeName(name);
       const existing = existingMap.get(norm);
 
       let price = Number(it.pricePerMeterOrSheet) || 0;
+      let tonPrice = Number(it.tonPrice) > 0 ? Number(it.tonPrice) : undefined;
+
+      // Safeguard: if price is > 10,000 (ton price) and tonPrice was put as the smaller number, swap
+      if (price > 10000 && tonPrice && tonPrice < 2000) {
+        const swap = price;
+        price = tonPrice;
+        tonPrice = swap;
+      }
+
       if (price <= 0) continue;
 
       const isSheet =
@@ -216,7 +239,6 @@ export async function processMetalPricePdf(params: {
       const category: MaterialCategory = isSheet ? 'sheet_metal' : 'metal_profile';
 
       const cuttingPrice = Number(it.cuttingPrice) > 0 ? Number(it.cuttingPrice) : undefined;
-      const tonPrice = Number(it.tonPrice) > 0 ? Number(it.tonPrice) : undefined;
       const article = it.article ? String(it.article).trim() : undefined;
 
       let subcategory = mainCategory || 'Чорний метал';
