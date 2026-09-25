@@ -1329,7 +1329,7 @@ export class OCRService {
     val = val.replace(/["'«»“”„‟`\(\)\[\]]/g, ' ');
 
     // 2. Expand/normalize full legal forms in Ukrainian
-    val = val.replace(/Товариство\s+з\s+обмеженою\s+відповідальністю/gi, 'ТОВ');
+    val = val.replace(/Товариство\s+з\s+обмеженою\s+відповідальністю(\s+з\s+іноземними\s+інвестиціями)?/gi, 'ТОВ');
     val = val.replace(/Приватне\s+підприємство/gi, 'ПП');
     val = val.replace(/Фізична\s+особа\s*[-–—]?\s*підприємець/gi, 'ФОП');
     val = val.replace(/Товариство\s+з\s+додатковою\s+відповідальністю/gi, 'ТДВ');
@@ -1339,6 +1339,8 @@ export class OCRService {
     val = val.replace(/Державне\s+підприємство/gi, 'ДП');
     val = val.replace(/Торгов(?:ий|ого)\s+д(?:ім|ому|ом)/gi, 'ТД');
     val = val.replace(/^(ТзОВ|ТзДВ)\b/gi, 'ТОВ');
+    val = val.replace(/\b(ТОВ\s+з\s+ІІ|ТОВ\s+з\s+І\.І\.|ТОВ\s+з\s+іі|ТОВ\s+з\s+і\.і\.|ТОВ\s+з\s+іноземними\s+інвестиціями)\b/gi, 'ТОВ');
+    val = val.replace(/\b(з\s+іноземними\s+інвестиціями|з\s+і\.?і\.?)\b/gi, '');
 
     // 2b. Remove dots from abbreviations (e.g. Т.Д. -> ТД, Т.О.В. -> ТОВ, Ф.О.П. -> ФОП)
     val = val.replace(/\b([А-Яа-яЇїІіЄєҐґA-Za-z])\.(?=[А-Яа-яЇїІіЄєҐґA-Za-z]\.?)/g, '$1');
@@ -1470,8 +1472,8 @@ export class OCRService {
     if (n1 === n2) return true;
 
     // 1. Compare with all punctuation, hyphens, and dots replaced by spaces
-    const clean1 = n1.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\s+/g, ' ').trim();
-    const clean2 = n2.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\s+/g, ' ').trim();
+    let clean1 = n1.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\b(з\s+іноземними\s+інвестиціями|з\s+і\.?і\.?)\b/gi, '').replace(/\s+/g, ' ').trim();
+    let clean2 = n2.replace(/[-–—\.,\/\\()]/g, ' ').replace(/\b(з\s+іноземними\s+інвестиціями|з\s+і\.?і\.?)\b/gi, '').replace(/\s+/g, ' ').trim();
     if (clean1 === clean2) return true;
 
     // 2. Strip legal prefixes (ТОВ, ФОП, ПП, ТДВ, ПРАТ, ПАТ, АТ, ДП, ТД)
@@ -1532,33 +1534,222 @@ export class OCRService {
   }
 
   /**
-   * Safely checks if an invoice number is mentioned in a payment purpose string.
-   * Avoids matching random substrings (e.g. "26" in year 2026 or account number).
+   * Parse various date formats to timestamp (ms since epoch at 00:00:00 local time).
+   * Supports: YYYY-MM-DD, DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY, and Ukrainian month names ("15 вересня 2026").
+   */
+  public static parseDateToTimestamp(str?: string): number | null {
+    if (!str) return null;
+    const clean = str.trim();
+    if (!clean) return null;
+
+    // 1. DD.MM.YYYY, DD/MM/YYYY, DD-MM-YYYY
+    const m1 = clean.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+    if (m1) {
+      const d = parseInt(m1[1], 10);
+      const m = parseInt(m1[2], 10);
+      let y = parseInt(m1[3], 10);
+      if (y < 100) y += 2000;
+      if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 2000 && y <= 2100) {
+        return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+      }
+    }
+
+    // 2. YYYY-MM-DD, YYYY.MM.DD, YYYY/MM/DD
+    const m2 = clean.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+    if (m2) {
+      const y = parseInt(m2[1], 10);
+      const m = parseInt(m2[2], 10);
+      const d = parseInt(m2[3], 10);
+      if (d >= 1 && d <= 31 && m >= 1 && m <= 12 && y >= 2000 && y <= 2100) {
+        return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+      }
+    }
+
+    // 3. Ukrainian written dates: e.g. "15 вересня 2026", "25 вересня 2026 р."
+    const ukrMonths: Record<string, number> = {
+      'січ': 1, 'лют': 2, 'бер': 3, 'кві': 4, 'тра': 5, 'чер': 6,
+      'лип': 7, 'сер': 8, 'вер': 9, 'жов': 10, 'лис': 11, 'гру': 12
+    };
+    const m3 = clean.match(/(\d{1,2})\s+([а-яіїєґ]+)\s+(\d{4})/i);
+    if (m3) {
+      const d = parseInt(m3[1], 10);
+      const monthWord = m3[2].toLowerCase();
+      const y = parseInt(m3[3], 10);
+      for (const [prefix, m] of Object.entries(ukrMonths)) {
+        if (monthWord.startsWith(prefix)) {
+          return new Date(y, m - 1, d, 0, 0, 0, 0).getTime();
+        }
+      }
+    }
+
+    const parsed = Date.parse(clean);
+    if (!isNaN(parsed)) {
+      const dt = new Date(parsed);
+      return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate(), 0, 0, 0, 0).getTime();
+    }
+    return null;
+  }
+
+  /**
+   * Strict Validation Hierarchy (Hard Blockers):
+   * Сопоставлення платіжного доручення / виписки з рахунком має проходити за строгою ієрархією правил.
+   * Зв'язок дозволяється встановлювати ТІЛЬКИ при 100% збігу за Обов'язковими критеріями.
+   *
+   * Hard Blockers:
+   * 1. Збіг Постачальника (Отримувача платежу):
+   *    - ЄДРПОУ отримувача у платіжці == ЄДРПОУ постачальника в рахунку (пріоритет 1).
+   *    - Назва контрагента: Якщо ЄДРПОУ відсутній, порівнюється назва (з очищенням від форм власності: ТОВ, ТОВ з ІІ, ПрАТ тощо).
+   *      ТОВ «ПУЛВЕР УКРАЇНА» != ТОВ «СТЕК ТРЕЙД» -> MATCH REJECTED.
+   * 2. Хронологія дат (Date Sanity Check):
+   *    - Дата платіжки НЕ МОЖЕ бути раніше дати вистави рахунку!
+   *    - Платіжка від 15.09.2026 фізично НЕ МОЖЕ бути оплатою рахунку, виставленого 25.09.2026.
+   */
+  public static validateMatchingHardBlockers(params: {
+    invoiceSupplier?: string;
+    invoiceSupplierTaxId?: string;
+    invoiceDate?: string;
+    paymentPayee?: string;
+    paymentPayeeTaxId?: string;
+    paymentDate?: string;
+    paymentPurpose?: string;
+  }): { isValid: boolean; rejectReason?: string; isSupplierConfirmed: boolean } {
+    const {
+      invoiceSupplier,
+      invoiceSupplierTaxId,
+      invoiceDate,
+      paymentPayee,
+      paymentPayeeTaxId,
+      paymentDate,
+      paymentPurpose = '',
+    } = params;
+
+    // --- CRITERION 1: Date Sanity Check ---
+    const invDateTs = this.parseDateToTimestamp(invoiceDate);
+    const payDateTs = this.parseDateToTimestamp(paymentDate);
+    if (invDateTs !== null && payDateTs !== null) {
+      if (payDateTs < invDateTs) {
+        return {
+          isValid: false,
+          rejectReason: `Порушення хронології дат: дата платіжки (${paymentDate}) раніше дати вистави рахунку (${invoiceDate})`,
+          isSupplierConfirmed: false,
+        };
+      }
+    }
+
+    // --- CRITERION 2: Supplier / Payee Match ---
+    const cleanInvTaxId = String(invoiceSupplierTaxId || '').replace(/\D/g, '');
+    const cleanPayTaxId = String(paymentPayeeTaxId || '').replace(/\D/g, '');
+
+    // Priority 1: EDRPOU match if present on both sides
+    if (cleanInvTaxId && cleanPayTaxId) {
+      if (cleanInvTaxId !== cleanPayTaxId) {
+        return {
+          isValid: false,
+          rejectReason: `Невідповідність ЄДРПОУ: постачальник (${cleanInvTaxId}) != отримувач (${cleanPayTaxId})`,
+          isSupplierConfirmed: false,
+        };
+      }
+      return {
+        isValid: true,
+        isSupplierConfirmed: true,
+      };
+    }
+
+    // Priority 2: Company name match
+    const normInvSup = this.normalizeCompanyName(invoiceSupplier || '');
+    const normPaySup = this.normalizeCompanyName(paymentPayee || '');
+
+    if (normInvSup && normPaySup) {
+      const isMatch = this.isCompanyNameMatch(normInvSup, normPaySup);
+      if (!isMatch) {
+        // Also check if payment purpose specifically includes invoice supplier name (e.g. 4+ chars)
+        const isMentionedInPurpose =
+          normInvSup.length >= 4 &&
+          paymentPurpose.toLowerCase().includes(normInvSup.toLowerCase());
+
+        if (!isMentionedInPurpose) {
+          return {
+            isValid: false,
+            rejectReason: `Невідповідність контрагента: постачальник рахунку "${invoiceSupplier}" != отримувач платіжки "${paymentPayee}"`,
+            isSupplierConfirmed: false,
+          };
+        }
+      }
+      return {
+        isValid: true,
+        isSupplierConfirmed: true,
+      };
+    }
+
+    // If one side has no supplier/payee specified
+    if (normInvSup && !normPaySup) {
+      const isMentionedInPurpose =
+        normInvSup.length >= 4 &&
+        paymentPurpose.toLowerCase().includes(normInvSup.toLowerCase());
+      return {
+        isValid: true,
+        isSupplierConfirmed: isMentionedInPurpose,
+      };
+    }
+
+    return {
+      isValid: true,
+      isSupplierConfirmed: false,
+    };
+  }
+
+  /**
+   * Safely checks if an invoice number is mentioned in a payment purpose string
+   * according to Strict Invoice Number Matching rules:
+   * 1. Word Boundary matching (точні межі слів) or specific keyword prefix:
+   *    - For invoice 169: regex /\b(рахунок|рах|рах\.|счет|сч|№)\s*169\b/i or word boundaries
+   *    - For invoice RF26_1691: regex /\b(RF26_1691|1691)\b/i
+   *    - Substring 169 inside RF26_1691 is STRICTLY REJECTED!
    */
   public static isInvoiceNumberMentionedInPurpose(cleanInvNum: string, purpose: string): boolean {
     if (!cleanInvNum || !purpose || cleanInvNum.length < 1) return false;
     const lowerPurpose = this.normalizeHomoglyphs(purpose).toLowerCase();
-    const targetClean = this.normalizeHomoglyphs(cleanInvNum).toLowerCase();
+    const targetClean = this.normalizeInvoiceNumber(cleanInvNum);
+    if (!targetClean) return false;
 
-    // Check extracted invoice tokens from purpose
+    // 1. Check extracted invoice tokens from purpose via strict token parser
     const extracted = this.extractAllInvoiceNumbers(undefined, undefined, purpose);
     const cleanExtracted = extracted.map((e) => this.normalizeInvoiceNumber(e)).filter(Boolean);
-    if (cleanExtracted.some((ce) => this.isInvoiceNumberMatch(targetClean, ce))) return true;
+    if (cleanExtracted.some((ce) => this.isInvoiceNumberMatch(targetClean, ce))) {
+      return true;
+    }
 
-    // Check keyword-based pattern: e.g. "рах 3540", "№ 3540", "рахунку 3540", "рахунка 3540", "сф 3540", "р-к 3540"
-    const escaped = targetClean.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
-    const regex = new RegExp(
-      `(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:унок|\\.?)|сф[-_]?|р[-/]к|счет[а-я]*|інвойс(?:и|ів)?|№|no\\.?|n\\.?)\\s*[:#№]?\\s*(?:[A-Za-zА-Яа-я0-9\\-_]*[/\\-_])?0*${escaped}(?!\\d)`,
-      'i'
-    );
-    if (regex.test(lowerPurpose)) return true;
+    // 2. Strict Candidate forms (e.g. for "RF26_1691", candidates are ["rf26_1691", "1691"], for "169", candidate is strictly ["169"])
+    const candidates = new Set<string>();
+    candidates.add(targetClean);
+    const core = targetClean.replace(/^[a-zа-яіїєґ0-9]+[-_./]/i, '').replace(/^0+([1-9]\d*)/, '$1');
+    if (core && core !== targetClean && core.length >= 2 && /\d/.test(core)) {
+      candidates.add(core);
+    }
+    const pureNum = targetClean.replace(/^[a-zа-яіїєґ]+/i, '').replace(/^0+([1-9]\d*)/, '$1');
+    if (pureNum && pureNum !== targetClean && pureNum.length >= 2 && /^\d+$/.test(pureNum)) {
+      candidates.add(pureNum);
+    }
 
-    // Standalone number surrounded by word boundaries or non-digits (for 3+ digit numbers)
-    if (targetClean.length >= 3 && /^\d+$/.test(targetClean)) {
-      const standaloneRegex = new RegExp(`(?:^|[^\\d])0*${escaped}(?:[^\\d]|$)`);
-      if (standaloneRegex.test(lowerPurpose)) {
+    for (const cand of candidates) {
+      const escaped = cand.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+      // Rule 2a: Trigger prefix keyword + exact candidate number with strict word boundary
+      // e.g. /\b(рахунок|рах|рах\.|счет|сч|№)\s*169\b/i
+      const keywordRegex = new RegExp(
+        `(?:\\b(?:рахун(?:ок|ка|ку|ком|ки|ків)?|рах(?:унок|\\.?|\\b)|счет[а-я]*|сч(?:\\.?|\\b)|дог(?:овір|\\.?|\\b)|сф[-_]?|інвойс[а-я]*|№|no\\.?|n\\.?|#)\\s*(?:№|no\\.?|n\\.?|#)?\\s*[:.]?\\s*)0*${escaped}(?![0-9a-zа-яіїєґ_])`,
+        'i'
+      );
+      if (keywordRegex.test(lowerPurpose)) {
+        return true;
+      }
+
+      // Rule 2b: Exact word boundary for candidate:
+      // e.g. /\b(RF26_1691|1691)\b/i or (?<![0-9a-zа-яіїєґ_])169(?![0-9a-zа-яіїєґ_])
+      const boundaryRegex = new RegExp(`(?<![0-9a-zа-яіїєґ_])0*${escaped}(?![0-9a-zа-яіїєґ_])`, 'i');
+      if (boundaryRegex.test(lowerPurpose)) {
         // Exclude dates (e.g. dd.mm.yyyy or yyyy-mm-dd)
-        const dateContextRegex = new RegExp(`(?:\\d{2}\\.\\d{2}\\.|\\d{4}[-./])0*${escaped}|0*${escaped}[-./]\\d{2}[-./]`);
+        const dateContextRegex = new RegExp(`(?:\\d{1,2}[./-]\\d{1,2}[./-]0*${escaped}|0*${escaped}[./-]\\d{1,2}[./-]\\d{2,4})`);
         if (!dateContextRegex.test(lowerPurpose)) {
           return true;
         }
@@ -1840,7 +2031,8 @@ export class OCRService {
   }
 
   /**
-   * Compare two invoice numbers for equality, ignoring prefix (СФ-, №, 000), case, and homoglyphs
+   * Compare two invoice numbers for equality, ignoring prefix (СФ-, №, 000), case, and homoglyphs.
+   * STRICT: Substring searching / includes() is strictly forbidden for numeric combinations.
    */
   public static isInvoiceNumberMatch(a?: string, b?: string): boolean {
     if (!a || !b) return false;
@@ -1849,14 +2041,18 @@ export class OCRService {
     if (!cleanA || !cleanB) return false;
     if (cleanA === cleanB) return true;
 
-    // Compare without any alphabetic prefix (e.g. "СФ-54" and "54", "Р-12" and "12")
-    const coreA = cleanA.replace(/^[a-zа-яіїєґ]+[-_./]/i, '');
-    const coreB = cleanB.replace(/^[a-zа-яіїєґ]+[-_./]/i, '');
+    // Compare without any alphabetic/series prefix (e.g. "СФ-54" and "54", "Р-12" and "12", "RF26_1691" and "1691")
+    const coreA = cleanA.replace(/^[a-zа-яіїєґ0-9]+[-_./]/i, '').replace(/^0+([1-9]\d*)/, '$1');
+    const coreB = cleanB.replace(/^[a-zа-яіїєґ0-9]+[-_./]/i, '').replace(/^0+([1-9]\d*)/, '$1');
     if (coreA && coreB && coreA === coreB) return true;
 
-    if (cleanA.length >= 3 && cleanB.length >= 3) {
-      if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
-    }
+    // Compare pure numeric part if letter prefix attached directly without separator (e.g. "СФ54" and "54", "Р12" and "12")
+    const numA = cleanA.replace(/^[a-zа-яіїєґ]+/i, '').replace(/^0+([1-9]\d*)/, '$1');
+    const numB = cleanB.replace(/^[a-zа-яіїєґ]+/i, '').replace(/^0+([1-9]\d*)/, '$1');
+    if (numA && numB && numA === numB && /^\d+$/.test(numA)) return true;
+
+    // FORBIDDEN: NO includes() or partial substring matching!
+    // Substring 169 in RF26_1691 or 1691 is strictly rejected.
     return false;
   }
 
@@ -2048,6 +2244,21 @@ export class OCRService {
         continue;
       }
 
+      // HARD BLOCKER: Strict Validation Hierarchy (Supplier & Date Sanity Check)
+      const hardCheck = this.validateMatchingHardBlockers({
+        invoiceSupplier: inv.supplier,
+        invoiceSupplierTaxId: (inv as any).supplierTaxId,
+        invoiceDate: inv.invoiceDate,
+        paymentPayee: paymentOcr.payeeName || paymentOcr.supplierName,
+        paymentPayeeTaxId: paymentOcr.supplierTaxId || (paymentOcr as any).payeeTaxId,
+        paymentDate: paymentOcr.paymentDate || paymentOcr.invoiceDate,
+        paymentPurpose: paymentOcr.paymentPurpose,
+      });
+
+      if (!hardCheck.isValid) {
+        continue; // Hard Blocker: strictly forbidden to link
+      }
+
       const isDateString = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
       const isInvNumActuallyDate = isDateString(rawInvNum);
 
@@ -2060,13 +2271,8 @@ export class OCRService {
           this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
           (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
 
-      // Criterion B: Match by Supplier / Payee
-      const isSupplierMatch = Boolean(
-        payeeName &&
-        invSupplier &&
-        (this.isCompanyNameMatch(invSupplier, payeeName) ||
-          (invSupplier.length >= 4 && purpose.includes(invSupplier.toLowerCase())))
-      );
+      // Criterion B: Match by Supplier / Payee (from Hard Blocker check)
+      const isSupplierMatch = hardCheck.isSupplierConfirmed;
 
       // Criterion C: Match by Amount
       const isAmountMatch = paymentAmount > 0 && invAmount > 0 && Math.abs(paymentAmount - invAmount) <= 0.50;
@@ -2093,8 +2299,8 @@ export class OCRService {
         Boolean(cleanOrderNum && refOrder && cleanOrderNum !== refOrder && !purpose.includes(cleanOrderNum));
 
       // Valid conditions:
-      // When payment references invoice numbers, direct match does NOT require isAmountMatch (for multi-invoice payments)
-      const matchByInvoiceNum = hasInvNumMatch && (isDirectRefMatch || cleanInvNum.length >= 3 || !payeeName || !invSupplier || isSupplierMatch);
+      // When payment references invoice numbers, direct match REQUIRES supplier match (or no supplier on both sides)
+      const matchByInvoiceNum = hasInvNumMatch && (isSupplierMatch || (!payeeName && !invSupplier));
       const canFallbackMatch = cleanRefNumbers.length === 0;
       const matchBySupplierAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
       const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
@@ -2161,6 +2367,21 @@ export class OCRService {
           continue;
         }
 
+        // HARD BLOCKER: Strict Validation Hierarchy (Supplier & Date Sanity Check)
+        const hardCheck = this.validateMatchingHardBlockers({
+          invoiceSupplier: exp.supplier,
+          invoiceSupplierTaxId: (exp as any).supplierTaxId,
+          invoiceDate: exp.date,
+          paymentPayee: paymentOcr.payeeName || paymentOcr.supplierName,
+          paymentPayeeTaxId: paymentOcr.supplierTaxId || (paymentOcr as any).payeeTaxId,
+          paymentDate: paymentOcr.paymentDate || paymentOcr.invoiceDate,
+          paymentPurpose: paymentOcr.paymentPurpose,
+        });
+
+        if (!hardCheck.isValid) {
+          continue; // Hard Blocker: strictly forbidden to link
+        }
+
         const isDateString = (s: string) => /^\d{4}[-./]\d{2}[-./]\d{2}$/.test(s.trim()) || /^\d{2}[-./]\d{2}[-./]\d{4}$/.test(s.trim());
         const isInvNumActuallyDate = isDateString(rawInvNum);
 
@@ -2173,13 +2394,8 @@ export class OCRService {
             this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
             (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
 
-        // Criterion B: Match by Supplier / Payee
-        const isSupplierMatch = Boolean(
-          payeeName &&
-          invSupplier &&
-          (this.isCompanyNameMatch(invSupplier, payeeName) ||
-            (invSupplier.length >= 4 && purpose.includes(invSupplier.toLowerCase())))
-        );
+        // Criterion B: Match by Supplier / Payee (from Hard Blocker check)
+        const isSupplierMatch = hardCheck.isSupplierConfirmed;
 
         // Criterion C: Match by Amount
         const isAmountMatch = paymentAmount > 0 && invAmount > 0 && Math.abs(paymentAmount - invAmount) <= 0.50;
@@ -2205,7 +2421,7 @@ export class OCRService {
         const hasContradictingProjectOrder =
           Boolean(refOrder && refOrder !== 'цех' && !this.isPlaceholderNumber(refOrder) && !hasInvNumMatch && !isOverheadContext);
 
-        const matchByInvoiceNum = hasInvNumMatch && (isDirectRefMatch || cleanInvNum.length >= 3 || !payeeName || !invSupplier || isSupplierMatch);
+        const matchByInvoiceNum = hasInvNumMatch && (isSupplierMatch || (!payeeName && !invSupplier));
         const canFallbackMatch = cleanRefNumbers.length === 0;
         const matchBySupplierAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingProjectOrder;
         const matchByOverheadSupplierAndAmount = canFallbackMatch && isOverheadContext && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
@@ -2274,13 +2490,28 @@ export class OCRService {
         continue;
       }
 
+      // HARD BLOCKER: Strict Validation Hierarchy (Supplier & Date Sanity Check)
+      const hardCheck = this.validateMatchingHardBlockers({
+        invoiceSupplier: ocr.supplierName,
+        invoiceSupplierTaxId: ocr.supplierTaxId,
+        invoiceDate: ocr.invoiceDate,
+        paymentPayee: paymentOcr.payeeName || paymentOcr.supplierName,
+        paymentPayeeTaxId: paymentOcr.supplierTaxId || (paymentOcr as any).payeeTaxId,
+        paymentDate: paymentOcr.paymentDate || paymentOcr.invoiceDate,
+        paymentPurpose: paymentOcr.paymentPurpose,
+      });
+
+      if (!hardCheck.isValid) {
+        continue; // Hard Blocker: strictly forbidden to link
+      }
+
       // Check if this local document corresponds to an already matched sheet row (prevent duplicate counting)
       const existingSheetMatch = matches.find((m) => {
         const mInv = this.normalizeInvoiceNumber(m.invoiceNumber);
         const mOrd = this.normalizeOrderNumber(m.orderNumber || '').toLowerCase();
 
-        // 1. Same or substring invoice number
-        if (cleanInvNum && mInv && (mInv === cleanInvNum || mInv.includes(cleanInvNum) || cleanInvNum.includes(mInv))) {
+        // 1. Same invoice number (strict equality or prefix match)
+        if (cleanInvNum && mInv && this.isInvoiceNumberMatch(cleanInvNum, mInv)) {
           return true;
         }
 
@@ -2325,12 +2556,8 @@ export class OCRService {
           this.isInvoiceNumberMentionedInPurpose(cleanInvNum, purpose) ||
           (refOrder && this.isInvoiceNumberMatch(cleanInvNum, refOrder)));
 
-      const isSupplierMatch = Boolean(
-        payeeName &&
-        invSupplier &&
-        (this.isCompanyNameMatch(invSupplier, payeeName) ||
-          (invSupplier.length >= 4 && purpose.includes(invSupplier.toLowerCase())))
-      );
+      // Criterion B: Match by Supplier / Payee (from Hard Blocker check)
+      const isSupplierMatch = hardCheck.isSupplierConfirmed;
 
       const isAmountMatch = paymentAmount > 0 && invAmount > 0 && Math.abs(paymentAmount - invAmount) <= 0.50;
       const isPartialAmountMatch = paymentAmount > 0 && invAmount > 0 && paymentAmount < invAmount - 0.50;
@@ -2353,7 +2580,7 @@ export class OCRService {
       const hasContradictingOrder =
         Boolean(cleanOrderNum && refOrder && cleanOrderNum !== refOrder && !purpose.includes(cleanOrderNum));
 
-      const matchByInvoiceNum = hasInvNumMatch && (isDirectRefMatch || cleanInvNum.length >= 3 || !payeeName || !invSupplier || isSupplierMatch);
+      const matchByInvoiceNum = hasInvNumMatch && (isSupplierMatch || (!payeeName && !invSupplier));
       const canFallbackMatch = cleanRefNumbers.length === 0;
       const matchBySupplierAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
       const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
@@ -2420,39 +2647,55 @@ export class OCRService {
 
       for (const inv of existingInvoices) {
         if (!inv.rowIndex || inv.paymentStatus === 'Оплачено') continue;
-        const invSup = this.normalizeCompanyName(inv.supplier || '');
-        if (invSup && this.isCompanyNameMatch(invSup, payeeName)) {
-          const isInvOverhead = inv.isOverhead || inv.orderNumber === 'ЦЕХ';
-          candidates.push({
-            invoiceNumber: inv.invoiceNumber || '',
-            orderNumber: isInvOverhead ? 'ЦЕХ' : (inv.orderNumber || ''),
-            amount: inv.amount || 0,
-            paidAmount: inv.paidAmount || 0,
-            rowIndex: inv.rowIndex,
-            supplier: inv.supplier,
-            buyer: inv.buyer || '',
-            targetTab: isInvOverhead ? 'Цех' : 'Рахунки',
-            isOverhead: isInvOverhead,
-          });
-        }
+        const hardCheck = this.validateMatchingHardBlockers({
+          invoiceSupplier: inv.supplier,
+          invoiceSupplierTaxId: (inv as any).supplierTaxId,
+          invoiceDate: inv.invoiceDate,
+          paymentPayee: paymentOcr.payeeName || paymentOcr.supplierName,
+          paymentPayeeTaxId: paymentOcr.supplierTaxId || (paymentOcr as any).payeeTaxId,
+          paymentDate: paymentOcr.paymentDate || paymentOcr.invoiceDate,
+          paymentPurpose: paymentOcr.paymentPurpose,
+        });
+        if (!hardCheck.isValid || !hardCheck.isSupplierConfirmed) continue;
+
+        const isInvOverhead = inv.isOverhead || inv.orderNumber === 'ЦЕХ';
+        candidates.push({
+          invoiceNumber: inv.invoiceNumber || '',
+          orderNumber: isInvOverhead ? 'ЦЕХ' : (inv.orderNumber || ''),
+          amount: inv.amount || 0,
+          paidAmount: inv.paidAmount || 0,
+          rowIndex: inv.rowIndex,
+          supplier: inv.supplier,
+          buyer: inv.buyer || '',
+          targetTab: isInvOverhead ? 'Цех' : 'Рахунки',
+          isOverhead: isInvOverhead,
+        });
       }
 
       for (const exp of existingOverheadExpenses) {
         if (!exp.rowIndex || exp.paymentStatus === 'Оплачено') continue;
-        const expSup = this.normalizeCompanyName(exp.supplier || '');
-        if (expSup && this.isCompanyNameMatch(expSup, payeeName)) {
-          candidates.push({
-            invoiceNumber: exp.invoiceNumber || `Рахунок (${exp.supplier})`,
-            orderNumber: 'ЦЕХ',
-            amount: exp.amount || 0,
-            paidAmount: exp.paidAmount || 0,
-            rowIndex: exp.rowIndex,
-            supplier: exp.supplier,
-            buyer: exp.buyer || '',
-            targetTab: 'Цех',
-            isOverhead: true,
-          });
-        }
+        const hardCheck = this.validateMatchingHardBlockers({
+          invoiceSupplier: exp.supplier,
+          invoiceSupplierTaxId: (exp as any).supplierTaxId,
+          invoiceDate: exp.date,
+          paymentPayee: paymentOcr.payeeName || paymentOcr.supplierName,
+          paymentPayeeTaxId: paymentOcr.supplierTaxId || (paymentOcr as any).payeeTaxId,
+          paymentDate: paymentOcr.paymentDate || paymentOcr.invoiceDate,
+          paymentPurpose: paymentOcr.paymentPurpose,
+        });
+        if (!hardCheck.isValid || !hardCheck.isSupplierConfirmed) continue;
+
+        candidates.push({
+          invoiceNumber: exp.invoiceNumber || `Рахунок (${exp.supplier})`,
+          orderNumber: 'ЦЕХ',
+          amount: exp.amount || 0,
+          paidAmount: exp.paidAmount || 0,
+          rowIndex: exp.rowIndex,
+          supplier: exp.supplier,
+          buyer: exp.buyer || '',
+          targetTab: 'Цех',
+          isOverhead: true,
+        });
       }
 
       if (candidates.length >= 2 && candidates.length <= 25) {
@@ -2726,6 +2969,21 @@ export class OCRService {
       const pKey = `sheet_${p.rowIndex}_${pNum}`;
       if (seenPaymentKeys.has(pKey)) continue;
 
+      // HARD BLOCKER: Strict Validation Hierarchy (Supplier & Date Sanity Check)
+      const hardCheck = this.validateMatchingHardBlockers({
+        invoiceSupplier: invoiceOcr.supplierName,
+        invoiceSupplierTaxId: invoiceOcr.supplierTaxId,
+        invoiceDate: invoiceOcr.invoiceDate,
+        paymentPayee: p.payee,
+        paymentPayeeTaxId: (p as any).payeeTaxId || (p as any).supplierTaxId,
+        paymentDate: p.paymentDate,
+        paymentPurpose: p.paymentPurpose,
+      });
+
+      if (!hardCheck.isValid) {
+        continue; // HARD BLOCKER: supplier mismatch or payment date earlier than invoice date
+      }
+
       const refInv = this.normalizeInvoiceNumber(p.referencedInvoiceNumber || '');
       const refOrd = this.normalizeOrderNumber(p.orderNumber || '').toLowerCase();
       const purpose = (p.paymentPurpose || '').toLowerCase();
@@ -2747,13 +3005,8 @@ export class OCRService {
           (refInv && this.isInvoiceNumberMatch(cleanInvNum, refInv)) ||
           this.isInvoiceNumberMentionedInPurpose(cleanInvNum, p.paymentPurpose || ''));
 
-      // Check payee against supplier
-      const isSupplierMatch = Boolean(
-        supplier &&
-        payee &&
-        (this.isCompanyNameMatch(supplier, payee) ||
-          (supplier.length >= 4 && purpose.includes(supplier.toLowerCase())))
-      );
+      // Check payee against supplier (from Hard Blocker check)
+      const isSupplierMatch = hardCheck.isSupplierConfirmed;
 
       // Check amount match
       const isAmountMatch = invAmount > 0 && pAmount > 0 && Math.abs(invAmount - pAmount) <= 0.50;
@@ -2807,7 +3060,7 @@ export class OCRService {
       }
 
       // Condition 1: Direct match by invoice number
-      const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch || isAmountMatch);
+      const matchByInvoiceNum = hasDirectInvNumMatch && (isSupplierMatch || (!payee && !supplier));
 
       // Fallback matching ONLY when payment does NOT have explicit invoice numbers:
       const canFallbackMatch = cleanPRefNumbers.length === 0 && !refInv;
@@ -2831,6 +3084,21 @@ export class OCRService {
       const pKey = `local_${doc.id}_${pNum}`;
       if (seenPaymentKeys.has(pKey)) continue;
 
+      // HARD BLOCKER: Strict Validation Hierarchy (Supplier & Date Sanity Check)
+      const hardCheck = this.validateMatchingHardBlockers({
+        invoiceSupplier: invoiceOcr.supplierName,
+        invoiceSupplierTaxId: invoiceOcr.supplierTaxId,
+        invoiceDate: invoiceOcr.invoiceDate,
+        paymentPayee: ocr.payeeName || ocr.supplierName,
+        paymentPayeeTaxId: ocr.supplierTaxId || (ocr as any).payeeTaxId,
+        paymentDate: ocr.paymentDate || ocr.invoiceDate,
+        paymentPurpose: ocr.paymentPurpose,
+      });
+
+      if (!hardCheck.isValid) {
+        continue; // HARD BLOCKER
+      }
+
       const refInv = this.normalizeInvoiceNumber(ocr.referencedInvoiceNumber || '');
       const refOrd = this.normalizeOrderNumber(ocr.referencedOrderNumber || '').toLowerCase();
       const purpose = (ocr.paymentPurpose || '').toLowerCase();
@@ -2851,12 +3119,7 @@ export class OCRService {
           (refInv && this.isInvoiceNumberMatch(cleanInvNum, refInv)) ||
           this.isInvoiceNumberMentionedInPurpose(cleanInvNum, ocr.paymentPurpose || ''));
 
-      const isSupplierMatch = Boolean(
-        supplier &&
-        payee &&
-        (this.isCompanyNameMatch(supplier, payee) ||
-          (supplier.length >= 4 && purpose.includes(supplier.toLowerCase())))
-      );
+      const isSupplierMatch = hardCheck.isSupplierConfirmed;
 
       const isAmountMatch = invAmount > 0 && pAmount > 0 && Math.abs(invAmount - pAmount) <= 0.50;
       const isPartialAmountMatch = invAmount > 0 && pAmount > 0 && pAmount < invAmount - 0.50;
@@ -2906,7 +3169,7 @@ export class OCRService {
         }
       }
 
-      const matchByInvoiceNum = hasDirectInvNumMatch && (!payee || !supplier || isSupplierMatch || isAmountMatch);
+      const matchByInvoiceNum = hasDirectInvNumMatch && (isSupplierMatch || (!payee && !supplier));
       const canFallbackMatch = cleanPRefNumbers.length === 0 && !refInv;
       const matchByPayeeAndAmount = canFallbackMatch && isSupplierMatch && isAmountMatch && !hasContradictingInvoice && !hasContradictingOrder;
       const matchByOrderSupplierAndAmount = canFallbackMatch && isOrderMatch && isSupplierMatch && (isAmountMatch || isPartialAmountMatch) && !hasContradictingInvoice;
@@ -3168,6 +3431,7 @@ export class OCRService {
             invoiceDate: inv.invoiceDate,
             handwrittenOrderNumber: inv.orderNumber,
             supplierName: inv.supplier,
+            supplierTaxId: (inv as any).supplierTaxId,
             buyerName: inv.buyer,
             totalAmount: inv.amount,
             currency: inv.currency || 'UAH',
@@ -3244,6 +3508,7 @@ export class OCRService {
               invoiceDate: exp.date || '',
               handwrittenOrderNumber: 'ЦЕХ',
               supplierName: exp.supplier,
+              supplierTaxId: (exp as any).supplierTaxId,
               buyerName: exp.buyer || '',
               totalAmount: exp.amount,
               currency: 'UAH',
@@ -3349,6 +3614,7 @@ export class OCRService {
           invoiceDate: inv.invoiceDate,
           handwrittenOrderNumber: inv.orderNumber,
           supplierName: inv.supplier,
+          supplierTaxId: (inv as any).supplierTaxId,
           buyerName: inv.buyer,
           totalAmount: inv.amount,
           currency: inv.currency || 'UAH',

@@ -195,6 +195,8 @@ export interface ExistingSheetRow {
   notes?: string;
   expenseCategory?: ExpenseCategory;
   isOverhead?: boolean;
+  supplierTaxId?: string; // ЄДРПОУ постачальника
+  buyerTaxId?: string; // ЄДРПОУ платника
 }
 
 export interface OverheadExpenseRow {
@@ -214,6 +216,8 @@ export interface OverheadExpenseRow {
   driveLink?: string;
   id?: string;
   isPendingSync?: boolean;
+  supplierTaxId?: string;
+  buyerTaxId?: string;
 }
 
 export interface ExistingPaymentRow {
@@ -230,6 +234,9 @@ export interface ExistingPaymentRow {
   fileName: string;
   driveLink: string;
   uploadedAt: string;
+  payeeTaxId?: string;
+  payerTaxId?: string;
+  supplierTaxId?: string;
 }
 
 export interface DuplicateRowMatch {
