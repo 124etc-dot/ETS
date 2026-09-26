@@ -101,6 +101,31 @@ export interface MaterialItem {
   cuttingPrice?: number; // Вартість різки за 1 різ / м.п. (грн)
   sourceArticle?: string; // Артикул з прайсу (довідково)
   tonPrice?: number; // Ціна за тонну (довідково)
+  // Specific LDSP fields (Прайс KRONAS / плитні матеріали)
+  brand?: string; // 'Egger', 'Kronospan', 'CLEAF' тощо
+  price_sheet?: number; // Ціна за лист (наприклад: 6045.15)
+  price_sqm?: number; // Ціна за 1 м² (наприклад: 1042.99)
+  sheet_area_sqm?: number; // Площа листа в м² (наприклад: 5.796)
+}
+
+export interface LdspItem {
+  brand: string; // 'Egger', 'Kronospan', 'CLEAF' тощо
+  name: string; // Повна назва з Excel без змін
+  price_sheet: number; // Ціна за лист (наприклад: 6045.15)
+  price_sqm: number; // Ціна за 1 м² (наприклад: 1042.99)
+  sheet_area_sqm: number; // Площа листа в м² (наприклад: 5.796)
+  unit: string; // 'м.п.' / 'м²' / 'лист'
+}
+
+export interface LdspParseResult {
+  fileName: string;
+  supplier: string;
+  totalRowsRead: number;
+  recognizedItems: LdspItem[];
+  brandsFound: string[];
+  newItemsCount: number;
+  updatedItemsCount: number;
+  errors: string[];
 }
 
 export interface ParsedPriceItem {

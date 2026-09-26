@@ -5,6 +5,7 @@ import {
   ConstructiveItem,
   CalculationSummary,
   CalculationProject,
+  LdspItem,
 } from '../types/calculator';
 import {
   DEFAULT_MATERIALS,
@@ -126,6 +127,100 @@ export class CalculatorStorageService {
       console.warn('importPriceItemsApi error:', err);
     }
     return null;
+  }
+
+  /**
+   * Import and upsert LDSP items from Excel price list
+   * Rule: name is unique key. Updates price_sheet and price_sqm if exists, else creates new.
+   */
+  public static async importLdspItemsApi(
+    items: LdspItem[],
+    supplier: string = 'KRONAS'
+  ): Promise<{
+    updatedMaterials: MaterialItem[];
+    addedCount: number;
+    updatedCount: number;
+  }> {
+    try {
+      const res = await fetch('/api/materials/ldsp/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items, supplier }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.materials)) {
+          this.saveMaterials(data.materials, false);
+          this.notifyMaterialsChanged(data.materials);
+          return {
+            updatedMaterials: data.materials,
+            addedCount: data.addedCount || 0,
+            updatedCount: data.updatedCount || 0,
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('importLdspItemsApi API failed, running local upsert:', err);
+    }
+
+    // Local fallback if API is unreachable
+    const currentMaterials = this.loadMaterials();
+    const materialsList = [...currentMaterials];
+    let addedCount = 0;
+    let updatedCount = 0;
+    const nowIso = new Date().toISOString();
+
+    for (const item of items) {
+      const existingIdx = materialsList.findIndex(
+        (m) => m.name.trim().toLowerCase() === item.name.trim().toLowerCase()
+      );
+
+      if (existingIdx !== -1) {
+        const existing = materialsList[existingIdx];
+        materialsList[existingIdx] = {
+          ...existing,
+          price_sheet: item.price_sheet,
+          price_sqm: item.price_sqm,
+          sheet_area_sqm: item.sheet_area_sqm,
+          basePrice: item.price_sqm,
+          brand: item.brand || existing.brand,
+          groupHeader: item.brand || existing.groupHeader || 'ДСП',
+          supplier: supplier || existing.supplier || 'KRONAS',
+          unit: item.unit || existing.unit || 'м²',
+          updatedAt: nowIso,
+        };
+        updatedCount++;
+      } else {
+        const newItem: MaterialItem = {
+          id: `mat_ldsp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name: item.name,
+          category: 'plate_wood',
+          parentCategory: 'Плитні матеріали',
+          subcategory: 'ДСП',
+          groupHeader: item.brand || 'ДСП',
+          brand: item.brand,
+          unit: item.unit || 'м²',
+          basePrice: item.price_sqm,
+          price_sheet: item.price_sheet,
+          price_sqm: item.price_sqm,
+          sheet_area_sqm: item.sheet_area_sqm,
+          defaultWasteFactor: 1.18,
+          supplier: supplier || 'KRONAS',
+          updatedAt: nowIso,
+        };
+        materialsList.push(newItem);
+        addedCount++;
+      }
+    }
+
+    this.saveMaterials(materialsList, true);
+    this.notifyMaterialsChanged(materialsList);
+
+    return {
+      updatedMaterials: materialsList,
+      addedCount,
+      updatedCount,
+    };
   }
 
   /**

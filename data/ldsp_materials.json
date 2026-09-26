@@ -1,0 +1,138 @@
+[
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F186 ST9 Бетон Чікаго світло-сірий 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W980 ST2 Білий Платиновий 2800x2070x18",
+    "price_sheet": 3850,
+    "price_sqm": 664.25,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1180 ST37 Дуб Галіфакс натуральний 2800x2070x18",
+    "price_sheet": 7420.5,
+    "price_sqm": 1280.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U708 ST9 Світло-сірий 2800x2070x18",
+    "price_sheet": 4290,
+    "price_sqm": 740.17,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U999 ST9 Чорний 2800x2070x18",
+    "price_sheet": 4380,
+    "price_sqm": 755.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3303 ST10 Дуб Арлінгтон природний 2800x2070x18",
+    "price_sheet": 5680,
+    "price_sqm": 979.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0101 SM Білий Фасадний 2800x2070x18",
+    "price_sheet": 2950,
+    "price_sqm": 508.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0190 PE Чорний 2800x2070x18",
+    "price_sheet": 3150,
+    "price_sqm": 543.48,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K003 PW Дуб Крафт золотий 2800x2070x18",
+    "price_sheet": 3890,
+    "price_sqm": 671.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K001 PW Дуб Крафт білий 2800x2070x18",
+    "price_sheet": 3890,
+    "price_sqm": 671.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0514 PE Слонова кістка 2800x2070x18",
+    "price_sheet": 3100,
+    "price_sqm": 534.85,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF Sherwood S081 2800x2070x18",
+    "price_sheet": 7200,
+    "price_sqm": 1242.24,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF Ares FB03 2800x2070x18",
+    "price_sheet": 8150,
+    "price_sqm": 1406.14,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF Millennium B073 2800x2070x18",
+    "price_sheet": 7650,
+    "price_sqm": 1319.88,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП Swiss Krono Дуб Сонома D3025 2800x2070x16",
+    "price_sheet": 2650,
+    "price_sqm": 457.21,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП Swiss Krono Венге Луізіана D2413 2800x2070x18",
+    "price_sheet": 2890,
+    "price_sqm": 498.62,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП Swiss Krono Антрацит U164 2800x2070x18",
+    "price_sheet": 3050,
+    "price_sqm": 526.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  }
+]

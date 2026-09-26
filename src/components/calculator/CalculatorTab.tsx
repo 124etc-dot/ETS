@@ -42,6 +42,7 @@ import { CALCULATOR_PRESETS } from '../../data/calculatorDefaults';
 import { MasterDataModal } from './MasterDataModal';
 import { ExportGoogleSheetModal } from './ExportGoogleSheetModal';
 import { ImportMetalPriceModal } from './ImportMetalPriceModal';
+import { ImportLdspModal } from './ImportLdspModal';
 import { GenerationResult, SpecificationSheetGenerator } from '../../services/specificationSheetGenerator';
 import { AddProjectModal, AddProjectInitialData } from '../AddProjectModal';
 import { DEFAULT_PROJECTS_SPREADSHEET_ID } from '../../services/googleSheets';
@@ -79,6 +80,7 @@ export const CalculatorTab: React.FC<Props> = ({
   const [activeSubView, setActiveSubView] = useState<'calculator' | 'saved'>('calculator');
   const [isMasterDataOpen, setIsMasterDataOpen] = useState(false);
   const [isImportMetalModalOpen, setIsImportMetalModalOpen] = useState(false);
+  const [isImportLdspModalOpen, setIsImportLdspModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
   const [addProjectInitialData, setAddProjectInitialData] = useState<AddProjectInitialData | null>(null);
@@ -1215,6 +1217,7 @@ export const CalculatorTab: React.FC<Props> = ({
               materials={materials}
               onOpenMasterData={() => setIsMasterDataOpen(true)}
               onOpenImportPrice={() => setIsImportMetalModalOpen(true)}
+              onOpenImportLdsp={() => setIsImportLdspModalOpen(true)}
               onAddMaterial={handleDropMaterialToActiveUnit}
               onRefreshMaterials={refetchMaterials}
               isRefreshing={isRefreshingMaterials}
@@ -1434,12 +1437,29 @@ export const CalculatorTab: React.FC<Props> = ({
           setIsMasterDataOpen(false);
           setIsImportMetalModalOpen(true);
         }}
+        onOpenImportLdsp={() => {
+          setIsMasterDataOpen(false);
+          setIsImportLdspModalOpen(true);
+        }}
       />
 
       {/* Import Metal Pricelist Modal (Excel / CSV) */}
       <ImportMetalPriceModal
         isOpen={isImportMetalModalOpen}
         onClose={() => setIsImportMetalModalOpen(false)}
+        existingMaterials={materials}
+        onApplyImport={(updatedMats, msg) => {
+          setMaterials(updatedMats);
+          CalculatorStorageService.saveMaterials(updatedMats);
+          showToast(msg, 'success');
+          refetchMaterials();
+        }}
+      />
+
+      {/* Import LDSP Pricelist Modal (Excel KRONAS / Egger / Kronospan / CLEAF) */}
+      <ImportLdspModal
+        isOpen={isImportLdspModalOpen}
+        onClose={() => setIsImportLdspModalOpen(false)}
         existingMaterials={materials}
         onApplyImport={(updatedMats, msg) => {
           setMaterials(updatedMats);

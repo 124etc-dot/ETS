@@ -11,7 +11,13 @@ import {
   saveMaterialsToDb,
   importPriceItemsToDb,
   resetMaterialsDb,
+  getLdspItemsFromDb,
+  importLdspItemsToDb,
 } from './api/materials/materialsDb';
+import {
+  parseLdspFile,
+  generateSampleLdspExcelWorkbook,
+} from './src/services/ldspPriceParser';
 
 dotenv.config();
 
@@ -235,6 +241,91 @@ app.post('/api/materials/reset', (req, res) => {
       success: false,
       error: err?.message || 'Не вдалося скинути матеріали',
     });
+  }
+});
+
+// LDSP Excel Price List Endpoints (KRONAS / Egger / Kronospan / CLEAF)
+app.get(['/api/materials/ldsp', '/api/ldsp'], (req, res) => {
+  try {
+    const items = getLdspItemsFromDb();
+    return res.json({
+      success: true,
+      count: items.length,
+      items,
+    });
+  } catch (err: any) {
+    console.error('Error in GET /api/materials/ldsp:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Не вдалося отримати ЛДСП позиції',
+    });
+  }
+});
+
+app.post(['/api/materials/ldsp/import', '/api/ldsp/import'], (req, res) => {
+  try {
+    const { items, supplier = 'KRONAS' } = req.body || {};
+    if (!Array.isArray(items)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Потрібно передати масив items',
+      });
+    }
+
+    const result = importLdspItemsToDb(items, supplier);
+    console.log(`[LDSP Import] Upserted ${items.length} items from ${supplier}. Added: ${result.addedCount}, Updated: ${result.updatedCount}`);
+    return res.json({
+      success: true,
+      ...result,
+      materials: result.updatedMaterials,
+    });
+  } catch (err: any) {
+    console.error('Error in POST /api/materials/ldsp/import:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Помилка збереження ЛДСП позицій у базу',
+    });
+  }
+});
+
+app.post(['/api/materials/ldsp/parse-excel', '/api/ldsp/parse-excel'], async (req, res) => {
+  try {
+    const { fileData, fileName = 'ЛДСП Прайс KRONAS.xlsx', supplier = 'KRONAS' } = req.body || {};
+    if (!fileData) {
+      return res.status(400).json({
+        success: false,
+        error: 'Файл не передано (fileData is missing)',
+      });
+    }
+
+    // Convert base64 data to Buffer
+    const buffer = Buffer.from(fileData.replace(/^data:[^;]+;base64,/, ''), 'base64');
+    const existingMaterials = getMaterialsFromDb();
+    const parseResult = await parseLdspFile(buffer, fileName, supplier, existingMaterials);
+
+    return res.json({
+      success: true,
+      ...parseResult,
+    });
+  } catch (err: any) {
+    console.error('Error parsing LDSP Excel:', err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message || 'Не вдалося розпарсити Excel-файл ЛДСП',
+    });
+  }
+});
+
+// Download sample KRONAS LDSP Excel file
+app.get(['/api/materials/ldsp/sample-excel', '/api/ldsp/sample-excel', '/api/materials/ldsp/sample.xlsx'], (req, res) => {
+  try {
+    const excelBuffer = generateSampleLdspExcelWorkbook();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="ЛДСП_Прайс_KRONAS.xlsx"');
+    res.send(Buffer.from(excelBuffer));
+  } catch (err: any) {
+    console.error('Error generating sample LDSP Excel:', err);
+    res.status(500).json({ error: 'Не вдалося згенерувати зразок Excel ЛДСП' });
   }
 });
 

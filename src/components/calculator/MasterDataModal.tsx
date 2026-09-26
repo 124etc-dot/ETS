@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Sparkles,
   FileSpreadsheet,
+  Grid,
 } from 'lucide-react';
 import {
   MaterialCategory,
@@ -32,6 +33,7 @@ interface Props {
   onMaterialsChange: (materials: MaterialItem[]) => void;
   onCoefficientsChange: (coeffs: CalculatorCoefficients) => void;
   onOpenImportPrice?: () => void;
+  onOpenImportLdsp?: () => void;
 }
 
 export const MasterDataModal: React.FC<Props> = ({
@@ -42,6 +44,7 @@ export const MasterDataModal: React.FC<Props> = ({
   onMaterialsChange,
   onCoefficientsChange,
   onOpenImportPrice,
+  onOpenImportLdsp,
 }) => {
   const [activeTab, setActiveTab] = useState<'materials' | 'waste' | 'coefficients'>('materials');
   const [selectedCatFilter, setSelectedCatFilter] = useState<MaterialCategory | 'all'>('all');
@@ -272,7 +275,19 @@ export const MasterDataModal: React.FC<Props> = ({
                 title="Імпорт прайс-листа металопрокату (PDF Метал Холдінг / Excel / CSV)"
               >
                 <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
-                <span>Імпорт прайсу (PDF / Excel)</span>
+                <span>Імпорт металу</span>
+              </button>
+            )}
+
+            {onOpenImportLdsp && (
+              <button
+                type="button"
+                onClick={onOpenImportLdsp}
+                className="px-2.5 py-1 text-amber-900 hover:text-amber-950 bg-amber-50 hover:bg-amber-100 rounded-lg text-xs font-bold border border-amber-300 flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                title="Імпорт прайс-листа ЛДСП Excel (KRONAS / Egger / Kronospan / CLEAF)"
+              >
+                <Grid className="w-3.5 h-3.5 text-amber-700" />
+                <span>Імпорт ЛДСП</span>
               </button>
             )}
 

@@ -15,6 +15,7 @@ import {
   Scissors,
   RefreshCw,
   Database,
+  Grid,
 } from 'lucide-react';
 import { MaterialItem, MaterialCategory, MATERIAL_CATEGORIES } from '../../../types/calculator';
 
@@ -22,6 +23,7 @@ interface Props {
   materials: MaterialItem[];
   onOpenMasterData: () => void;
   onOpenImportPrice?: () => void;
+  onOpenImportLdsp?: () => void;
   onAddMaterial: (mat: MaterialItem) => void;
   onRefreshMaterials?: () => Promise<void> | void;
   isRefreshing?: boolean;
@@ -175,6 +177,7 @@ export const CatalogWindow: React.FC<Props> = ({
   materials,
   onOpenMasterData,
   onOpenImportPrice,
+  onOpenImportLdsp,
   onAddMaterial,
   onRefreshMaterials,
   isRefreshing = false,
@@ -336,7 +339,19 @@ export const CatalogWindow: React.FC<Props> = ({
               title="Імпорт прайс-листа металопрокату (PDF Метал Холдінг / Excel / CSV) та генерація дерева"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">Імпорт прайсу</span>
+              <span className="hidden sm:inline">Імпорт металу</span>
+            </button>
+          )}
+
+          {onOpenImportLdsp && (
+            <button
+              type="button"
+              onClick={onOpenImportLdsp}
+              className="px-2.5 py-1 text-xs font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-300 transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              title="Імпорт прайс-листа ЛДСП Excel (KRONAS / Egger / Kronospan / CLEAF)"
+            >
+              <Grid className="w-3.5 h-3.5 text-amber-700" />
+              <span className="hidden sm:inline">Імпорт ЛДСП</span>
             </button>
           )}
 
@@ -553,6 +568,17 @@ export const CatalogWindow: React.FC<Props> = ({
                                                   </div>
                                                   <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
                                                     {mat.supplier && <span>{mat.supplier}</span>}
+                                                    {mat.price_sheet !== undefined && (
+                                                      <>
+                                                        <span>•</span>
+                                                        <span className="font-mono text-amber-700">
+                                                          Лист: {mat.price_sheet.toLocaleString('uk-UA')} ₴
+                                                        </span>
+                                                        {mat.sheet_area_sqm && (
+                                                          <span className="text-slate-400">({mat.sheet_area_sqm} м²)</span>
+                                                        )}
+                                                      </>
+                                                    )}
                                                   </div>
                                                 </div>
                                               </div>
@@ -597,6 +623,17 @@ export const CatalogWindow: React.FC<Props> = ({
                                       </div>
                                       <div className="flex items-center gap-2 text-[10px] text-slate-400">
                                         {mat.supplier && <span>{mat.supplier}</span>}
+                                        {mat.price_sheet !== undefined && (
+                                          <>
+                                            <span>•</span>
+                                            <span className="font-mono text-amber-700">
+                                              Лист: {mat.price_sheet.toLocaleString('uk-UA')} ₴
+                                            </span>
+                                            {mat.sheet_area_sqm && (
+                                              <span className="text-slate-400">({mat.sheet_area_sqm} м²)</span>
+                                            )}
+                                          </>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
