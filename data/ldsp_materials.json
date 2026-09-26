@@ -10,8 +10,8 @@
   {
     "brand": "Egger",
     "name": "ЛДСП Egger W980 ST2 Білий Платиновий 2800x2070x18",
-    "price_sheet": 3850,
-    "price_sqm": 664.25,
+    "price_sheet": 2582.13,
+    "price_sqm": 445.5,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
@@ -26,8 +26,8 @@
   {
     "brand": "Egger",
     "name": "ЛДСП Egger U708 ST9 Світло-сірий 2800x2070x18",
-    "price_sheet": 4290,
-    "price_sqm": 740.17,
+    "price_sheet": 3850.75,
+    "price_sqm": 664.38,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
@@ -50,40 +50,40 @@
   {
     "brand": "Kronospan",
     "name": "ЛДСП Kronospan 0101 SM Білий Фасадний 2800x2070x18",
-    "price_sheet": 2950,
-    "price_sqm": 508.97,
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
   {
     "brand": "Kronospan",
     "name": "ЛДСП Kronospan 0190 PE Чорний 2800x2070x18",
-    "price_sheet": 3150,
-    "price_sqm": 543.48,
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
   {
     "brand": "Kronospan",
     "name": "ЛДСП Kronospan K003 PW Дуб Крафт золотий 2800x2070x18",
-    "price_sheet": 3890,
-    "price_sqm": 671.15,
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
   {
     "brand": "Kronospan",
     "name": "ЛДСП Kronospan K001 PW Дуб Крафт білий 2800x2070x18",
-    "price_sheet": 3890,
-    "price_sqm": 671.15,
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
   {
     "brand": "Kronospan",
     "name": "ЛДСП Kronospan 0514 PE Слонова кістка 2800x2070x18",
-    "price_sheet": 3100,
-    "price_sqm": 534.85,
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   },
@@ -132,6 +132,5270 @@
     "name": "ЛДСП Swiss Krono Антрацит U164 2800x2070x18",
     "price_sheet": 3050,
     "price_sqm": 526.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F186 ST9 Бетон Чикаго світло-сірий 2800x2070x10",
+    "price_sheet": 4431,
+    "price_sqm": 764.49,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F187 ST9 Бетон Чікаго темно-сірий 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F187 ST9 Бетон Чикаго темно-сірий 2800x2070x10",
+    "price_sheet": 4431,
+    "price_sqm": 764.49,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F206 ST9 Камінь П'єтра Гриджиа чорний 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F235 ST76 Сланець Сківаро 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F243 ST76 Мармур Кандела світло-сірий 2800x2070x18",
+    "price_sheet": 3764.31,
+    "price_sqm": 649.47,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F323 ST20 Кобра бронза 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F416 ST10 Текстиль бежевий 2800x2070x18",
+    "price_sheet": 5011.25,
+    "price_sqm": 864.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F433 ST10 Льон антрацит 2800x2070x18",
+    "price_sheet": 4533.86,
+    "price_sqm": 782.24,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F501 ST2 Алюміній матований 2800x2070x18",
+    "price_sheet": 3423.66,
+    "price_sqm": 590.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F509 ST2 Алюміній 2800x2070x18",
+    "price_sheet": 3423.66,
+    "price_sqm": 590.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F528 ST20 Бронза Метал матований 2800x2070x18",
+    "price_sheet": 3707.28,
+    "price_sqm": 639.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F637 ST16 Хромикс білий 2800x2070x18",
+    "price_sheet": 3649.2,
+    "price_sqm": 629.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F642 ST16 Хромікс бронза 2800x2070x18",
+    "price_sheet": 5729.43,
+    "price_sqm": 988.51,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F685 ST10 Акапулько 2800x2070x18",
+    "price_sheet": 3764.31,
+    "price_sqm": 649.47,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F765 ST20 Срібло сіре матоване 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger F800 ST9 Мармур Кришталь 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1113 ST10 Дуб Канзас коричневий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1115 ST12 Баменда сіро-бежевий 2800x2070x18",
+    "price_sheet": 3167,
+    "price_sqm": 546.41,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1122 ST22 Деревина біла 2800x2070x10",
+    "price_sheet": 2926.41,
+    "price_sqm": 504.9,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1137 ST12 Дуб Сорано чорно-коричневий 2800x2070x18",
+    "price_sheet": 2823.75,
+    "price_sqm": 487.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1142 ST36 Дуб Сакраменто коричневий 2800x2070x18 (18,6)",
+    "price_sheet": 5677.22,
+    "price_sqm": 979.51,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1145 ST10 Дуб Бардоліно натуральний 2800x2070x18",
+    "price_sheet": 3332.75,
+    "price_sqm": 575.01,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1146 ST10 Дуб Бардоліно сірий 2800x2070x18",
+    "price_sheet": 3007.3,
+    "price_sqm": 518.86,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1176 ST37 Дуб Галіфакс білий 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1180 ST37 Дуб Галіфакс натуральний 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1181 ST37 Дуб Галіфакс тютюн 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1199 ST12 Дуб термо чорно-коричневий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1223 ST19 Ясен Севілья 2800x2070x18",
+    "price_sheet": 4834.54,
+    "price_sqm": 834.12,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1225 ST12 Ясен Тронгейм 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1242 ST10 Акація Шеффілд натуральна 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1251 ST19 Робінія Бренсон натуральна коричнева 2800x2070x18",
+    "price_sheet": 4047.41,
+    "price_sqm": 698.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1253 ST19 Робінія Бренсон трюфель коричневий 2800x2070x18",
+    "price_sheet": 3785.05,
+    "price_sqm": 653.05,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1277 ST9 Акація Лейкленд світла 2800x2070x10",
+    "price_sheet": 3600.19,
+    "price_sqm": 621.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1277 ST9 Акація Лейкленд світла 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1303 ST12 Дуб Белмонт коричневий 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1307 ST19 Горіх Вармія коричневий 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1312 ST10 Дуб Уайт-Рівер пісочно-бежевий 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1313 ST10 Дуб Уайт-Рівер сіро-коричневий 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1316 ST17 Дуб Букматч 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1318 ST10 Дикий дуб натуральний 2800x2070x18",
+    "price_sheet": 5011.25,
+    "price_sqm": 864.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1330 ST10 Дуб Санта-Фе вінтаж 2800x2070x18",
+    "price_sheet": 4533.86,
+    "price_sqm": 782.24,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1334 ST9 Дуб Сорано натуральний світлий 2800x2070x18",
+    "price_sheet": 2903.6,
+    "price_sqm": 500.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1344 ST32 Дуб Шерман коньяк коричневий 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1346 ST32 Дуб Шерман антрацит 2800x2070x18 (18,6)",
+    "price_sheet": 4823.61,
+    "price_sqm": 832.23,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1362 ST12 Дуб Баронія світлий 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1367 ST40 Дуб Казелла натуральний світлий 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1385 ST40 Дуб Казелла натуральний 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1386 ST40 Дуб Казелла коричневий 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1399 ST10 Дуб Денвер трюфель 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1401 ST22 Сосна Касцина 2800x2070x10",
+    "price_sheet": 3877.13,
+    "price_sqm": 668.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1401 ST22 Сосна Касцина 2800x2070x18",
+    "price_sheet": 5011.25,
+    "price_sqm": 864.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1424 ST22 Файнлайн кремовий 2800x2070x10",
+    "price_sheet": 2738.72,
+    "price_sqm": 472.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1424 ST22 Файнлайн кремовий 2800x2070x18",
+    "price_sheet": 2929.53,
+    "price_sqm": 505.44,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1708 ST17 Каштан Брайтон 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1710 ST10 Каштан Кентуккі пісочний 2800x2070x18",
+    "price_sheet": 3764.31,
+    "price_sqm": 649.47,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1714 ST19 Горіх Лінкольн 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1715 ST12 Горіх Парона 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1732 ST9 Береза піщана 2800x2070x18",
+    "price_sheet": 2566.58,
+    "price_sqm": 442.82,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1733 ST9 Береза Майнау 2800x2070x18",
+    "price_sheet": 2823.75,
+    "price_sqm": 487.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H1910 ST9 Бук Віллоу 2800x2070x18",
+    "price_sheet": 3332.75,
+    "price_sqm": 575.01,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H2033 ST10 Дуб Хантон темний 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3003 ST19 Дуб Норвіч 2800x2070x18",
+    "price_sheet": 3992.45,
+    "price_sqm": 688.83,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3012 ST22 Кокоболо натуральний 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3043 ST12 Евкаліпт темно-коричневий 2800x2070x18",
+    "price_sheet": 4443.66,
+    "price_sqm": 766.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H305 ST12 Дуб Тенсберґ натуральний 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H309 ST12 Дуб Тенсберґ коричневий 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3090 ST22 Деревина Шорвуд 2800x2070x18",
+    "price_sheet": 3193.96,
+    "price_sqm": 551.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3131 ST12 Дуб Давос натуральний 2800x2070x18",
+    "price_sheet": 5116.75,
+    "price_sqm": 882.81,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3133 ST12 Дуб Давос трюфель 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3146 ST19 Дуб Лоренцо бежево-сірий 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3152 ST19 Дуб Віченца вибілений 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3154 ST36 Дуб Чарльстон темно-коричневий 2800x2070x18 (18,6)",
+    "price_sheet": 7569.63,
+    "price_sqm": 1306.01,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3156 ST12 Дуб Корбрідж сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3157 ST12 Дуб Вінченцо 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3170 ST12 Дуб Кендал натуральний 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3176 ST37 Дуб Галіфакс олово 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3195 ST19 Файнлайн білий 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3197 ST19 Файнлайн середньо-сірий 2800x2070x18",
+    "price_sheet": 4834.54,
+    "price_sqm": 834.12,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3198 ST19 Файнлайн темно-сірий 2800x2070x18",
+    "price_sheet": 3878.38,
+    "price_sqm": 669.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3303 ST10 Дуб Гамільтон натуральний 2800x2070x18",
+    "price_sheet": 4007.68,
+    "price_sqm": 691.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3317 ST28 Дуб Кунео коричневий 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3322 ST17 Дуб Ровато натуральний світлий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3331 ST10 Дуб Небраска натуральний 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3359 ST32 Дуб Давенпорт натуральний світлий 2800x2070x18 (18,6)",
+    "price_sheet": 8941.13,
+    "price_sqm": 1542.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3395 ST12 Дуб Корбрідж натуральний 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3398 ST12 Дуб Кендал коньяк 2800x2070x18",
+    "price_sheet": 3022.86,
+    "price_sqm": 521.54,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3430 ST22 Сосна Аланд біла 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3433 ST22 Сосна Аланд полярна 2800x2070x18",
+    "price_sheet": 4007.68,
+    "price_sqm": 691.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3450 ST22 Флітвуд білий 2800x2070x18",
+    "price_sheet": 4007.68,
+    "price_sqm": 691.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3451 ST22 Флітвуд шампань 2800x2070x18",
+    "price_sheet": 3167,
+    "price_sqm": 546.41,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3700 ST10 Горіх Пацифік натуральний 2800x2070x18",
+    "price_sheet": 4007.68,
+    "price_sqm": 691.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3702 ST10 Горіх Пацифік тютюн 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3710 ST12 Горіх Каріні натуральний 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3730 ST10 Гікорі натуральний 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3734 ST9 Горіх Діжон натуральний 2800x2070x18",
+    "price_sheet": 4443.66,
+    "price_sqm": 766.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3786 ST19 Дерево Болівар натуральне 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3787 ST19 Дерево Болівар коричневе 2800x2070x18",
+    "price_sheet": 6446.05,
+    "price_sqm": 1112.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H3860 ST9 Клен цукровий шампань 2800x2070x18",
+    "price_sheet": 3308.03,
+    "price_sqm": 570.74,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger H7586 ST17 Горіх Альба тютюн 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U104 ST9 Алебастр білий 2800x2070x18",
+    "price_sheet": 4443.66,
+    "price_sqm": 766.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U108 ST9 Ванільний жовтий 2800x2070x18",
+    "price_sheet": 2981.38,
+    "price_sqm": 514.39,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U113 ST9 Котон бежевий 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U115 ST9 Карат бежевий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U125 ST9 Пісочний жовтий 2800x2070x18",
+    "price_sheet": 3422.1,
+    "price_sqm": 590.42,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U131 ST9 Цитрусовий жовтий 2800x2070x18",
+    "price_sheet": 3479.14,
+    "price_sqm": 600.27,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U156 ST9 Бежевий пісок 2800x2070x10",
+    "price_sheet": 1923.64,
+    "price_sqm": 331.89,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U156 ST9 Бежевий пісок 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U163 ST9 Каррі жовтий 2800x2070x18",
+    "price_sheet": 3707.28,
+    "price_sqm": 639.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U201 ST19 Сіра галька 2800x2070x18",
+    "price_sheet": 3613.43,
+    "price_sqm": 623.44,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U201 ST9 Сіра галька 2800x2070x10",
+    "price_sheet": 1980.67,
+    "price_sqm": 341.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U201 ST9 Сіра галька 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U211 ST9 Мигдальний бежевий 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U216 ST9 Камель бежевий 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U220 ST9 М'який бежевий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U222 ST9 Крем бежевий 2800x2070x18",
+    "price_sheet": 4378.25,
+    "price_sqm": 755.39,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U250 ST9 Карамель бежева 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U325 ST9 Рожевий антик 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U335 ST9 Іржавий червоний 2800x2070x18",
+    "price_sheet": 3707.28,
+    "price_sqm": 639.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U350 ST9 Сієна оранж 2800x2070x18",
+    "price_sheet": 3707.28,
+    "price_sqm": 639.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U502 ST9 Туманно-блакитний 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U504 ST9 Альпійське озеро 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U522 ST9 Блакитний горизонт 2800x2070x18",
+    "price_sheet": 3167,
+    "price_sqm": 546.41,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U540 ST9 Денім блакитний 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U599 ST9 Індиго синій 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U604 ST9 Евкаліпт зелений 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U630 ST9 Зелений лайм 2800x2070x18",
+    "price_sheet": 3422.1,
+    "price_sqm": 590.42,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U636 ST9 Фіорд зелений 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U638 ST9 Шавлія зелена 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U665 ST9 Камінь зелений 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U669 ST9 Естейт зелений 2800x2070x18",
+    "price_sheet": 5694.36,
+    "price_sqm": 982.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U699 ST9 Зелена ялина 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U702 ST9 Кашемір сірий 2800x2070x10",
+    "price_sheet": 4272.75,
+    "price_sqm": 737.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U702 ST9 Кашемір сірий 2800x2070x18",
+    "price_sheet": 4220,
+    "price_sqm": 728.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U705 ST9 Ангора сірий 2800x2070x18",
+    "price_sheet": 4457.38,
+    "price_sqm": 769.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U707 ST9 Шовк сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U708 ST9 Світло-сірий 2800x2070x10",
+    "price_sheet": 4272.75,
+    "price_sqm": 737.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U727 ST9 Сірий камінь 2800x2070x10",
+    "price_sheet": 3877.13,
+    "price_sqm": 668.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U727 ST9 Сірий камінь 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U732 ST9 Сірий пильний 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U740 ST9 Сіро-коричневий темний 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U741 ST9 Лава сіра 2800x2070x18",
+    "price_sheet": 4007.68,
+    "price_sqm": 691.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U748 ST9 Трюфель коричневий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U750 ST9 Яскраво-сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U755 ST9 Гавана сірий 2800x2070x18",
+    "price_sheet": 4007.68,
+    "price_sqm": 691.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U763 ST9 Сірий перламутровий 2800x2070x18",
+    "price_sheet": 4964.83,
+    "price_sqm": 856.6,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U767 ST9 Кубаніт сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U775 ST9 Біло-сірий 2800x2070x18",
+    "price_sheet": 4220,
+    "price_sqm": 728.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U780 ST9 Сірий монументальний 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U788 ST9 Арктика сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U818 ST9 Темно-коричневий 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U899 ST9 Космос сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U960 ST9 Онікс сірий 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U961 ST19 Чорний графіт 2800x2070x18",
+    "price_sheet": 3612.91,
+    "price_sqm": 623.35,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U961 ST2 Чорний графіт 2800x2070x18",
+    "price_sheet": 2965.82,
+    "price_sqm": 511.7,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U961 ST7 Графіт чорний 2800x2070x18",
+    "price_sheet": 3850.75,
+    "price_sqm": 664.38,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U963 ST9 Діамант сірий 2800x2070x18",
+    "price_sheet": 4220,
+    "price_sqm": 728.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U963 ST9 Діамант сірий 2800x2070x25",
+    "price_sheet": 4885.97,
+    "price_sqm": 842.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U968 ST9 Сірий вугілля 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U998 ST38 Чорний 2800x2070x18 (18,6)",
+    "price_sheet": 7569.63,
+    "price_sqm": 1306.01,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U999 ST19 Чорний 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U999 ST2 Чорний 2800x2070x10",
+    "price_sheet": 1923.64,
+    "price_sqm": 331.89,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U999 ST2 Чорний 2800x2070x18",
+    "price_sheet": 2823.23,
+    "price_sqm": 487.1,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger U999 ST7 Чорний 2800x2070x18",
+    "price_sheet": 4338.69,
+    "price_sqm": 748.57,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1000 ST19 Білий Преміум 2800x2070x18",
+    "price_sheet": 6045.15,
+    "price_sqm": 1042.99,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1000 ST38 Білий преміум 2800x2070x18 (18,6)",
+    "price_sheet": 7569.63,
+    "price_sqm": 1306.01,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1000 ST9 Білий преміум 2800x2070x18",
+    "price_sheet": 4220,
+    "price_sqm": 728.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1100 ST30 Білий Альпійський 2800x2070x18",
+    "price_sheet": 8762.65,
+    "price_sqm": 1511.84,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1100 ST9 Білий Альпійський 2800x2070x10",
+    "price_sheet": 5169.5,
+    "price_sqm": 891.91,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1100 ST9 Білий Альпійський 2800x2070x18",
+    "price_sheet": 4457.38,
+    "price_sqm": 769.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W1200 ST9 Порцеляна біла 2800x2070x18",
+    "price_sheet": 5343.58,
+    "price_sqm": 921.94,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W908 SM Білий базовий 2800x2070x10",
+    "price_sheet": 2260.66,
+    "price_sqm": 390.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W908 SM Білий базовий 2800x2070x18",
+    "price_sheet": 2644.35,
+    "price_sqm": 456.24,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W908 SM Білий базовий 2800x2070x18 (Вологостійка)",
+    "price_sheet": 3188.78,
+    "price_sqm": 550.17,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W908 SM Білий базовий 2800x2070x25",
+    "price_sheet": 2825.83,
+    "price_sqm": 487.55,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W908 ST2 Білий базовий 2800x2070x18",
+    "price_sheet": 2509.54,
+    "price_sqm": 432.98,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W908 ST2 Білий базовий 2800x2070x18 (Вологостійка)",
+    "price_sheet": 3188.78,
+    "price_sqm": 550.17,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W960 SM Білий класичний 2800x2070x18",
+    "price_sheet": 3692.5,
+    "price_sqm": 637.08,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W960 SM Білий Класичний 2800x2070x18 (Вологостійка) (JP F0,3)",
+    "price_sheet": 5264.45,
+    "price_sqm": 908.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W960 ST7 Білий класичний 2800x2070x18",
+    "price_sheet": 3692.5,
+    "price_sqm": 637.08,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W960 ST7 Білий Класичний 2800x2070x18 (Вологостійка) (JP F0,3)",
+    "price_sheet": 5264.45,
+    "price_sqm": 908.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W980 SM Білий платиновий 2800x2070x18",
+    "price_sheet": 2582.13,
+    "price_sqm": 445.5,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Egger",
+    "name": "ЛДСП Egger W980 ST2 Білий платиновий 2800x2070x10",
+    "price_sheet": 1757.72,
+    "price_sqm": 303.26,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП 2800x2070x18 8984 PD Морський Синій (Kronospan UA)(6)",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП 2800x2070x18 K521 SU Зелений Димчастий (Kronospan UA)(6)",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП 2800x2070x18 К516 PD Іриска (Kronospan UA)(6)",
+    "price_sheet": 3196.5,
+    "price_sqm": 551.5,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0101 PE Білий Фасадний 2800x2070x10",
+    "price_sheet": 2547.75,
+    "price_sqm": 439.57,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0101 PE Білий Фасадний 2800x2070x16",
+    "price_sheet": 3299,
+    "price_sqm": 569.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0101 PE Білий Фасадний 2800x2070x18",
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0101 SM Білий Фасадний 2800x2070x16",
+    "price_sheet": 3299,
+    "price_sqm": 569.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0110 PE Білий 2800x2070x18",
+    "price_sheet": 3392,
+    "price_sqm": 585.23,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0110 SM Білий 2800x2070x10",
+    "price_sheet": 3351,
+    "price_sqm": 578.16,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0110 SM Білий 2800x2070x16",
+    "price_sheet": 3261,
+    "price_sqm": 562.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0110 SM Білий 2800x2070x18",
+    "price_sheet": 3392,
+    "price_sqm": 585.23,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0112 PE Сірий Камінь 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0112 PE Сірий камінь 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0112 PE Світло-сірий 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0125 BS Королівський Синій 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0132 BS Оранжевий 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0134 BS Сонячне Світло 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0162 PE Сірий Графіт 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0162 PE Сірий Графіт 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0164 PD Антрацит 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0164 PE Антрацит 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0164 PE Антрацит 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0166 BS Базальт 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0171 PE Сірий Шифер 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0171 PЕ Сірий Шифер 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0190 PD Чорний 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0190 PE Чорний 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0191 SU Холодний Сірий 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0197 SU Шиншила сіра 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0197 SU Шиншила сіра 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0244 PD Бензин 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0301 SU Капучіно 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0375 BS Клен 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0381 BS Бук Класичний 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0515 PE Пісочний 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0522 PE Бежевий 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0540 PE Сірий Манхетен 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0564 PE Мигдаль 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0729 BS Горіх 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 0854 BS Венге 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 1301 PE Ваніль 2800x2070x18",
+    "price_sheet": 1919,
+    "price_sqm": 331.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 1700 PE Стальний Сірий 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 1972 PR Яблуня Локарно 2800x2070x18",
+    "price_sheet": 2002,
+    "price_sqm": 345.41,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 2226 PR Венге Магія 2800x2070x16",
+    "price_sheet": 3299,
+    "price_sqm": 569.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 2226 PR Венге Магія 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 2737 PW Дуб Кремона Котта 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 2738 PW Дуб Кремона Торро 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 2739 PW Дуб Кремона Канноло 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 3025 SN Дуб Вінтаж Світлий 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 3025 SN Дуб Вінтаж Світлий 2800x2070x16",
+    "price_sheet": 3299,
+    "price_sqm": 569.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 3025 SN Дуб Вінтаж Світлий 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 4298 SU Ательє світле 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 4299 SU Ательє темне 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5194 SN Дуб Вінтаж оксид 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5307 SN Дуб Артізан 2800x2070x16",
+    "price_sheet": 2474.25,
+    "price_sqm": 426.89,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5307 SN Дуб Артізан 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5500 SU Вяз Натуральний Благородний 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5501 SN Дуб Славонія 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5527 SN Дуб Кам'яний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5529 SN Орегон 2800x2070x10",
+    "price_sheet": 3490,
+    "price_sqm": 602.14,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5529 SN Орегон 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5981 BS Кашемір 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5981 BS Кашемір 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5981 BS Кашемір 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5981 PD Кашемір 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5982 BS Мідія 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 5994 PD Синій Альбі 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 6299 BS Кобальт сірий 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 6459 SM Білий Платиновий (Еліт) 2800x2070x18",
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7031 BS Кремовий 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7045 SU Сатин 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7045 SU Сатин 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7045 SU Сатин 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7063 SU Пастельний Зелений 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7113 BS Червоний Чілі 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7166 BS Лате 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7181 BS Чорний Шоколад 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7190 BS Зелена Мамба 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 7648 SN Венге Вінтаж 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8100 SM Білий Перл 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8431 SN Дуб Витончений 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8533 BS Макіато 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8548 SN Файнлайн Мокка 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8622 PR Дуб Молочний 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8681 SM Білий Діамант 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8681 SM Білий Діамант 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8681 SM Білий діамант 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8681 SU Білий діамант 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8685 BS Білий Сніг 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8685 BS Білий сніг 2800x2070x18",
+    "price_sheet": 3420,
+    "price_sqm": 590.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8685 PD Білий Сніг 2800x2070x18",
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8921 BS Дуб Ферара 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8953 SU Горіх Тієполо 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 8984 BS Морський Синій 2800x2070x18",
+    "price_sheet": 2219,
+    "price_sqm": 382.85,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 9420 PR Береза Полярна 2800x2070x18",
+    "price_sheet": 1719,
+    "price_sqm": 296.58,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 9551 BS Червоний Оксид 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 9561 BS Зелений Оксид 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan 9614 BS Горіх Альпійський 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan Color Touch 0171 AD Сірий Шифер (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5320,
+    "price_sqm": 917.87,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan Color Touch 5981 AD Кашемір (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5320,
+    "price_sqm": 917.87,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan Color Touch 7045 AD Сатин (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5320,
+    "price_sqm": 917.87,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan Color Touch 8685 AD Білий Сніг (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5320,
+    "price_sqm": 917.87,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan Color Touch K521 AD Зелений Димчастий (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5320,
+    "price_sqm": 917.87,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K001 PW Дуб Крафт Білий 2800x2070x10",
+    "price_sheet": 3490,
+    "price_sqm": 602.14,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K001 PW Дуб Крафт Білий 2800x2070x16",
+    "price_sheet": 3469,
+    "price_sqm": 598.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K002 PW Дуб Крафт сірий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K003 PW Дуб Крафт Золотий 2800x2070x10",
+    "price_sheet": 3490,
+    "price_sqm": 602.14,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K003 PW Дуб Крафт Золотий 2800x2070x16",
+    "price_sheet": 2467.5,
+    "price_sqm": 425.72,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K004 PW Дуб Крафт табако 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K005 PW Дуб Урбан Ойстер 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K006 PW Дуб Урбан бурштиновий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K007 PW Дуб Урбан Кавовий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K008 PW Горіх Селект світлий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K009 PW Горіх Селект Темний 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K010 SN Сосна Лофт Біла 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K012 SU Бук Артізан Перламутровий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K013 SU Бук Артізан Пісочний 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K015 PW Морське Дерево Вінтаж 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K016 PW Морське Дерево Карбон 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K017 PW Вяз Ліберті Світлий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K018 PW В'яз Ліберті димчастий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K019 PW В'яз Ліберті срібний 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K020 PW Горіх Селект Камінний 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K021 SN Блеквуд Ячмінний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K022 SN Блеквуд Сатиновий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K076 PW Дуб Експресів Пісочний 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K078 PW Вишня Ріверсайд Темна 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K079 PW Дуб Клабхаус Сірий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K080 PW Дуб приморський білий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K081 PW Дуб Приморський Сатиновий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K082 PW Дуб Бурбон 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K083 SN Артвуд Світлий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K084 SN Артвуд Темний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K085 PW Гікорі Рокфорд світлий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K086 PW Гікорі Рокфорд Натуральний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K087 PW Гікорі Рокфорд Темний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K088 PW Скандинавське Дерево Біле 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K089 PW Скандинавське дерево сіре 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K090 PW Дуб Експресів Бронзовий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K096 SU Глиняний Сірий 2800x2070x10",
+    "price_sheet": 4100,
+    "price_sqm": 707.38,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K096 SU Глиняний Сірий 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K097 SU Сутінковий блакитний 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K098 PD Керамічний Червоний 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K105 PW Дуб Ендгрейн Необроблений 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K107 PW Дуб Ендгрейн Елегантний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K349 RT Шовковий камінь 2800x2070x18",
+    "price_sheet": 4225,
+    "price_sqm": 728.95,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K350 RT Бетонний камінь 2800x2070x18",
+    "price_sheet": 4225,
+    "price_sqm": 728.95,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K351 RT Іржавий Камінь 2800x2070x18",
+    "price_sheet": 4225,
+    "price_sqm": 728.95,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K352 RT Залізний Камінь 2800x2070x18",
+    "price_sheet": 3168.75,
+    "price_sqm": 546.71,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K353 RT Вугільний камінь 2800x2070x18",
+    "price_sheet": 4225,
+    "price_sqm": 728.95,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K354 PW Дуб Грандж Колоніальний 2800x2070x18",
+    "price_sheet": 2825.25,
+    "price_sqm": 487.45,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K355 PW Дуб Грандж Платиновий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K356 PW Дуб Грандж Піщаний 2800x2070x18",
+    "price_sheet": 2825.25,
+    "price_sqm": 487.45,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K357 PW Дуб Кастелло Сірий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K358 PW Дуб Кастелло Медовий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K359 PW Дуб Кастелло коньячний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K360 PW Дуб Харбор Вінтажний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K361 PW Дуб Харбор Золотий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K365 PW Дуб Евок Прибережний 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K365 PW Дуб Евок Прибережний 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K366 PW Дуб Евок Закам'янілий 2800x2070x18",
+    "price_sheet": 3630,
+    "price_sqm": 626.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K512 SU Природній Рожевий 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K513 PD Маршмеллоу 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K514 PD Сахара 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K515 PD Рожеві Прянощі 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K515 SU Рожеві Прянощі 2800x2070x18",
+    "price_sheet": 2090,
+    "price_sqm": 360.59,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K516 SU Іриска 2800x2070x18",
+    "price_sheet": 1969,
+    "price_sqm": 339.72,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K517 PD Лазурний Блакитний 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K517 SU Лазурна Блакить 2800x2070x18",
+    "price_sheet": 1969,
+    "price_sqm": 339.72,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K518 SU Блакитний прибій 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K519 SU Сіра мишка 2800x2070x10",
+    "price_sheet": 4100,
+    "price_sqm": 707.38,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K519 SU Сіра мишка 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K520 PD Смарагд Темний 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K520 SU Смарагд темний 2800x2070x18",
+    "price_sheet": 2149,
+    "price_sqm": 370.77,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K522 PЕ Алюмінієвий Спалах 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K523 PЕ Платинум Диск 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K524 SN Ясен Серфсайд Чистий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K525 SN Ясен Серфсайд Білий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K526 SN Ясен Серфсайд Залізний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K527 HU Дуб Хадсон Біскотті (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K527 HU Дуб Хадсон Біскотті 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K528 HU Дуб Хадсон Кашемір (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K528 HU Дуб Хадсон Кашемір 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K529 HU Дуб Хадсон Золотий (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K529 HU Дуб Хадсон Золотий 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K530 HU Дуб Хадсон Амаретто (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K530 HU Дуб Хадсон Амаретто 2800x2070x18",
+    "price_sheet": 2890,
+    "price_sqm": 498.62,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K531 AD Каштан Арвадонна Кам'яний (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K531 AD Каштан Арвадонна Кам'яний 2800x2070x18",
+    "price_sheet": 2832,
+    "price_sqm": 488.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K532 AD Каштан Арвадонна Полум'яний (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K532 AD Каштан Арвадонна Полум'яний 2800x2070x18",
+    "price_sheet": 2832,
+    "price_sqm": 488.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K533 AD Каштан Арвадонна Мінк (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K533 AD Каштан Арвадонна Мінк 2800x2070x18",
+    "price_sheet": 2890,
+    "price_sqm": 498.62,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K534 AD Каштан Арвадона вугільний 2800x2070x18",
+    "price_sheet": 2832,
+    "price_sqm": 488.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K534 AD Каштан Арвадонна Вугільний (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K535 RW Дуб Бароко золотий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K536 RW Дуб Бароко Бурштиновий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K537 RW Дуб Бароко Рістретто 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K538 PN Ароза Світла 2800x2070x18",
+    "price_sheet": 5243,
+    "price_sqm": 904.59,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K539 PN Ароза Закам'яніла 2800x2070x18",
+    "price_sheet": 5243,
+    "price_sqm": 904.59,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K540 PN Альбрус Сірий 2800x2070x18",
+    "price_sheet": 5243,
+    "price_sqm": 904.59,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K541 PN Тессі Грейж 2800x2070x18",
+    "price_sheet": 5345,
+    "price_sqm": 922.19,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K542 PN Тессі Мокко 2800x2070x18",
+    "price_sheet": 4008.75,
+    "price_sqm": 691.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K543 SN Дуб Барбера піщаний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K544 RW Дуб Сільверджек Горіховий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K545 RW Дуб Сільверджек Вінтажний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K546 RW Горіх Франклін Карамельний 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K547 RW Горіх Франклін Тютюновий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K548 RW Ясен Кала Димчастий 2800x2070x18",
+    "price_sheet": 3767,
+    "price_sqm": 649.93,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K554 HU Дуб Хадсон Шоколадний (Вологостійка Р3) 2800x2070x18",
+    "price_sheet": 5003,
+    "price_sqm": 863.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K554 HU Дуб Хадсон Шоколадний 2800x2070x18",
+    "price_sheet": 2890,
+    "price_sqm": 498.62,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K691 PN Алмонд Гранада 2800x2070x18",
+    "price_sheet": 4875,
+    "price_sqm": 841.1,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K692 PN Клауд Гранада 2800x2070x18",
+    "price_sheet": 4875,
+    "price_sqm": 841.1,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K693 PN Бронз Гранада 2800x2070x18",
+    "price_sheet": 4875,
+    "price_sqm": 841.1,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K694 PV Дуб Прімавера Сілк 2800x2070x18",
+    "price_sheet": 5948,
+    "price_sqm": 1026.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K695 PV Дуб Прімавера Строув 2800x2070x18",
+    "price_sheet": 5948,
+    "price_sqm": 1026.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K696 PV Дуб Прімавера Амбер 2800x2070x18",
+    "price_sheet": 5948,
+    "price_sqm": 1026.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan K697 PV Дуб Прімавера Кока 2800x2070x18",
+    "price_sheet": 5948,
+    "price_sqm": 1026.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan PE Сірий Графіт 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К519 SU Сіра мишка 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К680 PD Стоун Бейж 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К681 PD Макадамія 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К682 PD Альпака 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К683 PD Кейджун 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К684 PD Блек Трюфель 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К685 PD Стіл Блу 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К686 PD Павдер Пінк  2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К687 PD Дарк Форест 2800x2070x18",
+    "price_sheet": 4262,
+    "price_sqm": 735.33,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К688 PW Дуб Канелла Натурал 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Kronospan",
+    "name": "ЛДСП Kronospan К689 PW Канелла Страта Натурал 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan 0514 WL Севілья 2750x1830x18 (ELP - ECOLINE PANEL)",
+    "price_sheet": 1609,
+    "price_sqm": 319.72,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan PE Ваніль 2750x1830x16",
+    "price_sheet": 1289,
+    "price_sqm": 256.14,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan PE Сірий 2750x1830x16",
+    "price_sheet": 2150,
+    "price_sqm": 427.22,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan PR Горіх Болонья Темний 2750x1830x16",
+    "price_sheet": 1459,
+    "price_sqm": 289.92,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan PR Дуб Родос Темний 2750x1830x16",
+    "price_sheet": 1492,
+    "price_sqm": 296.47,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan SE Дуб Молочний 2750x1830x10",
+    "price_sheet": 1289,
+    "price_sqm": 256.14,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan SE Дуб Родос Світлий 2750x1830x10",
+    "price_sheet": 1449,
+    "price_sqm": 287.93,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan SE Яблуня Локарно Темна 2750x1830x10",
+    "price_sheet": 1369,
+    "price_sqm": 272.03,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan SM Біла Аляска 2750x1830x16",
+    "price_sheet": 1369,
+    "price_sqm": 272.03,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan SM Білий 2750x1830x16",
+    "price_sheet": 1289,
+    "price_sqm": 256.14,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan WL Дуб Корабельний 2750x1830x10",
+    "price_sheet": 1379,
+    "price_sqm": 274.02,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan WL Ясен Королівський світлий 2750x1830x18",
+    "price_sheet": 1439,
+    "price_sqm": 285.94,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan Антрацит PE 2750x1830x18",
+    "price_sheet": 1449,
+    "price_sqm": 287.93,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan Артізан WL 2750x1830x18",
+    "price_sheet": 1439,
+    "price_sqm": 285.94,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan Блакитний BS 2750x1830x18",
+    "price_sheet": 1699,
+    "price_sqm": 337.61,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swisspan",
+    "name": "ЛДСП SwissPan Сірий графіт РЕ 2750x1830x18",
+    "price_sheet": 1429,
+    "price_sqm": 283.95,
+    "sheet_area_sqm": 5.0325,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF B011 Engadina/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 9526.65,
+    "price_sqm": 1643.66,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF B073 Cheope/Fiocco 2800x2070x18",
+    "price_sheet": 17460.25,
+    "price_sqm": 3012.47,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF B073 Millennium/Millennium 2800x2070x18",
+    "price_sheet": 12923.75,
+    "price_sqm": 2229.77,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF B073 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 9822.05,
+    "price_sqm": 1694.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FA41 Penelope/Penelope 2800x2070x18",
+    "price_sheet": 9917,
+    "price_sqm": 1711.01,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FA44 Penelope/Penelope 2800x2070x18",
+    "price_sheet": 9389.5,
+    "price_sqm": 1620,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FA90 Sprigato/Matrix 2800x2070x18 (18,4)",
+    "price_sheet": 10444.5,
+    "price_sqm": 1802.02,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FA96 Sprigato/Matrix 2800x2070x18 (18,4)",
+    "price_sheet": 5432.5,
+    "price_sqm": 937.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FB30 Reflex/Reflex 2800x2070x18 (18,6)",
+    "price_sheet": 3750,
+    "price_sqm": 647,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FB48 Ares/Ares 2800x2070x18",
+    "price_sheet": 11341.25,
+    "price_sqm": 1956.74,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FB51 Ares/Ares 2800x2070x18",
+    "price_sheet": 7938.88,
+    "price_sqm": 1369.72,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FB67 Ares/Ares 2800x2070x18",
+    "price_sheet": 8345.05,
+    "price_sqm": 1439.79,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FB71 Penelope/Penelope 2800x2070x18",
+    "price_sheet": 5050,
+    "price_sqm": 871.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FC36 Concreta/Concreta 2800x2070x18",
+    "price_sheet": 6450,
+    "price_sqm": 1112.84,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FC37 Concreta/Concreta 2800x2070x18",
+    "price_sheet": 9194.33,
+    "price_sqm": 1586.32,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF FC38 Concreta/Concreta 2800x2070x18",
+    "price_sheet": 9194.33,
+    "price_sqm": 1586.32,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF LM62 Matrix/Matrix 2800x2070x18 (18,4)",
+    "price_sheet": 7348.08,
+    "price_sqm": 1267.78,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF LR33 Sable/Sable 2800x2070x18 (18,4)",
+    "price_sheet": 8012.73,
+    "price_sqm": 1382.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF LR47 Sable/Sable 2800x2070x18 (18,4)",
+    "price_sheet": 4344,
+    "price_sqm": 749.48,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S025 Azimut/Fiocco 2800x2070x18",
+    "price_sheet": 13293,
+    "price_sqm": 2293.48,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S073 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 9822.05,
+    "price_sqm": 1694.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S076 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 3679,
+    "price_sqm": 634.75,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S077 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 9822.05,
+    "price_sqm": 1694.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S078 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 4600,
+    "price_sqm": 793.65,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S083 Millennium/Millennium 2800x2070x18 (18,6)",
+    "price_sheet": 9378.95,
+    "price_sqm": 1618.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S087 Millennium/Millennium 2800x2070x18 (18,6)",
+    "price_sheet": 9378.95,
+    "price_sqm": 1618.18,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S087 Millennium/Millennium 2800x2070x8 (8,6)",
+    "price_sheet": 3569,
+    "price_sqm": 615.77,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S158 Okobo/Maloja 2800x2070x18",
+    "price_sheet": 15561.25,
+    "price_sqm": 2684.83,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF S160 Okobo/Maloja 2800x2070x18",
+    "price_sheet": 15561.25,
+    "price_sqm": 2684.83,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF U129 Cheope/Fiocco 2800x2070x18",
+    "price_sheet": 11409.83,
+    "price_sqm": 1968.57,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF U129 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 9305.1,
+    "price_sqm": 1605.43,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "CLEAF",
+    "name": "ЛДСП CLEAF UB01 Sherwood/Maloja 2800x2070x18 (18,6)",
+    "price_sheet": 4750,
+    "price_sqm": 819.53,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП 2800x2070x18 3274 LX Бетон сірий (SWISS KRONO)(8)",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП 2800x2070x18 4450 LX Пісок Леванте (SWISS KRONO)(8)",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП 2800x2070x18 6029 OW Дуб Арена (SWISS KRONO)(2)",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП 2800x2070x18 6030 OW Дуб Арена Світлий (SWISS KRONO)(2)",
+    "price_sheet": 2613.75,
+    "price_sqm": 450.96,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП 2800x2070x18 6933 BS Кашемір (SWISS KRONO)(3)",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП 2800x2070x18 8685 BS Білий Альпійський (SWISS KRONO)(1)",
+    "price_sheet": 3420,
+    "price_sqm": 590.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1035 OW Дуб Катанія 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1038 BS Бетон Міленіум 2800x2070x18",
+    "price_sheet": 5202,
+    "price_sqm": 897.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1041 OV Дуб Вічний 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1077 OW Дуб Катанія чорний 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1343 VL Ясен Коміна 2800x2070x18",
+    "price_sheet": 3204,
+    "price_sqm": 552.8,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 171 VL Темно-сірий 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1860 MX Дуб Аппалачі 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1861 MX Макао Світлий 2800x2070x18",
+    "price_sheet": 2169,
+    "price_sqm": 374.22,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1883 BS Бетон 2800x2070x10",
+    "price_sheet": 3744,
+    "price_sqm": 645.96,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1883 BS Бетон 2800x2070x18",
+    "price_sheet": 3889,
+    "price_sqm": 670.98,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 1885 VL Ільм Нордік 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 2635 PE Платинум 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 2653 VL Світло-сірий 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3025 MX Дуб Сонома 2800x2070x25",
+    "price_sheet": 4483,
+    "price_sqm": 773.46,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3057 VL Сіра Лава 2800x2070x10",
+    "price_sheet": 3489,
+    "price_sqm": 601.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3057 VL Сіра Лава 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3057 VL Сіра Лава 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3062 VL Праліне 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3188 VL Тоффі 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3261 VL Ванільний 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3265 LX Бетон темний 2800x2070x10",
+    "price_sheet": 1739,
+    "price_sqm": 300.03,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3265 LX Бетон темний 2800x2070x18",
+    "price_sheet": 5202,
+    "price_sqm": 897.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3265 VL Бетон темний 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3266 РЕ Жасмин 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3271 VL Холодний блакитний 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3275 МХ Дуб Кортона 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3311 OV Дуб Травіата 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3315 OV Дуб Осло 2800x2070x18",
+    "price_sheet": 3507,
+    "price_sqm": 605.07,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3316 OV Дуб Хельсінкі 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3799 OV Дуб Париж 2800x2070x18",
+    "price_sheet": 2479,
+    "price_sqm": 427.71,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3810 OW Горіх Ніцца 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3811 OW Горіх Венеція 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3813 OW Горіх Барселона 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3818 OW Каштан Львів 2800x2070x18",
+    "price_sheet": 2649,
+    "price_sqm": 457.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3820 OW Каштан Берн 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3821 OW Дуб Стокгольм 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3823 OW Дуб Нью-Йорк 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3824 VL Морська Блакить 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3827 VL Стамбул Стайл 2800x2070x18",
+    "price_sheet": 5202,
+    "price_sqm": 897.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3828 VL Гонконг Стайл 2800x2070x18",
+    "price_sheet": 2179,
+    "price_sqm": 375.95,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3829 OW Горіх Санкт-Моріц 2800x2070x18",
+    "price_sheet": 2399,
+    "price_sqm": 413.91,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 3986 VL Гірчичний 2800x2070x18",
+    "price_sheet": 1949,
+    "price_sqm": 336.27,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4015 OW Самоа 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4016 OW Самоа Димчастий 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4018 MX Фіннмарк Сірий 2800x2070x18",
+    "price_sheet": 1839,
+    "price_sqm": 317.29,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4019 OW Монтеверде 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4022 OW Готланд 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4023 OW Шварцвальд 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4024 OW Дуб Больцано 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4025 OW Дуб Конкордія 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4028 OW Сосна Водевіль 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4079 OW Дуб Делано 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4080 OW Дуб Делано темний 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4105 OV Дуб К'янті Агат 2800x2070x18",
+    "price_sheet": 1899,
+    "price_sqm": 327.64,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4148 LX Бетон Стайл 2800x2070x18",
+    "price_sheet": 5202,
+    "price_sqm": 897.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4148 VL Бетон Стайл 2800x2070x10",
+    "price_sheet": 4131,
+    "price_sqm": 712.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4148 VL Бетон Стайл 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4225 OW Дуб Артезіан 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4225 OW Дуб Артизан 2800x2070x16",
+    "price_sheet": 3329,
+    "price_sqm": 574.36,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4227 OW Ясен Сніжний 2800x2070x10",
+    "price_sheet": 3530,
+    "price_sqm": 609.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4227 OW Ясен Сніжний 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4411 OV Липа біла 2800x2070x18",
+    "price_sheet": 3507,
+    "price_sqm": 605.07,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4413 OV Липа пісочна 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4418 OV Каштан натуральний 2800x2070x18",
+    "price_sheet": 2649,
+    "price_sqm": 457.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4422 OV Металвуд шоколадний 2800x2070x18",
+    "price_sheet": 2159,
+    "price_sqm": 372.5,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4423 OV Металвуд чорний 2800x2070x18",
+    "price_sheet": 3030,
+    "price_sqm": 522.77,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4424 OV Ясен Антрацит 2800x2070x18",
+    "price_sheet": 2199,
+    "price_sqm": 379.4,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4425 OV Ясен сірий 2800x2070x18",
+    "price_sheet": 2649,
+    "price_sqm": 457.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4426 OV Ясен білий 2800x2070x18",
+    "price_sheet": 2249,
+    "price_sqm": 388.03,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4428 OV Дуб натуральний 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4430 OV Дуб білий 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4432 OV Ільм натуральний 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4433 OV Ільм білий 2800x2070x18",
+    "price_sheet": 2299,
+    "price_sqm": 396.65,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4434 OV Ільм сірий 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4439 VL Фісташково-зелений 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4448 VL Мaрмур Ромео білий 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4452 VL Титан Сільвер 2800x2070x18",
+    "price_sheet": 2529,
+    "price_sqm": 436.34,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4453 VL Титан Антрацит 2800x2070x18",
+    "price_sheet": 2589,
+    "price_sqm": 446.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4454 VL Титан Тауп 2800x2070x18",
+    "price_sheet": 2099,
+    "price_sqm": 362.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4809 VL Граніт сірий 2800x2070x18",
+    "price_sheet": 2249,
+    "price_sqm": 388.03,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4810 VL Темно-синій 2800x2070x18",
+    "price_sheet": 2725,
+    "price_sqm": 470.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 4822 OW Горіх Амбасадор Терра 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 5194 MX Дуб Сонома трюфель 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 5288 OW Ялина Біла 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 5291 OV Дуб Рів'єра 2800x2070x18",
+    "price_sheet": 3889,
+    "price_sqm": 670.98,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6032 OV Дуб Грація Білий 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6915 LX Бетон Тефра 2800x2070x18",
+    "price_sheet": 5202,
+    "price_sqm": 897.52,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6915 VL Бетон Тефра 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6916 LX Бетон Капела 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6916 VL Бетон Капела 2800x2070x18",
+    "price_sheet": 2399,
+    "price_sqm": 413.91,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6917 OV Дуб Ліворно 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6918 OV Горіх Макадамія 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6919 VL Ільм Канадський 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6921 OW Дуб Сіркесі 2800x2070x18",
+    "price_sheet": 2550,
+    "price_sqm": 439.96,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6922 OV Дуб Кверкус 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6923 OV Ясен Ловелла 2800x2070x18",
+    "price_sheet": 3889,
+    "price_sqm": 670.98,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6924 OW Сосна Кембра 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6925 OV Сосна Натті 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6926 OV Сосна Бурге 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6927 OV Дуб Кордова 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6928 VL Дуб Коул 2800x2070x18",
+    "price_sheet": 3030,
+    "price_sqm": 522.77,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6930 OV Дуб Біскайя 2800x2070x18",
+    "price_sheet": 2639,
+    "price_sqm": 455.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6931 VL Лемонграсс 2800x2070x18",
+    "price_sheet": 2199,
+    "price_sqm": 379.4,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6932 VL Фунго 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6933 VL Кашемір 2800x2070x10",
+    "price_sheet": 3489,
+    "price_sqm": 601.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6933 VL Кашемір 2800x2070x16",
+    "price_sheet": 2553,
+    "price_sqm": 440.48,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 6933 VL Кашемір 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 7110 VL Червоно-Кораловий 2800x2070x18",
+    "price_sheet": 2199,
+    "price_sqm": 379.4,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8141 VL Ільм Шампань 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8681 MX Німфея альба 2800x2070x10",
+    "price_sheet": 3530,
+    "price_sqm": 609.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8681 PE Німфеа Альба 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8681 SM Німфея альба 2800x2070x10",
+    "price_sheet": 3489,
+    "price_sqm": 601.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8681 SM Німфея альба 2800x2070x25",
+    "price_sheet": 4605,
+    "price_sqm": 794.51,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8681 VL Німфеа Альба 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8685 SM Білий Альпійський 2800x2070x16",
+    "price_sheet": 2469.75,
+    "price_sqm": 426.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO 8685 SM Білий Альпійський 2800x2070x18",
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D0137 PE Еворі 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1860 MX Дуб Аппалачі 2800x2070x10",
+    "price_sheet": 3530,
+    "price_sqm": 609.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1860 MX Дуб Аппалачі 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1888 MX Джанні 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1890 BS Горіх Модена 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1892 BS Дуб Палена 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1972 PR Яблуня Локарно 2800x2070x16",
+    "price_sheet": 1935,
+    "price_sqm": 333.85,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D1972 PR Яблуня Локарно 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2193 PR Ясень Шимо Світлий 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2226 PR Венге Магія 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2226 PR Венге Магія 2800x2070x16",
+    "price_sheet": 3329,
+    "price_sqm": 574.36,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2226 PR Венге Магія 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2251 PR Горіх Екко 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2260 PR Береза Майнау 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2840 MX Дуб Королівський 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2841 BS Горіх Марино 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D2899 PE Титан 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D3025 MX Дуб Сонома 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D3025 MX Дуб Сонома 2800x2070x16",
+    "price_sheet": 3329,
+    "price_sqm": 574.36,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D3025 MX Дуб Сонома 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D3267 MX Нельсон 2800x2070x18",
+    "price_sheet": 3889,
+    "price_sqm": 670.98,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D3273 MX Дуб Каньйон 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D3349 MX Дуб Сан-Марино 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D381 PR Бук 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D5194 MX Дуб Сонома Трюфель 2800x2070x16",
+    "price_sheet": 3329,
+    "price_sqm": 574.36,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D5194 MX Дуб Сонома Трюфель 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D722 PR Горіх 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D7651 WG Венге Аруша Світло-Сіре 2800x2070x18",
+    "price_sheet": 1909,
+    "price_sqm": 329.37,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D8130 MX Анжелік 2800x2070x18",
+    "price_sheet": 3889,
+    "price_sqm": 670.98,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D8137 VL Ільм Вермут 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D8622 PR Дуб Молочний 2800x2070x10",
+    "price_sheet": 3433,
+    "price_sqm": 592.31,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D8622 PR Дуб Молочний 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D881 PE Алюміній 2800x2070x18",
+    "price_sheet": 4272,
+    "price_sqm": 737.06,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D9311 PR Вільха Гірська 2800x2070x16",
+    "price_sheet": 1935,
+    "price_sqm": 333.85,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D9311 PR Вільха Гірська 2800x2070x18",
+    "price_sheet": 3485,
+    "price_sqm": 601.28,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO D9450 PR Горіх Темний 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 PE Білий 2800x2070x10",
+    "price_sheet": 3397,
+    "price_sqm": 586.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 PE Білий 2800x2070x16",
+    "price_sheet": 3293,
+    "price_sqm": 568.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 PE Білий 2800x2070x18",
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 PR Білий 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 SM Білий 2800x2070x10",
+    "price_sheet": 3397,
+    "price_sqm": 586.09,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 SM Білий 2800x2070x16",
+    "price_sheet": 3293,
+    "price_sqm": 568.15,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K101 SM Білий 2800x2070x18",
+    "price_sheet": 3429,
+    "price_sqm": 591.61,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K110 SM Білий 2800x2070x10",
+    "price_sheet": 3351,
+    "price_sqm": 578.16,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K110 SM Білий 2800x2070x16",
+    "price_sheet": 3261,
+    "price_sqm": 562.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K110 SM Білий 2800x2070x18",
+    "price_sheet": 3392,
+    "price_sqm": 585.23,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO K300 SM Білий Кремовий 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U112 PE Попіл 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U112 PE Попіл 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U112 PE Попелястий 2800x2070x10",
+    "price_sheet": 3489,
+    "price_sqm": 601.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U112 VL Попіл 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U119 PE Світлий Беж 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U119 VL Світлий Беж 2800x2070x10",
+    "price_sheet": 1459,
+    "price_sqm": 251.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U119 VL Світлий Беж 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U1301 PE Ваніль 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U162 MT Графітовий 2800x2070x18",
+    "price_sheet": 1599,
+    "price_sqm": 275.88,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U162 PE Графітовий 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U162 PE Графітовий 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U162 VL Графітовий 2800x2070x10",
+    "price_sheet": 3530,
+    "price_sqm": 609.04,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U162 VL Графітовий 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U164 PE Антрацитовий 2800x2070x10",
+    "price_sheet": 3489,
+    "price_sqm": 601.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U164 PE Антрацитовий 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U164 PE Антрацитовий 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U164 VL Антрацитовий 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U190 PE Чорний 2800x2070x10",
+    "price_sheet": 3489,
+    "price_sqm": 601.97,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U190 PE Чорний 2800x2070x16",
+    "price_sheet": 3290,
+    "price_sqm": 567.63,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U190 PE Чорний 2800x2070x18",
+    "price_sheet": 3470,
+    "price_sqm": 598.69,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U3053 BS Капучіно 2800x2070x18",
+    "price_sheet": 4394,
+    "price_sqm": 758.11,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U514 VL Слонова кістка 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U540 VL Кам'яний сірий 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U569 VL Сірий степовий 2800x2070x18",
+    "price_sheet": 4676,
+    "price_sqm": 806.76,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U570 VL Білий фарфор 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U8681 MX Німфеа Альба 2800x2070x18",
+    "price_sheet": 3667,
+    "price_sqm": 632.68,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U8681 SM Німфеа Альба 2800x2070x16",
+    "price_sheet": 3404,
+    "price_sqm": 587.3,
+    "sheet_area_sqm": 5.796,
+    "unit": "м²"
+  },
+  {
+    "brand": "Swiss Krono",
+    "name": "ЛДСП SWISS KRONO U8681 SM Німфеа Альба 2800x2070x18",
+    "price_sheet": 3505,
+    "price_sqm": 604.73,
     "sheet_area_sqm": 5.796,
     "unit": "м²"
   }

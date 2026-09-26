@@ -6,6 +6,7 @@ import {
   areMaterialsMatching,
   inferMaterialFolder,
 } from '../../src/services/metalPriceParser';
+import { detectBrandFromName } from '../../src/services/ldspPriceParser';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'materials.json');
@@ -20,6 +21,20 @@ function ensureDbFile(): void {
   }
 }
 
+/**
+ * Clean numeric or invalid brands from material item
+ */
+function sanitizeLdspBrand(brand: string | undefined, name: string): string {
+  if (brand && !/^\d+$/.test(brand.trim()) && brand.trim() !== 'Інше') {
+    return brand.trim();
+  }
+  const detected = detectBrandFromName(name);
+  if (detected && detected !== 'Інше') {
+    return detected;
+  }
+  return 'ДСП';
+}
+
 export function getLdspItemsFromDb(): LdspItem[] {
   try {
     ensureDbFile();
@@ -27,7 +42,21 @@ export function getLdspItemsFromDb(): LdspItem[] {
       const raw = fs.readFileSync(LDSP_DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed;
+        let changed = false;
+        const cleaned: LdspItem[] = parsed.map((item: LdspItem) => {
+          if (/^\d+$/.test(item.brand || '')) {
+            changed = true;
+            return {
+              ...item,
+              brand: sanitizeLdspBrand(item.brand, item.name),
+            };
+          }
+          return item;
+        });
+        if (changed) {
+          saveLdspItemsToDb(cleaned);
+        }
+        return cleaned;
       }
     }
   } catch (err) {
@@ -66,6 +95,8 @@ export function importLdspItemsToDb(
   const nowIso = new Date().toISOString();
 
   for (const item of items) {
+    const itemBrand = sanitizeLdspBrand(item.brand, item.name);
+
     // RULE 4: Унікальний ключ товару: Повна назва (name)
     const existingIndex = materialsList.findIndex(
       (m) => m.name.trim().toLowerCase() === item.name.trim().toLowerCase()
@@ -80,8 +111,8 @@ export function importLdspItemsToDb(
         price_sqm: item.price_sqm,
         sheet_area_sqm: item.sheet_area_sqm,
         basePrice: item.price_sqm, // Used in BOM calculation (effectiveQuantity * basePrice)
-        brand: item.brand || existing.brand,
-        groupHeader: item.brand || existing.groupHeader || 'ДСП',
+        brand: itemBrand,
+        groupHeader: itemBrand,
         supplier: supplierName || existing.supplier || 'KRONAS',
         unit: item.unit || existing.unit || 'м²',
         updatedAt: nowIso,
@@ -96,8 +127,8 @@ export function importLdspItemsToDb(
         category: 'plate_wood',
         parentCategory: 'Плитні матеріали',
         subcategory: 'ДСП',
-        groupHeader: item.brand || 'ДСП',
-        brand: item.brand,
+        groupHeader: itemBrand,
+        brand: itemBrand,
         unit: item.unit || 'м²',
         basePrice: item.price_sqm,
         price_sheet: item.price_sheet,
@@ -118,7 +149,7 @@ export function importLdspItemsToDb(
     if (existingLdspIdx !== -1) {
       ldspList[existingLdspIdx] = {
         ...ldspList[existingLdspIdx],
-        brand: item.brand || ldspList[existingLdspIdx].brand,
+        brand: itemBrand,
         price_sheet: item.price_sheet,
         price_sqm: item.price_sqm,
         sheet_area_sqm: item.sheet_area_sqm,
@@ -126,7 +157,7 @@ export function importLdspItemsToDb(
       };
     } else {
       ldspList.push({
-        brand: item.brand,
+        brand: itemBrand,
         name: item.name,
         price_sheet: item.price_sheet,
         price_sqm: item.price_sqm,
@@ -153,7 +184,23 @@ export function getMaterialsFromDb(): MaterialItem[] {
     const raw = fs.readFileSync(DB_FILE, 'utf-8');
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      let changed = false;
+      const cleaned: MaterialItem[] = parsed.map((m: MaterialItem) => {
+        if (/^\d+$/.test(m.brand || '') || /^\d+$/.test(m.groupHeader || '')) {
+          changed = true;
+          const cleanBrand = sanitizeLdspBrand(m.brand, m.name);
+          return {
+            ...m,
+            brand: cleanBrand,
+            groupHeader: cleanBrand,
+          };
+        }
+        return m;
+      });
+      if (changed) {
+        saveMaterialsToDb(cleaned);
+      }
+      return cleaned;
     }
   } catch (err) {
     console.error('Error reading materials DB:', err);

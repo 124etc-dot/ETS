@@ -171,6 +171,7 @@ export class CalculatorStorageService {
     const nowIso = new Date().toISOString();
 
     for (const item of items) {
+      const itemBrand = item.brand && !/^\d+$/.test(item.brand) ? item.brand : 'ДСП';
       const existingIdx = materialsList.findIndex(
         (m) => m.name.trim().toLowerCase() === item.name.trim().toLowerCase()
       );
@@ -183,8 +184,8 @@ export class CalculatorStorageService {
           price_sqm: item.price_sqm,
           sheet_area_sqm: item.sheet_area_sqm,
           basePrice: item.price_sqm,
-          brand: item.brand || existing.brand,
-          groupHeader: item.brand || existing.groupHeader || 'ДСП',
+          brand: itemBrand,
+          groupHeader: itemBrand,
           supplier: supplier || existing.supplier || 'KRONAS',
           unit: item.unit || existing.unit || 'м²',
           updatedAt: nowIso,
@@ -197,8 +198,8 @@ export class CalculatorStorageService {
           category: 'plate_wood',
           parentCategory: 'Плитні матеріали',
           subcategory: 'ДСП',
-          groupHeader: item.brand || 'ДСП',
-          brand: item.brand,
+          groupHeader: itemBrand,
+          brand: itemBrand,
           unit: item.unit || 'м²',
           basePrice: item.price_sqm,
           price_sheet: item.price_sheet,

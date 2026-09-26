@@ -73,13 +73,30 @@ export function extractSheetDimensions(name: string): {
 }
 
 /**
- * Clean and parse numeric price from Excel cell
+ * Check if an Excel cell is completely empty (undefined, null, or empty/whitespace string).
+ * IMPORTANT: A cell containing 0 or "0" is NOT empty! It is a valid numeric price of 0 грн.
  */
-export function parseNumericPrice(cellValue: any): number {
+export function isCellCompletelyEmpty(cellValue: any): boolean {
+  if (cellValue === undefined || cellValue === null) return true;
   if (typeof cellValue === 'number') {
-    return isNaN(cellValue) || cellValue <= 0 ? 0 : cellValue;
+    return isNaN(cellValue);
   }
-  if (!cellValue) return 0;
+  const str = String(cellValue).trim();
+  return str === '';
+}
+
+/**
+ * Clean and parse numeric price from Excel cell.
+ * Returns null if the cell is completely empty or non-numeric.
+ * Returns a number >= 0 if the cell contains a numeric price (including 0!).
+ */
+export function parseNumericPrice(cellValue: any): number | null {
+  if (isCellCompletelyEmpty(cellValue)) {
+    return null;
+  }
+  if (typeof cellValue === 'number') {
+    return isNaN(cellValue) ? null : Math.max(0, cellValue);
+  }
 
   const str = String(cellValue)
     .replace(/\s+/g, '')
@@ -88,18 +105,24 @@ export function parseNumericPrice(cellValue: any): number {
     .replace(/грн/gi, '')
     .replace(/,/g, '.');
 
+  if (!str) return null;
+
   const cleanNum = parseFloat(str.replace(/[^0-9.]/g, ''));
-  return isNaN(cleanNum) || cleanNum <= 0 ? 0 : cleanNum;
+  if (isNaN(cleanNum)) {
+    return null;
+  }
+  return Math.max(0, cleanNum);
 }
 
 /**
- * Detect if text in a row is a brand header
+ * Known brands list for LDSP
  */
-const KNOWN_BRANDS = [
+export const KNOWN_BRANDS = [
   'Egger',
   'Kronospan',
   'Swiss Krono',
   'CLEAF',
+  'Swisspan',
   'Savicla',
   'Niemann',
   'Kastamonu',
@@ -111,26 +134,57 @@ const KNOWN_BRANDS = [
   'LuxeForm',
   'SM’art',
   'Rehau',
-  'Swisspan',
 ];
+
+/**
+ * Match text against known brands
+ */
+export function matchKnownBrand(text: string): string | null {
+  if (!text) return null;
+  const clean = text
+    .trim()
+    .replace(/^(?:Бренд|Виробник|Постачальник|Колекція)\s*[:\-]\s*/i, '')
+    .replace(/^(?:ЛДСП|ДСП|Плити|Плита)\s+/i, '')
+    .trim();
+
+  // Pure numbers are NEVER brands
+  if (/^\d+$/.test(clean)) return null;
+
+  const lower = clean.toLowerCase().replace(/[\s\-_]/g, '');
+
+  if (lower.includes('swisskrono') || lower.includes('свісскроно')) return 'Swiss Krono';
+  if (lower.includes('swisspan') || lower.includes('свісспан')) return 'Swisspan';
+  if (lower.includes('kronospan') || lower.includes('кроноспан')) return 'Kronospan';
+  if (lower.includes('egger') || lower.includes('еггер')) return 'Egger';
+  if (lower.includes('cleaf') || lower.includes('кліф')) return 'CLEAF';
+  if (lower.includes('savicla') || lower.includes('савікла')) return 'Savicla';
+  if (lower.includes('niemann') || lower.includes('німан')) return 'Niemann';
+  if (lower.includes('kastamonu') || lower.includes('кастамону')) return 'Kastamonu';
+  if (lower.includes('agt') || lower.includes('агт')) return 'AGT';
+  if (lower.includes('fundermax') || lower.includes('фундермакс')) return 'Fundermax';
+  if (lower.includes('pfleiderer') || lower.includes('пфлейдерер')) return 'Pfleiderer';
+  if (lower.includes('alvic') || lower.includes('алвік')) return 'Alvic';
+  if (lower.includes('luxeform') || lower.includes('люксформ')) return 'LuxeForm';
+  if (lower.includes('rehau') || lower.includes('рехау')) return 'Rehau';
+  if (lower.includes('smart') || lower.includes('см’арт')) return 'SM’art';
+  if (lower.includes('skin') || lower.includes('скін')) return 'Skin';
+
+  return null;
+}
 
 export function cleanBrandHeader(text: string): string {
   if (!text) return '';
   let cleaned = text.trim();
 
-  // Strip prefixes like "Бренд:", "Виробник:", "ЛДСП", "ДСП", "Плити"
-  cleaned = cleaned.replace(/^(?:Бренд|Виробник|Постачальник)\s*[:\-]\s*/i, '');
+  if (/^\d+$/.test(cleaned)) return '';
+
+  const matched = matchKnownBrand(cleaned);
+  if (matched) return matched;
+
+  cleaned = cleaned.replace(/^(?:Бренд|Виробник|Постачальник|Колекція)\s*[:\-]\s*/i, '');
   cleaned = cleaned.replace(/^(?:ЛДСП|ДСП|Плити|Плита)\s+/i, '');
 
-  // Check against known brands for proper casing
-  const lower = cleaned.toLowerCase();
-  for (const kb of KNOWN_BRANDS) {
-    if (lower === kb.toLowerCase() || lower.startsWith(kb.toLowerCase() + ' ')) {
-      return kb;
-    }
-  }
-
-  return cleaned;
+  return cleaned.trim();
 }
 
 /**
@@ -149,13 +203,8 @@ function isTableHeaderRow(rowValues: string[]): boolean {
  */
 export function detectBrandFromName(name: string): string {
   if (!name) return 'Інше';
-  const lower = name.toLowerCase();
-
-  for (const brand of KNOWN_BRANDS) {
-    if (lower.includes(brand.toLowerCase())) {
-      return brand;
-    }
-  }
+  const matched = matchKnownBrand(name);
+  if (matched) return matched;
   return 'Інше';
 }
 
@@ -163,11 +212,15 @@ export function detectBrandFromName(name: string): string {
  * Parse an Excel Workbook containing an LDSP Price list
  * Rules implemented:
  * 1. Column 0 (Article) is completely ignored and NEVER stored in the DB.
- * 2. Rows with only a brand name and no price are group headers. All subsequent items
- *    belong to this brand until a new brand header appears.
+ * 2. Proper Brand Header identification:
+ *    A row is a Brand ONLY when:
+ *    - Article column is empty;
+ *    - Price column is COMPLETELY EMPTY (and NOT equal to 0);
+ *    - Name column contains brand name.
+ *    Products with 0 UAH price are regular items belonging to the current active brand!
  * 3. Full name is kept 1:1 without alterations.
  * 4. Regex extraction of dimensions (e.g. 2800x2070), Sheet area = Length * Width,
- *    Price per 1 m² = Price per sheet / Sheet area (e.g. 6045.15 / 5.796 = 1042.99).
+ *    Price per 1 m² = Price per sheet / Sheet area (for 0 UAH: 0 / area = 0 UAH/m²).
  * 5. Returns LdspItem[] with brand, name, price_sheet, price_sqm, sheet_area_sqm, unit.
  */
 export function parseLdspWorkbook(
@@ -237,23 +290,24 @@ export function parseLdspWorkbook(
   }
 
   let currentBrand = '';
-  let nameColIdx = 1; // Default: Col 0 is Article, Col 1 is Name
-  let priceColIdx = 2; // Default: Col 2 is Price
-  let headerRowFound = false;
+  let articleColIdx = 0; // Default: Col 0 is Article - ALWAYS ignored for DB
+  let nameColIdx = 1; // Default: Col 1 is Name
+  let priceColIdx = -1; // Determined dynamically below
+  let headerRowIdx = -1;
 
   // First pass: locate table headers if present
-  for (let r = 0; r < Math.min(rawRows.length, 10); r++) {
+  for (let r = 0; r < Math.min(rawRows.length, 15); r++) {
     const row = rawRows[r];
     if (!Array.isArray(row)) continue;
 
-    const rowStrings = row.map((c) => String(c || '').trim());
+    const rowStrings = row.map((c) => String(c ?? '').trim());
     if (isTableHeaderRow(rowStrings)) {
-      headerRowFound = true;
-
-      // Identify column indices
+      headerRowIdx = r;
       rowStrings.forEach((colHeader, idx) => {
         const lower = colHeader.toLowerCase();
-        if (
+        if (lower.includes('артикул') || lower.includes('код')) {
+          articleColIdx = idx;
+        } else if (
           lower.includes('назва') ||
           lower.includes('найменуван') ||
           lower.includes('номенклатур') ||
@@ -275,94 +329,145 @@ export function parseLdspWorkbook(
     }
   }
 
-  // Process rows
+  // If price column wasn't explicitly found in headers, detect by numeric column
+  if (priceColIdx === -1) {
+    const candidateScores: Record<number, number> = {};
+    const startScan = headerRowIdx >= 0 ? headerRowIdx + 1 : 0;
+    for (let r = startScan; r < Math.min(rawRows.length, 30); r++) {
+      const row = rawRows[r];
+      if (!Array.isArray(row)) continue;
+      for (let c = 2; c < row.length; c++) {
+        if (c === nameColIdx || c === articleColIdx) continue;
+        const cell = row[c];
+        if (parseNumericPrice(cell) !== null) {
+          candidateScores[c] = (candidateScores[c] || 0) + 1;
+        }
+      }
+    }
+    let bestCol = 2;
+    let maxScore = 0;
+    for (const [colStr, score] of Object.entries(candidateScores)) {
+      if (score > maxScore) {
+        maxScore = score;
+        bestCol = parseInt(colStr, 10);
+      }
+    }
+    priceColIdx = bestCol;
+  }
+
+  // Second pass: process each row
   for (let r = 0; r < rawRows.length; r++) {
+    // Skip header row
+    if (r === headerRowIdx) continue;
+
     const row = rawRows[r];
     if (!Array.isArray(row)) continue;
 
-    // Skip empty rows
-    const nonBlankCells = row
-      .map((c, idx) => ({ val: String(c || '').trim(), idx }))
-      .filter((c) => c.val.length > 0);
-
-    if (nonBlankCells.length === 0) continue;
-
-    // Check if this row is a table column title row (skip)
-    const rowStrings = row.map((c) => String(c || '').trim());
+    const rowStrings = row.map((c) => String(c ?? '').trim());
     if (isTableHeaderRow(rowStrings)) {
       continue;
     }
 
-    // Check if row contains a price
-    // Column 0 is Article - completely ignored!
-    let priceCandidate = parseNumericPrice(row[priceColIdx]);
+    // Completely empty row?
+    const hasAnyContent = row.some((c) => !isCellCompletelyEmpty(c));
+    if (!hasAnyContent) continue;
 
-    // If price wasn't at priceColIdx, inspect remaining cells (skipping column 0)
-    if (priceCandidate <= 0) {
-      for (let c = 1; c < row.length; c++) {
-        if (c === nameColIdx) continue;
+    const rawArticleCell = row[articleColIdx];
+    const rawNameCell = row[nameColIdx];
+    const rawPriceCell = row[priceColIdx];
+
+    const isArticleEmpty = isCellCompletelyEmpty(rawArticleCell);
+    const parsedPrimaryPrice = parseNumericPrice(rawPriceCell);
+
+    // Look for price in row
+    let rowPrice: number | null = parsedPrimaryPrice;
+    let hasPriceInRow = parsedPrimaryPrice !== null;
+
+    if (!hasPriceInRow) {
+      // Check other non-name, non-article cells
+      for (let c = 2; c < row.length; c++) {
+        if (c === nameColIdx || c === articleColIdx) continue;
         const p = parseNumericPrice(row[c]);
-        // Typical sheet price is > 100 UAH
-        if (p > 50) {
-          priceCandidate = p;
+        if (p !== null) {
+          rowPrice = p;
+          hasPriceInRow = true;
           break;
         }
       }
     }
 
-    // RULE 1: If there is NO price in the row, check if it's a Brand header row
-    if (priceCandidate <= 0) {
-      // Find non-empty string in the row (could be in col 0, col 1, etc.)
-      const textCell = nonBlankCells.find(
-        (c) =>
-          !/^(?:№|п\/п|код|артикул|дата|прайс|сторінка|тел|тов|kronas)/i.test(c.val) &&
-          c.val.length < 50
-      );
+    // RULE 2: A row is a Brand Header ONLY WHEN:
+    // - Article column is completely empty;
+    // - Price column is COMPLETELY EMPTY (hasPriceInRow === false, NOT 0!);
+    // - Name column contains a brand name.
+    const articleStr = String(rawArticleCell ?? '').trim();
+    const nameStr = String(rawNameCell ?? '').trim();
 
-      if (textCell) {
-        const potentialBrand = cleanBrandHeader(textCell.val);
-        if (potentialBrand && potentialBrand.length > 1) {
-          currentBrand = potentialBrand;
-          brandsFoundSet.add(currentBrand);
+    // Check if article column matches a known brand string (in case brand header row was put in col 0 instead of col 1)
+    // Note: numeric articles like "92532" will NEVER match!
+    const articleBrandMatch = !/^\d+$/.test(articleStr) ? matchKnownBrand(articleStr) : null;
+    const nameBrandMatch = !/^\d+$/.test(nameStr) ? matchKnownBrand(nameStr) : null;
+
+    const isPriceCompletelyEmpty = !hasPriceInRow;
+    const candidateText = nameStr || articleStr;
+
+    const hasNoSheetDimensions = extractSheetDimensions(candidateText) === null;
+    const isBrandCandidate =
+      !/^\d+$/.test(candidateText) &&
+      hasNoSheetDimensions &&
+      (nameBrandMatch !== null ||
+        articleBrandMatch !== null ||
+        (isArticleEmpty && isPriceCompletelyEmpty && candidateText.length >= 2 && candidateText.length <= 40));
+
+    if (isPriceCompletelyEmpty && (isArticleEmpty || articleBrandMatch !== null) && isBrandCandidate) {
+      const detectedBrand =
+        nameBrandMatch ||
+        articleBrandMatch ||
+        cleanBrandHeader(candidateText);
+
+      if (detectedBrand && !/^\d+$/.test(detectedBrand)) {
+        currentBrand = detectedBrand;
+        brandsFoundSet.add(currentBrand);
+      }
+      continue; // Handled as Brand header!
+    }
+
+    // If not a brand header, row is a PRODUCT!
+    // RULE 1: Article column is completely ignored and NEVER stored in DB.
+    // RULE 3: Name is preserved 1:1 without alterations.
+    let rawName = nameStr;
+    if (!rawName || rawName.length < 3) {
+      // If name column was empty or shifted, look for non-article, non-price text
+      for (let c = 1; c < row.length; c++) {
+        if (c === articleColIdx || c === priceColIdx) continue;
+        const val = String(row[c] ?? '').trim();
+        if (val.length >= 3 && !/^\d+$/.test(val) && parseNumericPrice(val) === null) {
+          rawName = val;
+          break;
         }
       }
+    }
+
+    // Skip if name is invalid or purely numbers
+    if (!rawName || rawName.length < 3 || /^\d+$/.test(rawName)) {
       continue;
     }
 
-    // RULE 1 & 2: Row has a price -> it's a product!
-    // Get full name 1:1 without alteration
-    let rawName = String(row[nameColIdx] || '').trim();
-
-    // If name column was empty or article was shifted, check other non-price cells
-    if (!rawName || rawName.length < 3) {
-      const candidateCell = nonBlankCells.find(
-        (c) => c.idx !== 0 && c.val.length > 5 && parseNumericPrice(c.val) <= 0
-      );
-      if (candidateCell) {
-        rawName = candidateCell.val;
-      }
-    }
-
-    if (!rawName || rawName.length < 3) {
-      continue; // No valid name found
-    }
-
-    // Brand for this product
+    // Active brand for this product (defaults to currentBrand, or detected from name)
     const brand = currentBrand || detectBrandFromName(rawName) || 'KRONAS';
     brandsFoundSet.add(brand);
 
-    // RULE 2: Calculate Sheet Area and Price per 1 m²
-    // Extract dimensions from full name
+    // RULE 4: Sheet dimensions and price calculation
     const dim = extractSheetDimensions(rawName);
-    // Standard LDSP sheet fallback is 2800x2070 = 5.796 m²
-    const sheetAreaSqm = dim ? dim.areaSqm : 5.796;
+    const sheetAreaSqm = dim ? dim.areaSqm : 5.796; // Standard LDSP sheet 2800x2070 = 5.796 m²
 
-    const priceSheet = Number(priceCandidate.toFixed(2));
-    const priceSqm = Number((priceSheet / sheetAreaSqm).toFixed(2));
+    // For 0 грн items: price_sheet = 0, price_sqm = 0
+    const priceSheet = rowPrice !== null ? Number(rowPrice.toFixed(2)) : 0;
+    const priceSqm = priceSheet > 0 ? Number((priceSheet / sheetAreaSqm).toFixed(2)) : 0;
 
     const item: LdspItem = {
       brand,
-      name: rawName, // Preserved 1 in 1 without change!
+      name: rawName, // 1 in 1 from Excel without changes
       price_sheet: priceSheet,
       price_sqm: priceSqm,
       sheet_area_sqm: sheetAreaSqm,
@@ -477,6 +582,12 @@ export function generateSampleLdspExcelWorkbook(): Uint8Array {
       'ЛДСП Egger H3303 ST10 Дуб Арлінгтон природний 2800x2070x18',
       'лист',
       5680.0,
+    ],
+    [
+      '10007',
+      'ЛДСП Egger H1344 ST32 Дуб Шерман 2800x2070x18',
+      'лист',
+      0,
     ],
 
     // Brand Group 2: Kronospan
