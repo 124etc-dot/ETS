@@ -660,6 +660,54 @@
     "updatedAt": "2026-03-01T00:00:00Z"
   },
   {
+    "id": "mat_serv_glass_01",
+    "name": "Шліфування кромки скла (єврокромка трапеція)",
+    "category": "services",
+    "subcategory": "Обробка скла",
+    "unit": "м.п.",
+    "basePrice": 65,
+    "defaultWasteFactor": 1,
+    "supplier": "Скло-Сервіс / Цех обробки",
+    "notes": "Матова єврокромка з фасками під 45°, притуплення гострих граней",
+    "updatedAt": "2026-03-01T00:00:00Z"
+  },
+  {
+    "id": "mat_serv_glass_02",
+    "name": "Полірування кромки скла (єврокромка глянець)",
+    "category": "services",
+    "subcategory": "Обробка скла",
+    "unit": "м.п.",
+    "basePrice": 95,
+    "defaultWasteFactor": 1,
+    "supplier": "Скло-Сервіс / Цех обробки",
+    "notes": "Ідеально прозора глянцева єврокромка (полірування оксидом церію)",
+    "updatedAt": "2026-03-01T00:00:00Z"
+  },
+  {
+    "id": "mat_serv_glass_03",
+    "name": "Фацет прямолінійний 10–15 мм (полірований)",
+    "category": "services",
+    "subcategory": "Обробка скла",
+    "unit": "м.п.",
+    "basePrice": 160,
+    "defaultWasteFactor": 1,
+    "supplier": "Скло-Сервіс / Фацетний верстат",
+    "notes": "Декоративний скошений полірований край для дзеркал та полиць",
+    "updatedAt": "2026-03-01T00:00:00Z"
+  },
+  {
+    "id": "mat_serv_glass_04",
+    "name": "Фацет прямолінійний 20–30 мм (широкий)",
+    "category": "services",
+    "subcategory": "Обробка скла",
+    "unit": "м.п.",
+    "basePrice": 220,
+    "defaultWasteFactor": 1,
+    "supplier": "Скло-Сервіс / Фацетний верстат",
+    "notes": "Широкий скошений полірований край 20-30 мм",
+    "updatedAt": "2026-03-01T00:00:00Z"
+  },
+  {
     "id": "mat_metal_1790282265030_cx39r",
     "name": "Арматура мірної довжини 6 міра",
     "category": "metal_profile",

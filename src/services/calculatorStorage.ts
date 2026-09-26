@@ -397,22 +397,70 @@ export class CalculatorStorageService {
     const materialCost = parseFloat((Math.round(effectiveQuantity * price * 100) / 100).toFixed(2));
     const totalCost = parseFloat((Math.round(materialCost * complexity * 100) / 100).toFixed(2));
 
+    // Check if this item is configured as a glass item with geometry (Width, Height, Count)
+    const hasGlassGeometry =
+      Boolean(item.glassWidthMm && item.glassWidthMm > 0) &&
+      Boolean(item.glassHeightMm && item.glassHeightMm > 0) &&
+      Boolean(item.glassCount && item.glassCount > 0);
+
+    let finalQty = qty;
+    let finalEffQty = effectiveQuantity;
+    let finalMatCost = materialCost;
+    let finalTotalCost = totalCost;
+    let glassArea = item.glassAreaSqm;
+    let glassPerimeter = item.glassPerimeterM;
+    let edgeCost = item.edgeProcessingCost;
+    let glassMatCost = item.glassPureMaterialCost;
+
+    if (hasGlassGeometry) {
+      const w = item.glassWidthMm!;
+      const h = item.glassHeightMm!;
+      const cnt = item.glassCount!;
+
+      // 1. Площа заготовки (м²): (Ш/1000) * (В/1000) * Кількість
+      glassArea = parseFloat(Number(((w / 1000) * (h / 1000) * cnt).toFixed(4)).toString());
+      finalQty = glassArea; // Системне поле «Кількість» для скла автоматично заповнюється обчисленою площею в м²
+
+      // 2. Периметр обробки (м.п.): ((Ш + В) * 2 / 1000) * Кількість
+      glassPerimeter = parseFloat(Number((((w + h) * 2 / 1000) * cnt).toFixed(3)).toString());
+
+      // 3. Собівартість
+      finalEffQty = parseFloat(Number((finalQty * wasteFactor).toFixed(4)).toString());
+      glassMatCost = parseFloat((finalEffQty * price * complexity).toFixed(2));
+
+      const edgePrice = Math.max(0, Number(item.edgeProcessingPricePerM) || 0);
+      edgeCost = parseFloat((glassPerimeter * edgePrice * complexity).toFixed(2));
+
+      const isSeparateRow = Boolean(item.addProcessingAsSeparateRow);
+      if (isSeparateRow) {
+        finalTotalCost = glassMatCost;
+        finalMatCost = parseFloat((finalEffQty * price).toFixed(2));
+      } else {
+        finalTotalCost = parseFloat((glassMatCost + edgeCost).toFixed(2));
+        finalMatCost = parseFloat(((finalEffQty * price) + (glassPerimeter * edgePrice)).toFixed(2));
+      }
+    }
+
     // Margin calculation: Price = Cost / (1 - margin/100)
     // If margin is 35%, price is cost / 0.65
     const clampedMargin = Math.min(95, Math.max(0, marginPercent || 0));
     const marginMultiplier = clampedMargin >= 95 ? 2.5 : 1 / (1 - clampedMargin / 100);
-    const clientPrice = parseFloat((Math.round(totalCost * marginMultiplier * 100) / 100).toFixed(2));
+    const clientPrice = parseFloat((Math.round(finalTotalCost * marginMultiplier * 100) / 100).toFixed(2));
 
     return {
       ...item,
-      quantity: qty,
+      quantity: finalQty,
       wasteFactor,
       basePrice: price,
-      effectiveQuantity,
-      materialCost,
+      effectiveQuantity: finalEffQty,
+      materialCost: finalMatCost,
       complexityFactor: complexity,
-      totalCost,
+      totalCost: finalTotalCost,
       clientPrice,
+      glassAreaSqm: hasGlassGeometry ? glassArea : item.glassAreaSqm,
+      glassPerimeterM: hasGlassGeometry ? glassPerimeter : item.glassPerimeterM,
+      glassPureMaterialCost: hasGlassGeometry ? glassMatCost : item.glassPureMaterialCost,
+      edgeProcessingCost: hasGlassGeometry ? edgeCost : item.edgeProcessingCost,
     };
   }
 

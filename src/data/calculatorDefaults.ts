@@ -3,7 +3,46 @@ import {
   MaterialItem,
   CalculatorCoefficients,
   ProjectTemplatePreset,
+  GlassEdgePreset,
 } from '../types/calculator';
+
+export const GLASS_EDGE_PRESETS: GlassEdgePreset[] = [
+  {
+    id: 'none',
+    name: 'Без обробки кромки (технологічний різ)',
+    shortName: 'Без обробки',
+    defaultPrice: 0,
+    description: 'Тільки різ скла в розмір, кромка гостра (для встановлення у закритий паз/профіль)',
+  },
+  {
+    id: 'grinding',
+    name: 'Шліфування кромки (єврокромка трапеція матова)',
+    shortName: 'Шліфування трапеція',
+    defaultPrice: 65,
+    description: 'Матова єврокромка з фасками під 45°, безпечна, без гострих країв',
+  },
+  {
+    id: 'polishing',
+    name: 'Полірування кромки (єврокромка полірована глянець)',
+    shortName: 'Полірування єврокромка',
+    defaultPrice: 95,
+    description: 'Ідеально прозора глянцева єврокромка, стандарт для відкритих скляних полиць та вітрин',
+  },
+  {
+    id: 'bevel_10_15',
+    name: 'Фацет прямолінійний 10–15 мм (полірований)',
+    shortName: 'Фацет 10-15 мм',
+    defaultPrice: 160,
+    description: 'Декоративний скошений полірований край 10-15 мм (ідеально для дзеркал та преміум скла)',
+  },
+  {
+    id: 'bevel_20_30',
+    name: 'Фацет прямолінійний 20–30 мм (широкий)',
+    shortName: 'Фацет 20-30 мм',
+    defaultPrice: 220,
+    description: 'Широкий скошений полірований край 20-30 мм для великоформатних дзеркал та панно',
+  },
+];
 
 export const DEFAULT_CATEGORY_WASTE_FACTORS: Record<MaterialCategory, number> = {
   metal_profile: 1.10, // +10% відхід на припуски/торцювання
@@ -714,6 +753,55 @@ export const DEFAULT_MATERIALS: MaterialItem[] = [
     defaultWasteFactor: 1.00,
     supplier: 'Виїзна бригада монтажників',
     notes: 'Встановлення та підключення на локації',
+    updatedAt: '2026-03-01T00:00:00Z',
+  },
+  // 5.4 Обробка скла та дзеркал (кромка, фацет)
+  {
+    id: 'mat_serv_glass_01',
+    name: 'Шліфування кромки скла (єврокромка трапеція)',
+    category: 'services',
+    subcategory: 'Обробка скла',
+    unit: 'м.п.',
+    basePrice: 65.0,
+    defaultWasteFactor: 1.00,
+    supplier: 'Скло-Сервіс / Цех обробки',
+    notes: 'Матова єврокромка з фасками під 45°, притуплення гострих граней',
+    updatedAt: '2026-03-01T00:00:00Z',
+  },
+  {
+    id: 'mat_serv_glass_02',
+    name: 'Полірування кромки скла (єврокромка глянець)',
+    category: 'services',
+    subcategory: 'Обробка скла',
+    unit: 'м.п.',
+    basePrice: 95.0,
+    defaultWasteFactor: 1.00,
+    supplier: 'Скло-Сервіс / Цех обробки',
+    notes: 'Ідеально прозора глянцева єврокромка (полірування оксидом церію)',
+    updatedAt: '2026-03-01T00:00:00Z',
+  },
+  {
+    id: 'mat_serv_glass_03',
+    name: 'Фацет прямолінійний 10–15 мм (полірований)',
+    category: 'services',
+    subcategory: 'Обробка скла',
+    unit: 'м.п.',
+    basePrice: 160.0,
+    defaultWasteFactor: 1.00,
+    supplier: 'Скло-Сервіс / Фацетний верстат',
+    notes: 'Декоративний скошений полірований край для дзеркал та полиць',
+    updatedAt: '2026-03-01T00:00:00Z',
+  },
+  {
+    id: 'mat_serv_glass_04',
+    name: 'Фацет прямолінійний 20–30 мм (широкий)',
+    category: 'services',
+    subcategory: 'Обробка скла',
+    unit: 'м.п.',
+    basePrice: 220.0,
+    defaultWasteFactor: 1.00,
+    supplier: 'Скло-Сервіс / Фацетний верстат',
+    notes: 'Широкий скошений полірований край 20-30 мм',
     updatedAt: '2026-03-01T00:00:00Z',
   },
 ];

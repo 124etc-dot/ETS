@@ -164,6 +164,41 @@ export interface CalculatorCoefficients {
   vatRatePercent: number; // e.g. 20% or 0%
 }
 
+export type GlassEdgeProcessingType =
+  | 'none'
+  | 'grinding'
+  | 'polishing'
+  | 'bevel_10_15'
+  | 'bevel_20_30';
+
+export type GlassProcessedSides = 'all_4' | '2_long' | '2_short' | '3_sides' | '1_side';
+
+export interface GlassEdgePreset {
+  id: GlassEdgeProcessingType;
+  name: string;
+  shortName: string;
+  defaultPrice: number; // UAH / m.p.
+  description: string;
+}
+
+export interface GlassItemParams {
+  widthMm: number; // Ширина деталі (Ш, мм)
+  heightMm: number; // Висота деталі (В, мм)
+  piecesCount: number; // Кількість деталей (шт.)
+  areaSqm: number; // Площа заготовки (м²): (Ш * В / 1_000_000) * piecesCount
+  perimeterM: number; // Периметр обробки (м.п.): 2 * (Ш + В) / 1000 * piecesCount (або за обраними сторонами)
+  processedSides: GlassProcessedSides; // Кількість оброблюваних сторін
+  edgeProcessingType: GlassEdgeProcessingType; // Тип обробки кромки
+  edgeProcessingName: string; // Назва обраної обробки
+  edgePricePerMeter: number; // Ціна обробки за 1 м.п. (грн)
+  glassBasePrice: number; // Базова ціна скла за 1 м²
+  glassMaterialCost: number; // Вартість матеріалу: areaSqm * glassBasePrice * wasteFactor
+  edgeCost: number; // Вартість обробки: perimeterM * edgePricePerMeter
+  combinedTotalCost: number; // Сукупна собівартість (матеріал + обробка)
+  separateServiceRow: boolean; // Окремим рядком послуги (true) чи сумувати в собівартість скла (false)
+  linkedServiceItemId?: string; // ID пов'язаного рядка послуги обробки кромки
+}
+
 export interface ConstructiveItem {
   id: string;
   constructive: string; // Назва конструктиву / вузла (напр. "Опорний каркас", "Полиця МДФ")
@@ -171,15 +206,20 @@ export interface ConstructiveItem {
   materialName: string;
   category: MaterialCategory;
   unit: string;
-  quantity: number; // За кресленнями
+  quantity: number; // За кресленнями (для скла - площа в м²)
   basePrice: number; // Базова закупівельна ціна (грн)
-  wasteFactor: number; // Коефіцієнт технологічного відходу (напр. 1.15)
+  wasteFactor: number; // Коефіцієнт технологічного відходу (напр. 1.12 для скла)
   effectiveQuantity: number; // quantity * wasteFactor
   materialCost: number; // effectiveQuantity * basePrice
   complexityFactor: number; // Індивідуальний або загальний коеф. складності
   totalCost: number; // materialCost * complexityFactor
   clientPrice: number; // Розрахункова вартість для клієнта (з маржею)
   notes?: string;
+  // Розширені параметри для скла та дзеркал (Площа + Периметр обробки)
+  glassParams?: GlassItemParams;
+  isGlassItem?: boolean;
+  isGlassLinkedService?: boolean;
+  linkedGlassItemId?: string;
 }
 
 export interface ProjectAssemblyUnit {

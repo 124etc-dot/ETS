@@ -486,12 +486,19 @@ export const CalculatorTab: React.FC<Props> = ({
     );
   };
 
-  // Window 1: Delete item from active unit
+  // Window 1: Delete item from active unit (with linked service item cleanup)
   const handleDeleteItemInActiveUnit = (id: string) => {
     setUnits((prevUnits) =>
       prevUnits.map((u) =>
         u.id === activeUnit.id
-          ? { ...u, items: (u.items || []).filter((item) => item.id !== id) }
+          ? {
+              ...u,
+              items: (u.items || []).filter((item) => {
+                if (item.id === id) return false;
+                if (item.linkedGlassItemId === id) return false;
+                return true;
+              }),
+            }
           : u
       )
     );
@@ -514,14 +521,96 @@ export const CalculatorTab: React.FC<Props> = ({
       ? 1.0
       : coefficients.wasteFactorsByCategory[mat.category] || mat.defaultWasteFactor || 1.10;
 
+    // Special handling for Glass & Mirror items (Calculate Area in m² & Perimeter in m.p.)
+    if (mat.category === 'glass_mirror') {
+      const defaultW = 600;
+      const defaultH = 400;
+      const defaultQty = 1;
+      const areaSqm = parseFloat(((defaultW * defaultH / 1000000) * defaultQty).toFixed(4)); // 0.24 м²
+      const perimeterM = parseFloat(((2 * (defaultW + defaultH) / 1000) * defaultQty).toFixed(3)); // 2.0 м.п.
+      const edgePrice = 95;
+      const edgeCost = parseFloat((perimeterM * edgePrice).toFixed(2));
+      const materialCost = parseFloat((areaSqm * mat.basePrice * defaultWaste).toFixed(2));
+      const serviceId = `serv_edge_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      const glassItemId = `glass_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+      const rawGlassItem: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
+        id: glassItemId,
+        constructive: 'Скляне наповнення / Полиця',
+        materialId: mat.id,
+        materialName: mat.name,
+        category: 'glass_mirror',
+        unit: 'м²',
+        quantity: areaSqm,
+        basePrice: mat.basePrice,
+        wasteFactor: defaultWaste,
+        complexityFactor: coefficients.complexityMultiplier,
+        notes: `Ш ${defaultW}×В ${defaultH} мм, ${defaultQty} шт | S=${areaSqm} м², П=${perimeterM} м.п.`,
+        isGlassItem: true,
+        glassParams: {
+          widthMm: defaultW,
+          heightMm: defaultH,
+          piecesCount: defaultQty,
+          areaSqm,
+          perimeterM,
+          processedSides: 'all_4',
+          edgeProcessingType: 'polishing',
+          edgeProcessingName: 'Полірування кромки (єврокромка глянець)',
+          edgePricePerMeter: edgePrice,
+          glassBasePrice: mat.basePrice,
+          glassMaterialCost: materialCost,
+          edgeCost,
+          combinedTotalCost: materialCost + edgeCost,
+          separateServiceRow: true,
+          linkedServiceItemId: serviceId,
+        },
+      };
+
+      const calculatedGlass = CalculatorStorageService.recalculateItem(
+        rawGlassItem,
+        coefficients.complexityMultiplier,
+        coefficients.marginPercent
+      );
+
+      const rawServiceItem: Omit<ConstructiveItem, 'effectiveQuantity' | 'materialCost' | 'totalCost' | 'clientPrice'> = {
+        id: serviceId,
+        constructive: `Полірування єврокромки (Скляна полиця ${defaultW}×${defaultH} мм)`,
+        materialId: 'mat_serv_glass_02',
+        materialName: 'Полірування кромки скла (єврокромка глянець)',
+        category: 'services',
+        unit: 'м.п.',
+        quantity: perimeterM,
+        basePrice: edgePrice,
+        wasteFactor: 1.0,
+        complexityFactor: 1.0,
+        notes: `Обробка периметра ${perimeterM} м.п. для скляної деталі (${defaultQty} шт)`,
+        isGlassLinkedService: true,
+        linkedGlassItemId: glassItemId,
+      };
+
+      const calculatedService = CalculatorStorageService.recalculateItem(
+        rawServiceItem,
+        1.0,
+        coefficients.marginPercent
+      );
+
+      setUnits((prevUnits) =>
+        prevUnits.map((u) =>
+          u.id === activeUnit.id
+            ? { ...u, items: [...(u.items || []), calculatedGlass, calculatedService] }
+            : u
+        )
+      );
+      showToast(`Скло 600×400 мм (${areaSqm} м²) та обробку кромки (${perimeterM} м.п.) додано до «${activeUnit.name}»`);
+      return;
+    }
+
     // Requirement 2: Sensible constructive node name rather than duplicating material name
     let defaultConstructive = 'Конструктивний вузол';
     if (mat.category === 'metal_profile' || mat.category === 'sheet_metal') {
       defaultConstructive = 'Опорний металокаркас';
     } else if (mat.category === 'plate_wood') {
       defaultConstructive = 'Фасад / Корпус';
-    } else if (mat.category === 'glass_mirror') {
-      defaultConstructive = 'Скляне наповнення / Полиця';
     } else if (mat.category === 'lighting') {
       defaultConstructive = 'Контурне LED підсвічування';
     } else if (mat.category === 'hardware') {
@@ -1203,6 +1292,7 @@ export const CalculatorTab: React.FC<Props> = ({
               activeUnitName={activeUnit.name}
               items={activeUnit.items || []}
               coefficients={coefficients}
+              materials={materials}
               onAddItem={handleAddItemToActiveUnit}
               onUpdateItem={handleUpdateItemInActiveUnit}
               onDeleteItem={handleDeleteItemInActiveUnit}
