@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Search,
   GripVertical,
@@ -10,6 +10,7 @@ import {
   Settings,
   Folder,
   FolderOpen,
+  FolderTree,
   FileSpreadsheet,
   Scissors,
   RefreshCw,
@@ -24,6 +25,7 @@ interface Props {
   onAddMaterial: (mat: MaterialItem) => void;
   onRefreshMaterials?: () => Promise<void> | void;
   isRefreshing?: boolean;
+  collapseSignal?: number;
 }
 
 // 5 Main Branches defined in technical requirements
@@ -176,18 +178,55 @@ export const CatalogWindow: React.FC<Props> = ({
   onAddMaterial,
   onRefreshMaterials,
   isRefreshing = false,
+  collapseSignal,
 }) => {
   const [search, setSearch] = useState('');
   const [localRefreshing, setLocalRefreshing] = useState(false);
+  // Default: tree of materials in Window 2 is completely collapsed on program launch
   const [openBranches, setOpenBranches] = useState<Record<string, boolean>>({
-    metal: true,
-    plate_wood: true,
+    metal: false,
+    plate_wood: false,
     glass_mirror: false,
     hardware_lighting: false,
     services: false,
   });
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  // Reset/collapse all branches and groups when a new calculation is initiated or collapseSignal triggered
+  useEffect(() => {
+    if (collapseSignal !== undefined && collapseSignal > 0) {
+      setOpenBranches({
+        metal: false,
+        plate_wood: false,
+        glass_mirror: false,
+        hardware_lighting: false,
+        services: false,
+      });
+      setOpenGroups({});
+    }
+  }, [collapseSignal]);
+
+  const allBranchesCollapsed = useMemo(() => {
+    return CATALOG_BRANCHES.every((b) => !openBranches[b.id]);
+  }, [openBranches]);
+
+  const handleToggleAllBranches = () => {
+    if (allBranchesCollapsed) {
+      const allOpen: Record<string, boolean> = {};
+      CATALOG_BRANCHES.forEach((b) => {
+        allOpen[b.id] = true;
+      });
+      setOpenBranches(allOpen);
+    } else {
+      const allClosed: Record<string, boolean> = {};
+      CATALOG_BRANCHES.forEach((b) => {
+        allClosed[b.id] = false;
+      });
+      setOpenBranches(allClosed);
+      setOpenGroups({});
+    }
+  };
 
   const handleManualRefresh = async () => {
     if (!onRefreshMaterials) return;
@@ -211,7 +250,7 @@ export const CatalogWindow: React.FC<Props> = ({
   const toggleGroup = (groupId: string) => {
     setOpenGroups((prev) => ({
       ...prev,
-      [groupId]: prev[groupId] !== undefined ? !prev[groupId] : false, // default open if undefined
+      [groupId]: !prev[groupId],
     }));
   };
 
@@ -264,6 +303,18 @@ export const CatalogWindow: React.FC<Props> = ({
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleToggleAllBranches}
+            className="p-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 transition flex items-center gap-1 cursor-pointer shadow-2xs"
+            title={allBranchesCollapsed ? 'Розгорнути всі гілки каталогу' : 'Згорнути всі гілки каталогу'}
+          >
+            <FolderTree className="w-3.5 h-3.5 text-slate-600" />
+            <span className="hidden md:inline text-[11px]">
+              {allBranchesCollapsed ? 'Розгорнути' : 'Згорнути'}
+            </span>
+          </button>
+
           {onRefreshMaterials && (
             <button
               type="button"
@@ -453,7 +504,7 @@ export const CatalogWindow: React.FC<Props> = ({
 
                                 return Array.from(groupsMap.entries()).map(([gName, gItems]) => {
                                   const groupKey = `${branch.id}_${sIdx}_${gName}`;
-                                  const isGroupOpen = openGroups[groupKey] !== false; // open by default
+                                  const isGroupOpen = Boolean(openGroups[groupKey]); // collapsed by default
 
                                   return (
                                     <div

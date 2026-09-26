@@ -264,6 +264,7 @@ export const CalculatorTab: React.FC<Props> = ({
   // Export / Sync metadata
   const [createdSheetUrl, setCreatedSheetUrl] = useState<string | null>(null);
   const [createdSheetId, setCreatedSheetId] = useState<string | null>(null);
+  const [catalogCollapseSignal, setCatalogCollapseSignal] = useState<number>(0);
   const [notification, setNotification] = useState<{ type: 'success' | 'info'; message: string } | null>(
     null
   );
@@ -271,6 +272,74 @@ export const CalculatorTab: React.FC<Props> = ({
   const showToast = (message: string, type: 'success' | 'info' = 'success') => {
     setNotification({ type, message });
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  const getNextProjectNumber = useCallback(() => {
+    const maxNumber = projects.reduce((max, p) => {
+      const match = p.colA?.match(/^(\d+)-/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        return num > max ? num : max;
+      }
+      return max;
+    }, 245);
+    return `${maxNumber + 1}-26`;
+  }, [projects]);
+
+  // Create a brand new project calculation and collapse Window 2 materials tree
+  const handleNewCalculation = useCallback(() => {
+    const nextNum = getNextProjectNumber();
+    setProjectNumber(nextNum);
+    setProjectName('Новий проєкт');
+    setClient('');
+    setProjectDate(new Date().toISOString().slice(0, 10));
+    setIsApproved(false);
+    setCreatedSheetId(null);
+    setCreatedSheetUrl(null);
+
+    const initialCoeffs = CalculatorStorageService.loadCoefficients();
+    setCoefficients(initialCoeffs);
+
+    const emptyUnit: ProjectAssemblyUnit = {
+      id: `unit_${Date.now()}`,
+      name: 'Основний виріб',
+      quantity: 1,
+      items: [],
+    };
+    setUnits([emptyUnit]);
+    setActiveUnitId(emptyUnit.id);
+
+    setServicesConfig({
+      delivery: {
+        enabled: true,
+        name: 'Вантажне авто (Київ та область)',
+        trips: 1,
+        ratePerTrip: 1800,
+        notes: '',
+      },
+      installation: {
+        enabled: true,
+        name: 'Монтажні роботи на обʼєкті',
+        hours: 8,
+        workers: 2,
+        ratePerHour: 350,
+        notes: '',
+      },
+    });
+
+    // Reset Window 2 materials tree to collapsed state
+    setCatalogCollapseSignal((prev) => prev + 1);
+    setActiveSubView('calculator');
+    showToast(`Створено новий прорахунок № ${nextNum}`);
+  }, [getNextProjectNumber]);
+
+  const handleStartNewCalculationWithConfirm = () => {
+    if (allProjectItems.length > 0) {
+      if (!window.confirm('Створити новий прорахунок? Поточні незбережені дані розрахунку буде очищено.')) {
+        return;
+      }
+    }
+    handleNewCalculation();
   };
 
   // Active assembly unit for Window 1
@@ -584,6 +653,7 @@ export const CalculatorTab: React.FC<Props> = ({
           : u
       )
     );
+    setCatalogCollapseSignal((prev) => prev + 1);
     showToast(`Завантажено шаблон «${preset.title}»`);
   };
 
@@ -1048,6 +1118,16 @@ export const CalculatorTab: React.FC<Props> = ({
           <div className="flex items-center gap-2 flex-wrap">
             <button
               type="button"
+              onClick={handleStartNewCalculationWithConfirm}
+              className="px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold border border-indigo-200 flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+              title="Почати новий чистий прорахунок проєкту (очистити специфікацію та згорнути дерево матеріалів)"
+            >
+              <Plus className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Новий розрахунок</span>
+            </button>
+
+            <button
+              type="button"
               onClick={handleSaveCalculation}
               className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-300 flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
               title="Зберегти поточний прорахунок у локальну історію"
@@ -1138,6 +1218,7 @@ export const CalculatorTab: React.FC<Props> = ({
               onAddMaterial={handleDropMaterialToActiveUnit}
               onRefreshMaterials={refetchMaterials}
               isRefreshing={isRefreshingMaterials}
+              collapseSignal={catalogCollapseSignal}
             />
           </div>
 
@@ -1198,7 +1279,7 @@ export const CalculatorTab: React.FC<Props> = ({
 
             <button
               type="button"
-              onClick={() => setActiveSubView('calculator')}
+              onClick={handleNewCalculation}
               className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
